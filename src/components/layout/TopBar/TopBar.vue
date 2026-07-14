@@ -1,38 +1,37 @@
+<script setup lang="ts">
+import DateDisplay from './Datedisplay.vue'
+import TopbarItem from '@/components/common/HamburgerItem.vue';
+import { useUiStore } from '@/stores/ui'
+import { ref } from 'vue'
+
+const isSidebarOpen = ref(false)
+const uiStore = useUiStore()
+</script>
+
 <template>
-  <header class="bg-surface dark:bg-background flex justify-between items-center ml-sidebar-width px-container-padding py-4 w-[calc(100%-theme(spacing.sidebar-width))] sticky top-0 z-40">
-    <div class="flex items-center gap-2">
+  <header class="grid grid-cols-1 bg-[var(--Side-background)] w-full h-[70px]">
+    <div class="w-full h-full grid grid-rows-1">
 
-
-      <button class="material-symbols-outlined text-secondary hover:text-primary transition-all">
-        arrow_back
-      </button>
-
-      
-      <span class="font-body-sm text-body-sm text-on-surface-variant">
-        {{ title }}
-      </span>
-    </div>
-
-    <div class="flex items-center gap-4">
-      <span class="font-body-sm text-body-sm text-on-surface-variant">
-        {{ currentTime }}
-      </span>
-
-      <div class="flex gap-2">
-        <button class="material-symbols-outlined text-secondary hover:text-primary p-1">
-          help
-        </button>
-        <button class="material-symbols-outlined text-secondary hover:text-primary p-1">
-          settings
-        </button>
+      <div class="h-full box-border grid grid-cols-[minmax(0,1fr)_max-content] items-center [padding:0_50px_0_30px] bg-white rounded-t-[20px]">
+        <div class="grid grid-cols-[max-content_1px_minmax(0,1fr)] items-center gap-x-3 text-left">
+            <topbar-item
+            :model="isSidebarOpen"
+            @update:model-value="uiStore.toggleSidebar"
+            :aria-expanded="isSidebarOpen"
+            aria-label="เปิด/ปิดเมนูหลัก"/>
+            <div class="w-[1.5px] h-5 bg-[var(--line-color)] mx-[10px] justify-self-center self-center"></div>
+          <span class="text-sm font-normal text-[var(--third-color)]">Create New Asset</span>
+        </div>
+        <div class="grid grid-flow-col auto-cols-max items-center gap-x-4">
+          <DateDisplay
+            locale="en"
+            variant="short"
+            :show-time="true"
+            :live-time="true"
+            class="text-[15px] text-[var(--third-color)]"
+          />
+        </div>
       </div>
     </div>
   </header>
 </template>
-
-<script setup>
-import { ref } from 'vue'
-
-const title = ref('Create New Asset')
-const currentTime = ref('Friday 26/8/2569 11:49')
-</script>

@@ -9,7 +9,7 @@ import CreateNewAsset from '@/components/layout/CreateNewAsset/CreateNewAsset.vu
   <div class="grid grid-cols-[260px_minmax(0,1fr)]">
     <Sidebar />
 
-    <div class="grid grid-rows-[auto_1fr] min-w-0 min-h-screen bg-[var(--Side-background)] p-[5px]">
+    <div class="grid grid-rows-[auto_1fr] min-w-0 h-[2000px] bg-[var(--Side-background)] p-[5px]">
       <Topbar />
       <div class="page">
         <router-view />

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import MainLayout from './layouts/MainLayout.vue';
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
   <div id="app">
-    <MainLayout />
-    
+    <RouterView />
   </div>
 </template>
 
@@ -13,6 +12,6 @@ import MainLayout from './layouts/MainLayout.vue';
 #app {
   font-family: Avenir, Helvetica, Arial, sans-serif;
   text-align: center;
-  margin-top: 0px;
+  margin-top: 0;
 }
 </style>

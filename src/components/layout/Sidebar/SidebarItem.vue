@@ -1,93 +1,38 @@
 <script setup lang="ts">
-import type { MenuItem } from "@/config/sidebar-menu";
-
+import { useUiStore } from '@/stores/ui'
+import type { MenuItem } from '@/config/sidebar-menu'
 
 const props = defineProps<{
-  item: MenuItem;
-  isCollapsed?: boolean;
-  active: boolean;
-}>();
+  item: MenuItem
+  isCollapsed?: boolean
+}>()
 
+const uiStore = useUiStore()
 
-const emit = defineEmits<{
-  (e: "select", name: string): void;
-}>();
-
-const handleClick = () => {
-  emit("select", props.item.name);
-};
-
+function handleClick(): void {
+  uiStore.setActiveMenu(props.item.name)
+}
 </script>
 
 <template>
-  <router-link  
+  <router-link
     :to="item.to"
-    class="menu"
-    :class="{ 'active': active }"
+    class="font-[Arial,Helvetica,sans-serif] grid grid-cols-[24px_minmax(0,1fr)] items-center gap-x-[18px] text-[var(--primary-color)] [padding:12px_16px_12px_30px] rounded-[0.8rem] cursor-pointer mx-[15px] text-sm transition duration-200 text-left no-underline"
+    :class="uiStore.activeMenu === item.name
+      ? 'bg-[var(--button-active)] text-white hover:bg-[var(--button-active)]'
+      : 'bg-[var(--Side-background)] hover:bg-[var(--button-hover)]'"
     @click="handleClick"
   >
-    <span class="icon-box">
-      <i v-if="item.icon" :class="item.icon"></i>
+    <span class="w-6 h-6 grid place-items-center">
+      <i
+        v-if="item.icon"
+        :class="[item.icon, uiStore.activeMenu === item.name ? 'text-white' : 'text-[var(--primary-color)]']"
+        class="text-[18px] leading-[8px]"
+      ></i>
     </span>
 
-    <span v-if="!isCollapsed">
+    <span>
       {{ item.label }}
     </span>
   </router-link>
 </template>
-
-<style> 
-
-.menu {
-  font-family: Arial, Helvetica, sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 16px;
-  color: #393C39;
-  background-color: #F6F6F6;
-  padding: 12px 16px 12px 30px;
-  border-radius: 0.8rem;
-  cursor: pointer;
-  margin: 0px 15px;
-  font-size: 14px;
-  transition: 0.2s;
-}
-
-.menu:hover {
-  background: rgb(196, 196, 196);
-}
-.menu.active {
-  background: #1C9548;
-  color: white;
-}
-.menu.active:hover {
-  background: #1C9548;
-  color: white;
-}
-
-.menu:hover{
-    background: rgb(196, 196, 196);
-    transition: 0.3s;
-}
-
-.icon-box {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.icon-box i{
-  font-size: 18px;
-  line-height: 8px;
-  color: #393C39;
-  
-}
-.menu.active .icon-box i{
-  color: rgb(255, 255, 255);
-}
-
-
-</style>
