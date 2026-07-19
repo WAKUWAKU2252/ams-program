@@ -19,12 +19,12 @@ function formatCurrency(value: number) {
 
 const expandedIds = ref(new Set<string>());
 
-function toggleExpand(id: string) {
+function toggleExpand(item: PurchaseOrderItem) {
   const next = new Set(expandedIds.value);
-  if (next.has(id)) {
-    next.delete(id);
+  if (next.has(item.id)) {
+    next.delete(item.id);
   } else {
-    next.add(id);
+    next.add(item.id);
   }
   expandedIds.value = next;
 }
@@ -37,7 +37,7 @@ function isExpanded(id: string) {
 <template>
   <div class="card">
     <div class="flex flex-col items-start min-w-0 w-full">
-      <h2 class="text-xl text-[var(--primary-color)] text-left">3. Select PO Line</h2>
+      <h2 class="text-xl text-[var(--primary-color)] text-left">2. Select PO Line</h2>
       <p class="mb-4 text-sm text-[var(--secondary-color)] text-left">
         เลือกรายการ PO Line ที่ต้องการลงทะเบียน Asset*
       </p>
@@ -55,18 +55,24 @@ function isExpanded(id: string) {
 
 
             <template v-for="(item, index) in items" :key="item.id">
-              <tr class="po-row even:bg-[var(--secondary-background)] text-[var(--primary-color)] 
-  transition-colors hover:bg-[var(--Side-background)] cursor-pointer" @click="toggleExpand(item.id)">
+              <tr class="po-row even:bg-[var(--secondary-background)] text-[var(--primary-color)]
+              transition-colors hover:bg-[var(--Side-background)] cursor-pointer"
+                @click="toggleExpand(item)">
 
                 <td class="row-divider px-4 py-4 font-mono text-sm">
                   <span class="inline-flex items-center gap-4">
                     <i class="fa-solid fa-chevron-right text-xs text-[var(--secondary-color)] transition-transform"
                       :class="{ 'rotate-90': isExpanded(item.id) }"></i>
-                    {{ index + 1 }}
+                    {{ item.poLine }}
                   </span>
                 </td>
-                <td class="row-divider px-6 py-4 text-left">{{ item.itemDescription }}</td>
-                <td class="row-divider px-6 py-4 text-center font-mono text-sm">{{ item.quantity }}</td>
+                <td class="row-divider px-6 py-4 text-left">
+                  {{ item.itemDescription }}
+                </td>
+
+                <td class="row-divider px-6 py-4 text-center font-mono text-sm">
+                  {{ item.quantity }}
+                </td>
                 <td class="row-divider px-6 py-4 text-right font-mono text-sm">{{ formatCurrency(item.unitPrice) }}</td>
               </tr>
 
@@ -79,18 +85,15 @@ function isExpanded(id: string) {
 
                   <table class="w-full border-separate border-spacing-0 text-sm ">
                     <tbody>
-                      <tr>
-                        <td colspan="7">
-                          <CreateAllasset :module-key="`asset-photo-${item.id}`" />
-                        </td>
-                      </tr>
+                      
+                      <!-- คลี่เป็นรายชิ้นตามจำนวนสั่งใน PO (quantity) — เพดานตายตัวตั้งแต่เปิดใบ -->
                       <tr v-for="unit in item.quantity" :key="unit"
                         class="bg-white hover:bg-[var(--Side-background)] 
                         transition-colors">
                         <!-- No -->
                         <td class="border-l-4 border-[var(--button-active)] rounded-l-lg row-divider 
                         px-4 py-2 font-mono text-sm text-center">
-                          {{ index + 1 }}.{{ unit }}
+                          {{ item.poLine }}.{{ unit }}
                         </td>
 
                         <!-- Image -->
@@ -107,23 +110,19 @@ function isExpanded(id: string) {
                           </div>
                           <!-- {{ asset.serialNo }} -->
                         </td>
-
-                        <!-- Location -->
+                        
                         <td class="row-divider px-4 py-2 text-left">
                           <div class="flex flex-col">
-                          <span class="text-label-md text-outline uppercase text-[var(--third-color)]">Location</span>
-                          <span class="text-[var(--primary-color)]">Not assigned</span>
+                          <span class="text-label-md text-outline uppercase text-[var(--third-color)]">GRPO No.</span>
+                          <span class="text-[var(--primary-color)]">{{ item.grpoLines.map(g => g.grpoNo).join(', ') }}</span>
                           </div>
                         </td>
-
                         <td class="row-divider py-2 text-right">
                           <div class="flex flex-col">
                           <span class="text-label-md text-outline uppercase text-[var(--third-color)]">Price per unit</span>
                           <span class="text-[var(--primary-color)]">{{ formatCurrency((item.unitPrice/item.quantity)) }}</span>
                           </div>
                         </td>
-
-                        
                         <td class="row-divider py-2 text-right max-w-[60px]">
                           <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-600">
                             Incomplete
