@@ -3,7 +3,9 @@
 // จุดเดียวที่รู้เรื่อง base URL, auth token, error format ของ backend
 // domain service ทุกตัว (attachmentApi, invoiceApi, assetApi, ...) import จากที่นี่ที่เดียว
 
-const BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+import { getToken, clearToken } from './auth.token';
+
+export const BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 interface ApiErrorBody {
   message?: string;
@@ -19,7 +21,7 @@ export class ApiError extends Error {
 }
 
 function handleUnauthorized() {
-  localStorage.removeItem('authToken');
+  clearToken();
   window.dispatchEvent(new CustomEvent('auth:unauthorized'));
   if (window.location.pathname !== '/login') {
     window.location.href = '/login';
@@ -29,7 +31,7 @@ function handleUnauthorized() {
 }
 
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('authToken'); // หรือดึงจาก auth store
+  const token = getToken();
 
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,

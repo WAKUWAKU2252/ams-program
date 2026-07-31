@@ -3,19 +3,13 @@ import { ref } from 'vue'
 
 export const useUiStore = defineStore('ui', () => {
   const isSidebarCollapsed = ref(false)
-  
+
   function toggleSidebar(): void {
     isSidebarCollapsed.value = !isSidebarCollapsed.value
   }
 
   function collapseSidebar(): void {
     isSidebarCollapsed.value = true
-  }
-
-const activeMenu = ref<string | null>('dashboard')
-
-  function setActiveMenu(name: string): void {
-    activeMenu.value = name
   }
 
   // --- Profile menu popup (UserItem overlay) ---
@@ -36,13 +30,10 @@ const activeMenu = ref<string | null>('dashboard')
   return {
     // state
     isSidebarCollapsed,
-    activeMenu,
     isProfileMenuOpen,
     // sidebar actions
     toggleSidebar,
     collapseSidebar,
-    // active menu actions
-    setActiveMenu,
     // profile menu actions
     toggleProfileMenu,
     openProfileMenu,

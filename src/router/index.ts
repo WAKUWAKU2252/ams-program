@@ -1,25 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './router'
+import { getToken, isTokenValid, clearToken } from '@/services/auth.token'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 })
 
-// TODO: เปิดใช้ตอน auth/permission service พร้อมจริง
-// router.beforeEach(async (to, from, next) => {
-//   const appStore = useAppStore()
-//   const authStore = useAuthStore()
-//   if (!appStore.isInitialized) {
-//     try {
-//       await appStore.initializeApp()
-//     } catch (err) {}
-//   }
-//   const requiresAuth = to.meta.requiresAuth as boolean
-//   if (requiresAuth && !authStore.isAuthenticated) {
-//     return next({ name: 'Login' })
-//   }
-//   next()
-// })
+// guard: ทุกหน้ายกเว้น /login ต้องมี token ที่ยังไม่หมดอายุ
+// token หมด/ไม่มี → ล้างทิ้งแล้วเด้งไป /login (ตรวจทุกครั้งที่เปลี่ยนหน้า + ตอนโหลดครั้งแรก)
+router.beforeEach((to) => {
+  // /login เข้าได้เสมอ (เผื่อ login ใหม่ / สลับผู้ใช้)
+  if (to.path === '/login') return
+
+  if (!isTokenValid(getToken())) {
+    clearToken()
+    return { path: '/login' }
+  }
+})
 
 export default router

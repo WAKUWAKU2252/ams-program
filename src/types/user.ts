@@ -1,18 +1,22 @@
-export interface User {
-  id: number;
-  fullName: string;
-  email: string;
-  role: string;
-  avatar?: string;
+export interface Role {
+  id: number
+  name: string
+  description: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
 }
 
-export const UserItem: User[] = [
-  {
-    id: 1125214,
-    fullName: "Natdanai Sripol",
-    email: "natdanai.sripol@example.com",
-    role: "admin",
-    avatar: "fi fi-sr-circle-user"
-  },
-]
-
+export interface User {
+  id: number
+  username: string
+  email: string
+  displayName: string
+  roleId: number
+  employeeId: string | null
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  deletedAt: string | null
+  role: Role
+}

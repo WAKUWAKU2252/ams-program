@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import type { PurchaseOrder } from '@/services/purchaseOrderApi'
+import type { PurchaseOrderSummary } from '@/services/purchaseOrder.service'
+import { formatDate } from '@/utils/date';
 
-defineProps<{
-  selectedPO: PurchaseOrder | null
-}>()
+// clearable: false = การ์ดอ่านอย่างเดียว (หน้า DraftForm — PO ของ draft เปลี่ยนไม่ได้)
+withDefaults(
+  defineProps<{
+    selectedPO: PurchaseOrderSummary | null
+    clearable?: boolean
+  }>(),
+  { clearable: true },
+)
 
 const emit = defineEmits<{
   (e:'clear'):void}>()
@@ -26,9 +32,10 @@ const emit = defineEmits<{
       Vendor: {{ selectedPO.vendorName }}
     </p>
     <p class="text-sm text-[var(--secondary-color)] text-left">
-      PO Date: {{ selectedPO.poDate }}
+      PO Date: {{formatDate( selectedPO.poDate )}}
     </p>
     <button
+      v-if="clearable"
       type="button"
       class="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-red-500"
       aria-label="Close"

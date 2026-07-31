@@ -1,14 +1,11 @@
 import { request } from './httpClient'
+import type { User } from '@/types/user'
 
-interface User {
-  id: number
-  name: string
-  email: string
-  roles: string[]
-}
+// mock ชั่วคราวระหว่างรอ backend auth — พอ API จริงมาให้ลบทิ้ง แล้วใช้ getCurrentUser()
+// component/store ไม่ต้องแก้เพราะยึด type User ตัวเดียวกันอยู่แล้ว
 
 interface LoginPayload {
-  email: string
+  username: string
   password: string
 }
 
@@ -27,7 +24,10 @@ export const authService = {
   },
 
   getCurrentUser(): Promise<User> {
-    return request<User>('/auth/me')
+    return request<User>('/auth/me', { 
+      method: 'GET',
+      
+    })
   },
 
   logout(): Promise<void> {

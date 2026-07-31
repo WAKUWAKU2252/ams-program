@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { User } from "@/types/user.ts"
+import type { User } from "@/types/user"
 
 const props = defineProps<{
   user: User;
@@ -22,14 +22,11 @@ const emit = defineEmits<{
   >
     <span class="w-6 h-6 grid place-items-center">
       <i 
-        v-if="user.avatar" 
-        :class="user.avatar" 
         class="text-[18px] leading-[8px] text-[#393c39]"
       ></i>
     </span>
 
     <span>
-      {{ user.fullName }}
     </span>
   </button>
 </template>

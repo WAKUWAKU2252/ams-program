@@ -2,8 +2,8 @@
 import { ref } from 'vue'
 import PurchaseOrderSearch from '@/components/common/Searching.vue'
 import ShowPONumber from '@/components/common/Showponumber.vue'
-import { getPurchaseOrderByNumber } from '@/services/purchaseOrderApi'
-import type { PurchaseOrder } from '@/services/purchaseOrderApi'
+import { getPurchaseOrderByNumber } from '@/services/purchaseOrder.service'
+import type { PurchaseOrder, PurchaseOrderSummary } from '@/services/purchaseOrder.service'
 
 const emit = defineEmits<{
   (e: 'update:selectedPO', po: PurchaseOrder | null): void
@@ -14,12 +14,13 @@ const loadingDetail = ref(false)
 const detailError = ref('')
 const searchRef = ref<InstanceType<typeof PurchaseOrderSearch> | null>(null)
 
-// Searching.vue ส่งมาแค่ poNumber (ผลค้นหาแบบเบาไม่มี items) — ต้องดึงรายละเอียดเต็มเอง
-async function selectPO(poNumber: string) {
+
+  
+async function selectPO(summary: PurchaseOrderSummary) {
   loadingDetail.value = true
   detailError.value = ''
   try {
-    const po = await getPurchaseOrderByNumber(poNumber)
+    const po = await getPurchaseOrderByNumber(summary.poNumber)
     selectedPO.value = po
     emit('update:selectedPO', po)
   } catch (e) {
@@ -42,7 +43,7 @@ function clearSelectedPO() {
     <div class="card">
         <div class="flex flex-col items-start min-w-0 w-full">
             <h2 class="text-xl text-[var(--primary-color)] text-left">
-                2. Search Purchase Order
+                รายละเอียดใบสั่งซื้อ Purchase Order
             </h2>
 
             <p class="mb-4 text-sm text-[var(--secondary-color)] text-left">

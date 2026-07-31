@@ -31,6 +31,13 @@
 
     --Headertable:#459656;
     --surface-bright: #fbf9f8;
+
+    --correct:oklch(76.8% 0.233 130.85);
+    --pending:oklch(86.507% 0.16042 87.586);
+    --error:oklch(63.7% 0.237 25.331);
+    --noContent:#c4c4c4;
+
+    --lock-state:#CD7F32;
     
 }
 h1{
@@ -42,6 +49,7 @@ p{
   font-weight: 300;
   font-size:18px
 }
+
 
 body {
     font-family: 'Be Vietnam Pro', sans-serif;
@@ -101,16 +109,24 @@ html, body {
   height: auto;
 
 }
-/* grid item default min-width:auto จะ block การย่อ ต้อง override เป็น 0 */
 .card > * {
   min-width: 0;
 }
 .row-divider {
   border-bottom: 1px solid var(--Side-background);
 }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-2px); }
+  40%, 80% { transform: translateX(2px); }
+}
+
+.shake {
+  animation: shake 0.35s ease-in-out;
+}
 
 @media (min-width: 1024px) {
   .card {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
   }
 }

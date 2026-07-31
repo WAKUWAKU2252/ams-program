@@ -29,7 +29,7 @@
         text-right text-xs font-semibold uppercase tracking-wider 
         text-[var(--surface-bright)] 
         rounded-tr-lg">
-        Unit Price Net
+        Line total
       </th>
 
     </tr>

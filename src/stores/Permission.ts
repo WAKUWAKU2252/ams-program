@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { permissionService } from '@/services/permissionService.ts'
+import { permissionService } from '@/services/permission.service'
 
 export const usePermissionStore = defineStore('permission', () => {
   const permissions = ref<string[]>([])

@@ -1,25 +1,32 @@
 <script setup lang="ts">
 import ubislogo from '@/assets/UBIS.png'
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 
 import SidebarItem from './SidebarItem.vue'
 import UserItemComponent from './UserItem.vue'
 import { menuItems } from '@/config/sidebar-menu'
-import { UserItem } from '@/types/user'
 import { useUiStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/Auth'
 
 const props = defineProps<{
   userPermissions?: string[]
 }>()
 
 const uiStore = useUiStore()
+const authStore = useAuthStore()
 
 const {
   isSidebarCollapsed,
-  activeMenu,
   isProfileMenuOpen,
 } = storeToRefs(uiStore)
+
+// ผู้ใช้ที่ล็อกอินอยู่ — มาจาก Auth store (service คืน mock ชั่วคราวจนกว่า backend auth พร้อม)
+const { user } = storeToRefs(authStore)
+
+onMounted(() => {
+  if (!authStore.user) authStore.getCurrentUser().catch(() => {})
+})
 
 const filteredMenu = computed(() => {
   const permissions = props.userPermissions
@@ -57,31 +64,13 @@ const filteredMenu = computed(() => {
         </ul>
       </nav>
 
-      <div
-        v-if="isProfileMenuOpen"
-        class="fixed inset-0 z-10"
-        @click="uiStore.toggleProfileMenu"
-      >
-        <div
-          class="absolute bottom-[70px] left-2.5 w-[250px] min-h-[200px] p-2.5 rounded-[20px] bg-[#d9d9d9] shadow-[0_4px_8px_rgba(0,0,0,0.4)]"
-          @click.stop
-        >
-          Profile Popup
-        </div>
-      </div>
+      
 
-      <div class="pb-[30px]">
+      <div class="pb-[30px] text-center">
         <div class="border-t border-[#cecece] mx-5 my-2.5"></div>
-
-        <ul>
-          <li v-for="user in UserItem" :key="user.id">
-            <UserItemComponent
-              :user="user"
-              :active="activeMenu === 'account'"
-              @click="uiStore.toggleProfileMenu"
-            />
-          </li>
-        </ul>
+    <div>
+        {{ authStore.user?.displayName}} id: {{authStore.user?.id  }}
+      </div>
       </div>
     </div>
   </aside>

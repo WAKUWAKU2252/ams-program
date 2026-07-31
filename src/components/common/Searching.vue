@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { listPurchaseOrders, getPurchaseOrderByNumber } from '@/services/purchaseOrderApi'
-import { ApiError } from '@/services/httpClient'
-import type { PurchaseOrderSummary } from '@/services/purchaseOrderApi'
+import { listPurchaseOrders } from '@/services/purchaseOrder.service'
+import type { PurchaseOrderSummary } from '@/services/purchaseOrder.service'
+
+const props = withDefaults(
+  defineProps<{
+    // class คุมความกว้างกล่อง search ทั้งก้อน — ส่งได้ทั้ง w-/min-w-/max-w-
+    // เช่น 'w-[100px]', 'w-full max-w-[560px]', 'min-w-[100px] w-auto'
+    widthClass?: string
+    // ป้ายกำกับเหนือช่อง search (ไม่ส่ง = ไม่มี label)
+    label?: string
+    // parent สั่งให้ขอบ input แดง (เช่น validation ยังไม่ได้เลือก PO)
+    invalid?: boolean
+  }>(),
+  { widthClass: 'w-full max-w-[560px]' },
+)
 
 const emit = defineEmits<{
-  (e: 'select', poNumber: string): void
+  (e: 'select', po: PurchaseOrderSummary): void
 }>()
 
 const query = ref('')
@@ -31,7 +43,7 @@ async function runSearch(search: string) {
   const seq = ++requestSeq
   loading.value = true
   try {
-    const page = await listPurchaseOrders({ search: search || undefined, limit: 10})
+    const page = await listPurchaseOrders({ search: search || undefined, limit: 6})
     if (seq !== requestSeq) return // มี search ใหม่กว่าเกิดขึ้นระหว่างรอ — ทิ้งผลนี้
     results.value = page.data
     // จำคำที่ค้นแล้วว่าง (เฉพาะผลจริงจาก server ไม่นับ error) — watch ใช้ตัดสินว่าไม่ต้องยิงซ้ำ
@@ -54,7 +66,7 @@ watch(query, (q) => {
     results.value = []
     return
   }
-  debounceTimer = setTimeout(() => runSearch(trimmed), 100)
+  debounceTimer = setTimeout(() => runSearch(trimmed), 50)
 })
 
 // โฟกัสครั้งแรกโดยยังไม่พิมพ์ → โชว์ผลล่าสุด 8 ใบ
@@ -63,10 +75,10 @@ onMounted(() => runSearch(''))
 function selectPO(po: PurchaseOrderSummary) {
   query.value = po.poNumber
   isOpen.value = false
-  emit('select', po.poNumber)
+  emit('select', po)
 }
 
-// กด Enter: ขอ PO ตรงเลขที่พิมพ์ทันที ไม่ต้องรอ debounce ของ dropdown
+// กด Enter: หา PO ที่เลขตรงเป๊ะจากผลค้นหา — ใช้เส้น search เส้นเดียว ไม่ยิง /:poNumber ซ้ำ
 async function searchPO() {
   const q = query.value.trim()
   if (!q) return
@@ -81,16 +93,17 @@ async function searchPO() {
   loading.value = true
   notFound.value = false
   try {
-    const po = await getPurchaseOrderByNumber(q)
-    isOpen.value = false
-    emit('select', po.poNumber)
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) {
+    const page = await listPurchaseOrders({ search: q, limit: 6 })
+    const exact = page.data.find((po) => po.poNumber.toLowerCase() === q.toLowerCase())
+    if (exact) {
+      isOpen.value = false
+      emit('select', exact)
+    } else {
       notFound.value = true
       isOpen.value = true
-    } else {
-      console.error('ค้นหา PO ไม่สำเร็จ:', e)
     }
+  } catch (e) {
+    console.error('ค้นหา PO ไม่สำเร็จ:', e)
   } finally {
     loading.value = false
   }
@@ -119,58 +132,69 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="searchRef" class="relative w-full max-w-[560px]">
-    <!-- ป้ายไม่พบ PO — เฉพาะกด Enter/ปุ่ม Search เท่านั้น ไม่นับตอนพิมพ์ (dropdown จัดการเอง) -->
-    <span
-      v-if="notFound"
-      class="absolute -top-3 right-2 z-20 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-500 shadow-sm"
+  <!-- ตัวนอก: คุมความกว้าง + เป็นขอบเขต click-outside (ผ่าน searchRef) -->
+  <div ref="searchRef" :class="props.widthClass">
+    <!-- label อยู่นอกกรอบ relative — ไม่ไปดึงจุดกึ่งกลางของ icon/dropdown -->
+    <label
+      v-if="label"
+      for="po-search"
+      class="mb-1 block text-left text-sm font-medium text-gray-700"
     >
-      ไม่พบ PO "{{ query }}"
-    </span>
+      {{ label }}
+    </label>
 
-    <!-- Input -->
-    <input
-      type="text"
-      v-model="query"
-      @keyup.enter="searchPO"
-      @focus="isOpen = true"
-      @input="isOpen = true"
-      placeholder="Search PO number..."
-      class="w-full rounded-[16px] border px-3 py-2 pr-10"
-    />
-    <!-- Icon -->
-    <button
-      type="button"
-      class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-      aria-label="Search"
-      @click="searchPO"
-    >
-      <i v-if="loading" class="fa-solid fa-spinner animate-spin" />
-      <i v-else class="fa-solid fa-magnifying-glass" />
-    </button>
+    <!-- กรอบ relative เฉพาะ input+icon+dropdown → icon/dropdown อิงจาก input เท่านั้น -->
+    <div class="relative">
+      <input
+        id="po-search"
+        type="text"
+        v-model="query"
+        @keyup.enter="searchPO"
+        @focus="isOpen = true"
+        @input="isOpen = true"
+        placeholder="Search PO number..."
+        :class="[
+          'w-full rounded-[16px] border px-3 py-2 pr-10',
+          notFound || invalid ? 'border-red-500 shake' : 'border-gray-300',
+        ]"
+      />
 
-    <!-- Dropdown -->
-    <ul
-      v-if="isOpen && results.length"
-      class="absolute z-10 mt-1 w-full rounded-xl border bg-white shadow-lg text-left"
-    >
-      <li
-        v-for="po in results"
-        :key="po.poNumber"
-        @mousedown.prevent="selectPO(po)"
-        class="cursor-pointer px-4 py-2 hover:bg-gray-100"
+      <!-- Icon -->
+      <button
+        type="button"
+        class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+        aria-label="Search"
+        @click="searchPO"
       >
-        <span class="font-medium text-[var(--primary-color)]">{{ po.poNumber }}</span>
-        <span class="ml-2 text-sm text-gray-500">{{ po.vendorName}}</span>
-      </li>
-    </ul>
+        <i v-if="loading" class="fa-solid fa-spinner animate-spin" />
+        <i v-else class="fa-solid fa-magnifying-glass" />
+      </button>
 
-    <!-- ไม่พบผลลัพธ์ระหว่างพิมพ์ (dropdown) -->
-    <div
-      v-if="isOpen && !loading && query && !results.length"
-      class="absolute z-10 mt-1 w-full rounded-xl border bg-white px-4 py-3 text-sm text-gray-400 shadow-lg truncate"
-    >
-      ไม่พบ PO "{{ query }}"
+      <!-- Dropdown -->
+      <ul
+        v-if="isOpen && results.length"
+        class="absolute z-10 mt-1 w-full rounded-xl border bg-white shadow-lg text-left"
+      >
+        <li
+          v-for="po in results"
+          :key="po.poNumber"
+          @mousedown.prevent="selectPO(po)"
+          class="cursor-pointer px-4 py-2 hover:bg-gray-100"
+        >
+          <span class="font-medium text-[var(--primary-color)]">{{ po.poNumber }}</span>
+          <span class="ml-2 text-sm text-gray-500">{{ po.vendorName }}</span>
+        </li>
+      </ul>
+
+      <!-- ไม่พบผลลัพธ์ระหว่างพิมพ์ (dropdown) -->
+      <div
+        v-if="isOpen && !loading && query && !results.length"
+        class="absolute z-10 mt-1 w-full rounded-xl border bg-white px-4 py-3 text-sm text-gray-400 shadow-lg truncate"
+      >
+        ไม่พบ PO "{{ query }}"
+      </div>
     </div>
   </div>
 </template>
+
+

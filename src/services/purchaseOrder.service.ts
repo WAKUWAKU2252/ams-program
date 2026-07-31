@@ -1,12 +1,13 @@
 import { request } from './httpClient';
 
-// Type ตรงกับ response ของ Elysia API (ams_db จริง): PK คือ poNumber ไม่มี id
 export interface GrpoLine {
   id: string;
-  grpoNo: string;
-  grpoDate: string;
   poItemId: string;
-  receivedQty: number;
+  receivedQty: number;      
+  grpo: {                   
+    grpoNo: string;
+    grpoDate: string;
+  };
 }
 
 export interface PurchaseOrderItem {
@@ -17,6 +18,7 @@ export interface PurchaseOrderItem {
   unitPrice: number;
   poNumber: string;
   grpoLines: GrpoLine[];
+  lineTotal: number
 }
 
 export type PurchaseOrderStatus = 'PENDING' | 'OPEN' | 'PARTIALLY_RECEIVED' | 'COMPLETED';
@@ -29,6 +31,7 @@ export interface PurchaseOrder {
   items: PurchaseOrderItem[];
   createdAt: string;
   updatedAt: string;
+  requesterName: string | null ;
 }
 
 // list แบบเบา (GET /purchase-orders) ไม่มี items — ใช้ getPurchaseOrderByNumber ดึงรายละเอียดทีหลัง
@@ -47,8 +50,7 @@ export interface ListPurchaseOrdersParams {
   limit?: number;
 }
 
-export function listPurchaseOrders(
-  params: ListPurchaseOrdersParams = {},
+export function listPurchaseOrders(params: ListPurchaseOrdersParams = {},
 ): Promise<Paginated<PurchaseOrderSummary>> {
   const query = new URLSearchParams();
   if (params.search) query.set('search', params.search);

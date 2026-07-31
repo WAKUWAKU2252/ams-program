@@ -2,10 +2,17 @@
 import DateDisplay from './Datedisplay.vue'
 import TopbarItem from '@/components/common/HamburgerItem.vue';
 import { useUiStore } from '@/stores/ui'
-import { ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { ref, computed } from 'vue'
 
 const isSidebarOpen = ref(false)
 const uiStore = useUiStore()
+const route = useRoute()
+
+// เดินจาก child ขึ้น parent เอา title ที่ลึกสุดที่กำหนดไว้ (/create/:id ได้ title จาก parent 'create')
+const title = computed(
+  () => (([...route.matched].reverse().find((r) => r.meta.title)?.meta.title) as string) ?? ''
+)
 </script>
 
 <template>
@@ -20,7 +27,7 @@ const uiStore = useUiStore()
             :aria-expanded="isSidebarOpen"
             aria-label="เปิด/ปิดเมนูหลัก"/>
             <div class="w-[1.5px] h-5 bg-[var(--line-color)] mx-[10px] justify-self-center self-center"></div>
-          <span class="text-sm font-normal text-[var(--third-color)]">Create New Asset</span>
+          <span class="text-sm font-normal text-[var(--third-color)]">{{ title }}</span>
         </div>
         <div class="grid grid-flow-col auto-cols-max items-center gap-x-4">
           <DateDisplay
