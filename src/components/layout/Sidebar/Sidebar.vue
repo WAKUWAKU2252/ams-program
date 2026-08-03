@@ -7,7 +7,7 @@ import SidebarItem from './SidebarItem.vue'
 import UserItemComponent from './UserItem.vue'
 import { menuItems } from '@/config/sidebar-menu'
 import { useUiStore } from '@/stores/ui'
-import { useAuthStore } from '@/stores/Auth'
+import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps<{
   userPermissions?: string[]

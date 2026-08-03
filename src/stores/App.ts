@@ -1,7 +1,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { useAuthStore } from './Auth'
+import { useAuthStore } from './auth'
 import { usePermissionStore } from './Permission'
 
 export const useAppStore = defineStore('app', () => {

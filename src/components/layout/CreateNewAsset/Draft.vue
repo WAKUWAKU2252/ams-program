@@ -244,14 +244,14 @@ const STATUS_META: Record<string, { label: string, class: string, border: string
       @confirm="onConfirmRemove"
     >
       <div class="space-y-2">
-        <p>
-          คำขอ <span class="font-medium">#{{ target?.id }}</span> ·
-          PO <span class="font-medium">{{ target?.poNumber }}</span>
+        <p class="font-medium">
+          คำขอ <span >#{{ target?.id }}</span> ·
+          PO <span >{{ target?.poNumber }}</span>
           <span v-if="(target?.assetCount ?? 0) > 0"> <br>กรอกข้อมูลแล้ว {{ target?.assetCount }} ชิ้น</span>
         </p>
-        <p>
-          คำขอนี้จะถูกซ่อนจากรายการของคุณเท่านั้น <br>ไม่ได้ถูกลบ และผู้ใช้อื่นยังใช้งานต่อได้<br>(ค้นจาก PO
-          <span class="font-medium">{{ target?.poNumber }}</span>) ก็จะกลับมาอยู่ในรายการเหมือนเดิม
+        <p class="text-md">
+          คำขอนี้จะถูกซ่อนจากรายการของคุณเท่านั้น (ไม่ได้ถูกลบ และผู้ใช้อื่นยังคงใช้งานได้ตามปกติ) หากต้องการนำกลับมาที่รายการของคุณอีกครั้ง สามารถค้นหาด้วยรหัส
+          <span class="font-medium">{{ target?.poNumber }}</span> 
         </p>
         <p v-if="removeError" class="rounded-lg bg-red-50 px-3 py-2 text-red-600">{{ removeError }}</p>
       </div>

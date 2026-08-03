@@ -5,9 +5,18 @@
 import { request } from './httpClient';
 import type { AssetRequestStatus } from './assetRequest.service';
 
+// ไฟล์ invoice ที่แนบกับรอบ GRPO (มาจาก attachment) — null = ยังไม่แนบ
+export interface InvoiceFile {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+}
+
 // รอบรับของต่อ po_item — บอกว่ารอบนี้รับมากี่ชิ้น ลงทะเบียนไปแล้วกี่ชิ้น
 export interface SlotGrpoLine {
   id: string;
+  grpoId: number; // ใช้เรียก PATCH/DELETE /grpo/:id/invoice
   grpoNo: string;
   grpoDate: string;
   receivedQty: number;
@@ -16,6 +25,7 @@ export interface SlotGrpoLine {
   declaredQty: number | null;
   declaredReason: string | null;
   registered: number;
+  invoices: InvoiceFile[];
 }
 
 // หนึ่ง "ช่อง" = หนึ่งชิ้นที่หน้าฟอร์มต้องเรนเดอร์ (จำนวนช่อง = po_item.quantity)
@@ -27,6 +37,8 @@ export type AssetSlot =
       status: 'registered';
       assetId: number;
       serialNumber: string | null;
+      acquisitionCost: number; // ราคาจริงต่อชิ้น (ชิ้นที่แตกเพิ่ม = 0)
+      lifecycle: 'DRAFT' | 'REGISTERED'; // DRAFT = ยังไม่เข้า SAP (badge "requested")
       grpoLineId: string;
       grpoNo: string; // ← ชิ้นนี้มาจากรอบไหน (asset.grpoLine.grpo.grpoNo) — committed
     }

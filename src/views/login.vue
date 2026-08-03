@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ApiError } from '@/services/httpClient'
-import { useAuthStore } from '@/stores/Auth'
+import { useAuthStore } from '@/stores/auth'
 import LoginForm from '@/components/common/Login/LoginForm.vue'
 
 const authStore = useAuthStore()

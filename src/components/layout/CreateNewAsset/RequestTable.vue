@@ -2,14 +2,17 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import HeadtableCreateNewAsset from '@/components/common/PolineTable/HeadtableCreateNewAsset.vue';
 import AppConfirmDialog from '@/components/common/AppConfirmDialog.vue';
-import { getAssetSlots, type AssetSlot, type AssetSlotItem } from '@/services/asset.service';
+import { getAssetSlots, type AssetSlot, type AssetSlotItem, type InvoiceFile } from '@/services/asset.service';
 import { declareLine, removeDeclaredLine } from '@/services/assetRequest.service';
+import InvoiceModal from '@/components/common/InvoiceModal.vue';
 import { ApiError } from '@/services/httpClient';
 import { formatDate } from '@/utils/date';
 
 const props = withDefaults(defineProps<{ requestId: number; editable?: boolean }>(), {
   editable: true,
 });
+
+const emit = defineEmits<{ (e: 'over-cost', value: boolean): void }>();
 
 const items = ref<AssetSlotItem[]>([]);
 const loading = ref(true);
@@ -31,6 +34,9 @@ async function load() {
 
 onMounted(load);
 watch(() => props.requestId, load);
+
+const hasOverCost = computed(() => items.value.some((i) => i.overCost));
+watch(hasOverCost, (v) => emit('over-cost', v), { immediate: true });
 
 function formatCurrency(value: number) {
   return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ฿';
@@ -60,8 +66,13 @@ function toggleRound(grpoLineId: string) {
 function isRoundOpen(grpoLineId: string) {
   return !collapsedRounds.value.has(grpoLineId);
 }
+// ราคาต่อชิ้นที่จะโชว์: ลงทะเบียนแล้ว = ราคาจริงที่เก็บไว้ / ยังไม่ลง = ชิ้นที่เกิน receivedQty
+// (แตกเพิ่มเอง) เริ่มที่ 0 ตรงกับ default ฝั่ง backend ส่วนชิ้นตาม SAP ใช้ unitPrice
+type RoundSlot = AssetSlot & { price: number };
+
 interface RoundGroup {
   id: string;
+  grpoId: number;
   grpoNo: string;
   grpoDate: string;
   receivedQty: number;
@@ -69,20 +80,33 @@ interface RoundGroup {
   declaredReason: string | null;
   /** จำนวนชิ้นที่ลงได้จริงของรอบนี้ = ที่แจ้งไว้ ถ้าไม่แจ้งก็ตามที่ SAP รับมา */
   qty: number;
-  slots: AssetSlot[];
+  invoices: InvoiceFile[];
+  slots: RoundSlot[];
 }
 
 const grouped = computed(() =>
   items.value.map((item) => {
     const rounds: RoundGroup[] = item.grpoLines.map((l) => ({
       id: l.id,
+      grpoId: l.grpoId,
       grpoNo: l.grpoNo,
       grpoDate: l.grpoDate,
       receivedQty: l.receivedQty,
       declaredQty: l.declaredQty,
       declaredReason: l.declaredReason,
       qty: l.declaredQty ?? l.receivedQty,
-      slots: item.slots.filter((s) => s.status !== 'noGrpo' && s.grpoLineId === l.id),
+      invoices: l.invoices,
+      slots: item.slots
+        .filter((s) => s.status !== 'noGrpo' && s.grpoLineId === l.id)
+        .map((s, i): RoundSlot => ({
+          ...s,
+          price:
+            s.status === 'registered'
+              ? s.acquisitionCost
+              : i < l.receivedQty
+                ? item.unitPrice
+                : 0,
+        })),
     }));
 
     return {
@@ -111,7 +135,8 @@ function openDeclare(round: RoundGroup) {
 async function onConfirmDeclare() {
   const round = declareTarget.value;
   if (!round) return;
-  if (!declareReason.value.trim()) {
+  // แจ้งเท่ากับที่ SAP รับมา = ไม่ได้แตกรายการ (backend จะถือว่าไม่แจ้ง) จึงไม่ต้องบังคับเหตุผล
+  if (declareQty.value !== round.receivedQty && !declareReason.value.trim()) {
     declareError.value = 'กรุณาระบุเหตุผลที่จำนวนไม่ตรงกับที่ PO แจ้ง';
     return;
   }
@@ -144,12 +169,28 @@ async function onRevertToSap() {
   }
 }
 
-// ป้ายสถานะต่อชิ้น — สี/ข้อความตาม slot.status
+// ── modal จัดการ invoice ต่อรอบ (แนบ/ถอด/preview — 1 รอบหลายใบ) ──
+// เก็บเป็น grpoId แล้ว compute รอบสดจาก grouped เพื่อให้ modal เห็น invoices ล่าสุดหลัง load()
+const invoiceGrpoId = ref<number | null>(null);
+const invoiceRound = computed(
+  () => grouped.value.flatMap((g) => g.rounds).find((r) => r.grpoId === invoiceGrpoId.value) ?? null,
+);
+
+// ป้ายสถานะต่อชิ้น — สี/ข้อความตาม badgeKey
+//   requested  = กรอกเป็น asset แล้วแต่ยังไม่เข้า SAP (lifecycle=DRAFT)
+//   registered = ลงทะเบียนใน SAP แล้ว มี assetNumber (lifecycle=REGISTERED)
 const STATUS_META = {
   registered: { label: 'Registered', class: 'bg-green-100 text-green-600', border: 'border-[var(--correct)]' },
+  requested: { label: 'Requested', class: 'bg-blue-100 text-blue-600', border: 'border-blue-400' },
   pending: { label: 'Pending', class: 'bg-amber-100 text-amber-600', border: 'border-[var(--pending)]' },
   noGrpo: { label: 'No GRPO', class: 'bg-[var(--noContent)] text-black-600', border: 'border-[var(--noContent)]' },
 } as const;
+
+// ช่องที่มี asset แล้วแยกเป็น requested/registered ตาม lifecycle จริง — ช่องว่างใช้ status เดิม
+function badgeKey(slot: RoundSlot): keyof typeof STATUS_META {
+  if (slot.status !== 'registered') return slot.status;
+  return slot.lifecycle === 'REGISTERED' ? 'registered' : 'requested';
+}
 
 
 
@@ -195,7 +236,6 @@ const STATUS_META = {
                 </td>
                 <td class="row-divider px-6 py-4 text-left">
                   {{ item.itemDescription }}
-                  <!-- งานเหมาที่แตกรายการเอง: จำนวนชิ้นจริงไม่ใช่จำนวนหน่วยใน PO -->
                   <span v-if="item.isDeclared"
                     class="ml-2 rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700">
                     แตกรายการเอง
@@ -222,38 +262,59 @@ const STATUS_META = {
                     เกินยอดของบรรทัดนี้ใน PO ({{ formatCurrency(item.lineAmount) }})
                   </p>
 
-                  <div v-for="round in rounds" :key="round.id" class="mb-3 last:mb-0"> 
-                    <div class="flex w-full items-center gap-3 bg-white px-3 py-2 text-left">
-                      <button type="button"
-                        class="flex flex-1 items-center gap-3 text-left transition-colors hover:opacity-80"
+                  <div v-for="round in rounds" :key="round.id" class="mb-3 last:mb-0">
+                    <div class="flex w-full items-center gap-2  bg-white px-3 py-2 text-left">
+                      <!-- toggle: caret + เลข GRPO + วันที่ (ครอบแค่นี้ ห้ามครอบปุ่มอื่น = button ซ้อน button) -->
+                      <button type="button" class="flex items-center gap-2 text-left transition-colors hover:opacity-80"
                         @click="toggleRound(round.id)">
                         <i class="fa-solid fa-caret-down text-xs text-[var(--secondary-color)] transition-transform duration-200"
                           :class="isRoundOpen(round.id) ? 'rotate-0' : '-rotate-90'"></i>
-
-                        <span class="font-mono text-sm text-[var(--primary-color)]">{{ round.grpoNo }}</span>
+                        <span class="font-mono text-sm font-medium text-[var(--primary-color)]">{{ round.grpoNo
+                        }}</span>
                         <span class="text-xs text-[var(--third-color)]">{{ formatDate(round.grpoDate) }}</span>
-                        <span class="ml-auto text-xs text-[var(--secondary-color)]">
-                          ลงทะเบียนแล้ว {{round.slots.filter((s) => s.status === 'registered').length}} /
-                          <span class="font-mono">{{ round.qty }}</span> ชิ้น
-                        </span>
-                        <span v-if="round.declaredQty !== null"
-                          class="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700"
-                          :title="round.declaredReason ?? ''">
-                          แจ้งเอง (GRPO เดิมรับ {{ round.receivedQty }})
-                        </span>
                       </button>
 
+                      <!-- action: invoice — เปิด modal จัดการ (แนบ/ถอด/preview 1 รอบหลายใบ) -->
+                      <button type="button" @click="invoiceGrpoId = round.grpoId" :disabled="!props.editable"
+                        class="ml-auto inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                        :class="round.invoices.length
+                          ? `border-green-300 bg-green-50 text-green-700 ${props.editable ? 'hover:bg-green-100' : ''}`
+                          : `border-[var(--line-color)] text-[var(--primary-color)] ${props.editable ? 'hover:border-blue-400 hover:text-blue-700' : ''}`"
+                        :title="!props.editable ? 'ไม่มีสิทธิ์จัดการ invoice' : (round.invoices.length ? `invoice ${round.invoices.length} ใบ` : 'ยังไม่มี invoice')">
 
-                      <button type="button" :disabled="!props.editable" class="rounded px-2 text-sm text-[var(--primary-color)] transition-colors hover:text-blue-700
-                        disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-[var(--primary-color)]"
+                        <i class="fa-solid fa-file-invoice"></i>
+
+                        <span v-if="round.invoices.length">invoice ({{ round.invoices.length }})</span>
+                        <span v-else>{{ props.editable ? 'แนบ invoice' : 'ไม่มี invoice' }}</span>
+
+                      </button>
+
+                      <!-- เส้นคั่น action | info -->
+                      <span class="mx-1 h-4 w-px bg-[var(--line-color)]" aria-hidden="true"></span>
+
+                      <!-- info: จำนวนที่กรอก -->
+                      <span class="text-xs text-[var(--secondary-color)]">
+                        กรอกแล้ว
+                        <span class="font-mono font-medium text-[var(--primary-color)]">{{round.slots.filter((s) =>
+                          s.status === 'registered').length}}</span>
+                        / <span class="font-mono">{{ round.qty }}</span> ชิ้น
+                      </span>
+
+                      <span v-if="round.declaredQty !== null"
+                        class="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700"
+                        :title="round.declaredReason ?? ''">
+                        แจ้งเอง (GRPO เดิมรับ {{ round.receivedQty }})
+                      </span>
+
+                      <!-- action: แก้จำนวนที่แจ้ง (icon) -->
+                      <button type="button" :disabled="!props.editable"
+                        class="rounded-md p-1.5 text-[var(--primary-color)] transition-colors hover:bg-[var(--Side-background)] hover:text-blue-700
+                        disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--primary-color)]"
                         :title="round.declaredQty !== null ? 'แก้จำนวนที่แจ้งไว้' : 'แจ้งจำนวนชิ้นของรอบนี้'"
                         @click="openDeclare(round)">
-                        <i class="fa-solid fa-file-pen text-lg"></i>
+                        <i class="fa-solid fa-file-pen text-base"></i>
                       </button>
-
                     </div>
-
-
 
                     <table v-if="isRoundOpen(round.id)" class="w-full border-separate border-spacing-0 text-sm ">
                       <tbody>
@@ -261,7 +322,7 @@ const STATUS_META = {
                           ? 'bg-[var(--third-background)]'
                           : 'bg-white hover:bg-[var(--Side-background)]'">
                           <td class="row-divider w-[20px]
-                        pr-0 pl-6 py-2 font-mono text-sm text-right" :class="STATUS_META[slot.status].border">
+                        pr-0 pl-6 py-2 font-mono text-sm text-right" :class="STATUS_META[badgeKey(slot)].border">
                             {{ item.poLine }}.{{ slot.index }}
                           </td>
 
@@ -285,36 +346,43 @@ const STATUS_META = {
                             <div class="flex flex-col">
                               <span class="text-label-md text-outline uppercase text-[var(--third-color)]">Price per
                                 unit</span>
-                              <span class="text-[var(--primary-color)]">{{ formatCurrency(item.unitPrice) }} </span>
+                              <span v-if="slot.status === 'registered'" class="text-[var(--third-color)]">
+                                {{ formatCurrency(slot.price) }}
+                              </span>
+                              <span v-else class="text-[var(--primary-color)]">{{ formatCurrency(slot.price) }} </span>
                             </div>
                           </td>
 
                           <!-- Status -->
                           <td class="row-divider py-2 text-right max-w-[60px]">
-                            <span class="px-2 py-1 text-xs rounded-full" :class="STATUS_META[slot.status].class">
-                              {{ STATUS_META[slot.status].label }}
+                            <span class="px-2 py-1 text-xs rounded-full" :class="STATUS_META[badgeKey(slot)].class">
+                              {{ STATUS_META[badgeKey(slot)].label }}
                             </span>
                           </td>
 
                           <!-- Action -->
-                          <td class="row-divider pr-4 py-2 text-center items-left rounded-r-lg max-w-[40px]">
-                            <button :disabled="!props.editable"
-                              class=" py-1 rounded  text-[var(--primary-color)]
-                          hover:text-blue-700 text-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-[var(--primary-color)]">
+                          <td class="row-divider pr-4 py-2 text-center items-left  max-w-[40px]">
+
+                            <!-- กรณี registered (เปลี่ยนสีเป็น third-color) -->
+                            <button v-if="slot.status === 'registered'"
+                              class="py-1 rounded text-[var(--third-color)] text-lg opacity-30 cursor-not-allowed">
                               <i class="fa-regular fa-pen-to-square"></i>
                             </button>
+
+                            <!-- กรณีอื่นๆ (ใช้สี primary-color แบบเดิม) -->
+                            <button v-else :disabled="!props.editable"
+                              class="py-1 rounded text-[var(--primary-color)] hover:text-blue-700 text-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-[var(--primary-color)]">
+                              <i class="fa-regular fa-pen-to-square"></i>
+                            </button>
+
                           </td>
                         </tr>
 
                       </tbody>
                     </table>
-                    <button type="button" class="rounded px-2 text-sm text-[var(--primary-color)] transition-colors hover:text-blue-700
-                        disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-[var(--primary-color)]">
-                      Upload invoice
-                    </button>
+
                   </div>
 
-                  <!-- ยังไม่มีรอบรับของเลย — ไม่มีอะไรให้กรอกทั้งบรรทัด -->
                   <p v-if="rounds.length === 0"
                     class="rounded-lg bg-white px-3 py-3 text-left text-sm text-[var(--third-color)]">
                     ยังไม่มีรอบรับของ (GRPO) สำหรับรายการนี้ — ลงทะเบียนได้เมื่อคลังตรวจรับแล้ว
@@ -335,7 +403,7 @@ const STATUS_META = {
         <p>
           GRPO <span class="font-semibold"><u>{{ declareTarget?.grpoNo }}</u></span> ·
           SAP รับมา <span class="font-semibold">{{ declareTarget?.receivedQty }}</span> ชิ้น
-          ลงทะเบียนแล้ว
+          กรอกแล้ว
           {{declareTarget?.slots.filter((s) => s.status === 'registered').length ?? 0}} ชิ้น
         </p>
 
@@ -344,7 +412,6 @@ const STATUS_META = {
           <input v-model.number="declareQty" type="number" min="0"
             class="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 focus:border-[var(--primary-color)] focus:outline-none" />
           <span class="text-xs text-[var(--third-color)]">
-            สามารถใส่ 0 ชิ้นได้ ถ้าการสร้างนี้ไม่เกิดสินทรัพย์จริง (เช่น เป็นค่าบริการ) <br>
             *ลดต่ำกว่าจำนวนที่ลงทะเบียนไปแล้วไม่ได้
           </span>
         </label>
@@ -368,6 +435,11 @@ const STATUS_META = {
         <p v-if="declareError" class="rounded-lg bg-red-50 px-3 py-2 text-red-600 text-base">*{{ declareError }}</p>
       </div>
     </AppConfirmDialog>
+
+    <!-- จัดการ invoice ของรอบที่เลือก — เปิดเมื่อ invoiceGrpoId ถูกเซ็ต, ปิด = คืนเป็น null -->
+    <InvoiceModal v-if="invoiceRound" :open="true" :grpo-id="invoiceRound.grpoId" :grpo-no="invoiceRound.grpoNo"
+      :invoices="invoiceRound.invoices" :editable="props.editable" @update:open="invoiceGrpoId = null"
+      @changed="load" />
   </div>
 </template>
 

@@ -1,8 +1,4 @@
 <script setup lang="ts">
-// กล่องยืนยันกลางของระบบ — ใช้กับทุกจุดที่ผู้ใช้ต้อง "ตัดสินใจ" (ลบ / ส่งอนุมัติ / ปฏิเสธ / ยกเลิก)
-//
-// ตั้งใจไม่ปิดตัวเองตอนกด confirm: งานส่วนใหญ่เป็น async ผู้เรียกต้องคุมจังหวะเอง
-// (set loading -> ยิง API -> ค่อยปิด) ถ้าปิดทันทีผู้ใช้จะไม่เห็นสถานะกำลังทำงานและกดซ้ำได้
 import { computed, nextTick, ref, watch, onBeforeUnmount, useId } from 'vue'
 
 interface Props {
@@ -13,7 +9,6 @@ interface Props {
   confirmText?: string
   cancelText?: string
   loading?: boolean
-  /** ปิดด้วย Esc/คลิกฉากหลังไม่ได้ — ใช้กับการตัดสินใจที่ต้องเลือกจริงจังเท่านั้น */
   persistent?: boolean
 }
 
@@ -33,11 +28,10 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
-// id ไม่ซ้ำต่อ instance — สองกล่องบนหน้าเดียวกันใช้ id เดียวกันไม่ได้ (aria ชี้ผิดตัว)
 const titleId = useId()
 
 const close = () => {
-  if (props.loading || props.persistent) return // กำลังทำงานอยู่/บังคับเลือก = ปิดเองไม่ได้
+  if (props.loading || props.persistent) return 
   emit('update:modelValue', false)
   emit('cancel')
 }
@@ -46,14 +40,12 @@ const confirm = () => {
   emit('confirm')
 }
 
-// Esc = ยกเลิก (พฤติกรรมมาตรฐานของ dialog) — ผูก/ถอด listener ตามการเปิดปิด ไม่ค้างไว้ตลอด
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') close()
 }
 
 const confirmBtn = ref<HTMLButtonElement | null>(null)
 
-// กันหน้าหลังฉากเลื่อนตามขณะกล่องเปิด (mobile จะเลื่อนทะลุถ้าไม่ล็อก) + โฟกัสปุ่มยืนยันให้กด Enter ต่อได้เลย
 watch(
   () => props.modelValue,
   async (open) => {
@@ -68,13 +60,11 @@ watch(
   },
 )
 
-// กล่องถูก unmount ทั้งที่ยังเปิดอยู่ (เช่นเปลี่ยนหน้า) — ต้องคืน scroll ไม่งั้นหน้าถัดไปเลื่อนไม่ได้
 onBeforeUnmount(() => {
   document.body.style.overflow = ''
   window.removeEventListener('keydown', onKeydown)
 })
 
-// จัดการสีและไอคอนตาม variant ที่ส่งมา
 const theme = computed(() => {
   switch (props.variant) {
     case 'danger':
@@ -133,7 +123,7 @@ const theme = computed(() => {
                   </div>
 
                   <!-- Title -->
-                  <h3 :id="titleId" class="text-lg font-semibold leading-6 text-gray-900">
+                  <h3 :id="titleId" class="font-['Kanit'] text-lg font-semibold leading-6 text-gray-900">
                     {{ title }}
                   </h3>
                 </div>

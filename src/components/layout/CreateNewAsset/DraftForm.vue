@@ -23,6 +23,9 @@ const submitting = ref(false)
 const presenceState = ref<PresenceState | null>(null)
 let presenceConn: PresenceConnection | null = null
 
+// มีบรรทัดที่ราคารวมเกินยอด PO อยู่ไหม (มาจาก RequestTable) — ถ้ามี ส่งไม่ได้จนกว่าจะแก้
+const hasOverCost = ref(false)
+
 const EDITABLE_STATUSES = ['DRAFT', 'REJECTED']
 const statusEditable = computed(() =>
   draft.value ? EDITABLE_STATUSES.includes(draft.value.status) : false,
@@ -42,7 +45,11 @@ async function loadDraft() {
   try {
     const detail = await getAssetRequest(Number(props.requestId))
     draft.value = detail
-    if (statusEditable.value) openPresenceStream()
+
+    if (statusEditable.value) {
+      openPresenceStream()
+      startIdleTimer()
+    }
   } catch (e) {
     console.error('โหลดคำขอไม่สำเร็จ:', e)
     loadError.value = 'ไม่พบคำขอนี้ หรือถูกลบไปแล้ว'
@@ -78,9 +85,57 @@ async function onSubmit() {
   }
 }
 
+let idleTimer: ReturnType<typeof setTimeout> | undefined
+
+const idleEvents: Array<keyof WindowEventMap> = [
+  'mousemove',
+  'keydown',
+  'click',
+  'scroll',
+]
+
+function resetIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+  }
+
+  idleTimer = setTimeout(() => {
+    closePresence()
+    router.replace({ name: 'DraftList' })
+  }, 10 * 60 * 1000)
+}
+
+function startIdleTimer() {
+  idleEvents.forEach((event) => {
+    window.addEventListener(event, resetIdleTimer)
+  })
+
+  resetIdleTimer()
+}
+
+function stopIdleTimer() {
+  if (idleTimer) {
+    clearTimeout(idleTimer)
+    idleTimer = undefined
+  }
+
+  idleEvents.forEach((event) => {
+    window.removeEventListener(event, resetIdleTimer)
+  })
+}
+
+
 onMounted(loadDraft)
-onBeforeRouteLeave(() => closePresence())
-onUnmounted(() => closePresence())
+
+onBeforeRouteLeave(() => {
+  stopIdleTimer()
+  closePresence()
+})
+
+onUnmounted(() => {
+  stopIdleTimer()
+  closePresence()
+})
 </script>
 
 <template>
@@ -166,12 +221,15 @@ onUnmounted(() => closePresence())
       </section>
 
       <section class="mx-4 md:mx-10 lg:mx-20">
-        <RequestTable :request-id="Number(requestId)" :editable="editable" />
+        <RequestTable :request-id="Number(requestId)" :editable="editable" @over-cost="hasOverCost = $event" />
       </section>
 
       <footer class="h-[150px] mx-20">
         <p v-if="submitError" class="text-right text-sm text-red-500 mb-2">{{ submitError }}</p>
-        <submit :editable="editable && !submitting" @cancel="router.replace({ name: 'DraftList' })"
+        <p v-else-if="hasOverCost" class="text-right text-sm text-[var(--pending)] mb-2">
+          มีบรรทัดที่ราคารวมเกินยอด PO — แก้ราคาให้ไม่เกินก่อนจึงจะส่งได้
+        </p>
+        <submit :editable="editable && !submitting && !hasOverCost" @cancel="router.replace({ name: 'DraftList' })"
           @submit="onSubmit" />
       </footer>
     </template>
