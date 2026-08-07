@@ -22,8 +22,8 @@ const isActive = computed(
     :to="item.to"
     class="grid grid-cols-[24px_minmax(0,1fr)] items-center gap-x-[18px]  [padding:12px_16px_12px_30px] rounded-[0.8rem] cursor-pointer mx-[15px] text-sm transition duration-200 text-left no-underline"
     :class="isActive
-      ? 'text-black'
-      : 'text-primary'"
+      ? 'text-primary'
+      : 'text-black'"
   >
     <span class="w-6 h-6 grid place-items-center">
       <!-- <i
