@@ -1,0 +1,76 @@
+<script setup lang="ts">
+// Pagination กลาง — คุมด้วย page/total/limit (ตรงกับ envelope Paginated<T> ของ backend)
+// ไม่ถือ state เอง: parent เป็นเจ้าของ page แล้วฟัง @update:page ไปโหลดหน้าใหม่
+import { computed } from 'vue'
+
+const props = defineProps<{
+  page: number
+  total: number
+  limit: number
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:page', page: number): void
+}>()
+
+const totalPages = computed(() => Math.max(1, Math.ceil(props.total / props.limit)))
+
+// เลขหน้าแบบมี ... ย่อ (โชว์ครบถ้า <= 7 หน้า, ไม่งั้นย่อหัว-กลาง-ท้าย)
+const pages = computed<(number | '...')[]>(() => {
+  const tp = totalPages.value
+  const cur = props.page
+  if (tp <= 7) return Array.from({ length: tp }, (_, i) => i + 1)
+
+  const out: (number | '...')[] = [1]
+  const start = Math.max(2, cur - 1)
+  const end = Math.min(tp - 1, cur + 1)
+  if (start > 2) out.push('...')
+  for (let p = start; p <= end; p++) out.push(p)
+  if (end < tp - 1) out.push('...')
+  out.push(tp)
+  return out
+})
+
+function go(p: number) {
+  if (p < 1 || p > totalPages.value || p === props.page) return
+  emit('update:page', p)
+}
+</script>
+
+<template>
+  <!-- ซ่อนทั้งแถบถ้ามีหน้าเดียว -->
+  <nav v-if="totalPages > 1" class="flex items-center justify-center gap-1 select-none">
+    <button
+      type="button"
+      class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-100"
+      :disabled="page <= 1"
+      @click="go(page - 1)"
+    >
+      <i class="fa-solid fa-chevron-left" />
+    </button>
+
+    <template v-for="(p, i) in pages" :key="i">
+      <span v-if="p === '...'" class="px-2 text-gray-400">…</span>
+      <button
+        v-else
+        type="button"
+        class="min-w-[36px] rounded-lg border px-3 py-1.5 text-sm"
+        :class="p === page
+          ? 'border-[var(--primary-color)] bg-[var(--primary-color)] text-white'
+          : 'border-gray-300 hover:bg-gray-100'"
+        @click="go(p)"
+      >
+        {{ p }}
+      </button>
+    </template>
+
+    <button
+      type="button"
+      class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-100"
+      :disabled="page >= totalPages"
+      @click="go(page + 1)"
+    >
+      <i class="fa-solid fa-chevron-right" />
+    </button>
+  </nav>
+</template>
