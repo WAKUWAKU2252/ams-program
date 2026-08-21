@@ -98,24 +98,9 @@ const formattedTime = computed<string>(() => {
 </script>
 
 <template>
-  <span class="date-display">
-    <span class="date-part">{{ formattedDate }}</span>
-    <span v-if="showTime" class="time-part">{{ formattedTime }}</span>
+  <span class="inline-flex items-center gap-3 tabular-nums">
+    <span>{{ formattedDate }}</span>
+    <span v-if="showTime" class="text-base-content/60">{{ formattedTime }}</span>
   </span>
 </template>
-
-<style scoped>
-.date-display {
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-auto-columns: max-content;
-  align-items: center;
-  column-gap: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.time-part {
-  color: var(--on-surface-variant-color)
-}
-</style>
 ```

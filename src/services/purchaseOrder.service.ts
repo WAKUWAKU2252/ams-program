@@ -31,7 +31,17 @@ export interface PurchaseOrder {
   items: PurchaseOrderItem[];
   createdAt: string;
   updatedAt: string;
-  requesterName: string | null ;
+  // ผู้ขอซื้อ (OwnerPR) — คนที่เปิดใบขอซื้อฝั่ง SAP คนละคนกับ RequestBy (คนกดส่งใน AMS)
+  ownerPrName: string | null;
+  ownerPrId: number | null;
+  departmentId: number | null;
+  // หัวหน้าของผู้ขอซื้อ — มีเฉพาะใน GET /purchase-orders/:poNumber (findOneOrFail ไต่ให้)
+  // list ไม่มีให้ และ GET /asset-requests/:id ก็ไม่มี ต้องดึงใบเต็มมาเติมเอง
+  // null ได้ทุกช่อง: PO เก่าไม่มี ownerPrId / แผนกยังไม่ตั้งหัวหน้า / หัวหน้าไม่มีอีเมล
+  managerId: number | null;
+  managerFirstName: string | null;
+  managerLastName: string | null;
+  manageremail: string | null;
 }
 
 // list แบบเบา (GET /purchase-orders) ไม่มี items — ใช้ getPurchaseOrderByNumber ดึงรายละเอียดทีหลัง
@@ -67,3 +77,7 @@ export function listPurchaseOrders(params: ListPurchaseOrdersParams = {},
 export function getPurchaseOrderByNumber(poNumber: string): Promise<PurchaseOrder> {
   return request<PurchaseOrder>(`/purchase-orders/${poNumber}`, { method: 'GET' });
 }
+
+// getPoApprovers() ถูกถอดออกพร้อมการ rename เป็น OwnerPR — ไม่มีใครเรียก และยิงไป
+// /purchase-orders/:poNumber/approvers ซึ่ง backend ไม่เคยมี route นี้ (ได้ 404 ถ้าเรียก)
+// ข้อมูลผู้อนุมัติมาจาก GET /purchase-orders/:poNumber แล้ว (managerId/manageremail)

@@ -1,9 +1,109 @@
-/* @import "@flaticon/flaticon-uicons/css/all/all.css"; */
-/* @import "primeicons/primeicons.css"; */
-/* @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@100;200;300;400;500;600;700;800&display=swap'); */
-/* @import '@fortawesome/fontawesome-free/css/all.css'; */
-
 @import "tailwindcss";
+
+/* ปิดธีม built-in ทั้งหมด — แอปนี้ใช้เฉพาะ 2 ธีมที่นิยามข้างล่าง
+   ams = light (ค่าเริ่มต้น), amsdark = dark (ตาม prefers-color-scheme)
+   สีทุกจุดในแอปต้องอ้างชื่อ semantic ของ daisyUI (primary, base-100, success, ...)
+   ไม่ใช่สีดิบของ Tailwind — เปลี่ยนแบรนด์ทีหลังแก้ที่ไฟล์นี้ไฟล์เดียว */
 @plugin "daisyui" {
-  themes: light --default, dark --prefersdark, emerald;
+  themes: 
+emerald;
+}
+
+@plugin "daisyui/theme" {
+  name: "ams";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97% 0.005 255);
+  --color-base-300: oklch(93% 0.008 255);
+  --color-base-content: oklch(28% 0.025 260);
+  --color-primary: oklch(55% 0.2 262);
+  --color-primary-content: oklch(98% 0.01 262);
+  --color-secondary: oklch(60% 0.1 240);
+  --color-secondary-content: oklch(98% 0.01 240);
+  --color-accent: oklch(65% 0.14 190);
+  --color-accent-content: oklch(98% 0.01 190);
+  --color-neutral: oklch(35% 0.02 260);
+  --color-neutral-content: oklch(98% 0.005 260);
+  --color-info: oklch(65% 0.14 235);
+  --color-info-content: oklch(98% 0.01 235);
+  --color-success: oklch(62% 0.15 150);
+  --color-success-content: oklch(98% 0.01 150);
+  --color-warning: oklch(75% 0.16 75);
+  --color-warning-content: oklch(25% 0.05 75);
+  --color-error: oklch(60% 0.21 25);
+  --color-error-content: oklch(98% 0.01 25);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+/* prefersdark: false ตั้งใจ — ระบบใช้ธีมสว่างเสมอ ไม่ตาม dark mode ของเครื่องผู้ใช้
+   ธีมนี้ยังพร้อมใช้ เรียกด้วย data-theme="amsdark" หรือ theme-controller เมื่อจะเปิดให้สลับ */
+@plugin "daisyui/theme" {
+  name: "amsdark";
+  default: false;
+  prefersdark: false;
+  color-scheme: dark;
+
+  --color-base-100: oklch(23% 0.015 260);
+  --color-base-200: oklch(20% 0.015 260);
+  --color-base-300: oklch(17% 0.015 260);
+  --color-base-content: oklch(93% 0.01 260);
+  --color-primary: oklch(65% 0.18 262);
+  --color-primary-content: oklch(16% 0.03 262);
+  --color-secondary: oklch(68% 0.09 240);
+  --color-secondary-content: oklch(16% 0.03 240);
+  --color-accent: oklch(72% 0.13 190);
+  --color-accent-content: oklch(16% 0.03 190);
+  --color-neutral: oklch(30% 0.02 260);
+  --color-neutral-content: oklch(93% 0.01 260);
+  --color-info: oklch(72% 0.13 235);
+  --color-info-content: oklch(16% 0.03 235);
+  --color-success: oklch(70% 0.14 150);
+  --color-success-content: oklch(16% 0.03 150);
+  --color-warning: oklch(80% 0.15 75);
+  --color-warning-content: oklch(20% 0.04 75);
+  --color-error: oklch(68% 0.19 25);
+  --color-error-content: oklch(16% 0.03 25);
+
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@keyframes ams-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+
+@utility shake {
+  animation: ams-shake 0.4s ease-in-out;
+}
+
+/* daisyUI ตั้ง position-area (bottom span-right) กับ position: fixed ให้ .dropdown[popover] แล้ว
+   แต่ไม่ได้ใส่ fallback ไว้ — พอเปิดใกล้ขอบจอเลยทะลุออกไปเลยแทนที่จะพลิกกลับ
+   ที่นี่เติมเฉพาะ "แผนสำรอง" ไม่แตะ position/position-area ของ daisyUI
+   (ตั้ง position: absolute ทับจะทำให้ anchor คำนวณผิดฐาน กล่องหลุดตำแหน่ง)
+   ลำดับลอง: ล่าง → บน → สลับซ้ายขวา → พลิกทั้งสองแกน */
+.dropdown[popover] {
+  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  /* กันกรณีจอเตี้ยกว่าปฏิทิน — พลิกยังไงก็ไม่พอ ให้ scroll ในกล่องแทนการล้นออกนอกจอ */
+  max-height: calc(100dvh - 1rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }

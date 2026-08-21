@@ -4,6 +4,8 @@
 // หน้าฟอร์มลงทะเบียนใช้ getAssetSlots() เส้นเดียวก็เรนเดอร์ได้ทั้งหน้า (ช่อง + สถานะ + grpoNo ต่อชิ้น)
 import { request } from './httpClient';
 import type { AssetRequestStatus } from './assetRequest.service';
+// envelope เดียวกับที่ /master/employees ใช้ — { data, total, page, limit }
+import type { Paginated } from './master.service';
 
 // ไฟล์ invoice ที่แนบกับรอบ GRPO (มาจาก attachment) — null = ยังไม่แนบ
 export interface InvoiceFile {
@@ -31,24 +33,103 @@ export interface SlotGrpoLine {
 // หนึ่ง "ช่อง" = หนึ่งชิ้นที่หน้าฟอร์มต้องเรนเดอร์ (จำนวนช่อง = po_item.quantity)
 // discriminated union ตาม status — assetId/serialNumber/grpoNo มีเฉพาะช่องที่ลงทะเบียนแล้ว
 // (TS จะบังคับให้เช็ค status === 'registered' ก่อนถึงจะอ่าน slot.grpoNo ได้)
+/**
+ * ป้ายสถานะที่หน้าจอต้องแสดง — backend คำนวณมาให้แล้ว **ห้ามคำนวณใหม่เอง**
+ *
+ * มันรวมสามแกน (ช่อง/ใบ/ชิ้น) ที่ระบบเก็บแยกกัน และต้องอ่านจาก "ใบเจ้าของชิ้น" ไม่ใช่
+ * "ใบที่กำลังเปิดดู" — สองอย่างนี้ต่างกันเสมอเมื่อ PO เดียวมีหลายรอบ ป้ายเดิมที่ frontend
+ * derive เองพลาดตรงนี้ ทำให้ชิ้นที่อนุมัติแล้วขึ้น Saved
+ */
+export type SlotDisplayStatus =
+  | 'noGrpo'
+  | 'pendingCreation'
+  | 'saved'
+  | 'pendingManager'
+  | 'rejected'
+  | 'approved'
+  | 'registered'
+  | 'cancelled';
+
 export type AssetSlot =
   | {
+      /** ลำดับบนจอของ PO line นี้ (1..n) — คนละตัวกับ unitNo */
       index: number;
       status: 'registered';
+      /** ★ ป้ายที่ต้องแสดง — ใช้ค่านี้ตรง ๆ */
+      displayStatus: SlotDisplayStatus;
       assetId: number;
+      /** เลขชิ้นจริงในตาราง (unique ต่อ PO line ข้ามใบคำขอ) */
+      unitNo: number;
+      /**
+       * ใบคำขอที่เป็นเจ้าของชิ้นนี้ — ไม่เท่ากับใบที่กำลังเปิดอยู่ก็ได้
+       *
+       * PO เดียวเปิดคำขอได้หลายรอบ และ backend นับช่องข้ามใบ (ไม่งั้นของที่ลงในใบก่อน
+       * จะโผล่เป็นช่องว่างให้กรอกซ้ำแล้วชน unique ตอนบันทึก) ของใบอื่น = อ่านได้อย่างเดียว
+       */
+      requestId: number;
       serialNumber: string | null;
       acquisitionCost: number; // ราคาจริงต่อชิ้น (ชิ้นที่แตกเพิ่ม = 0)
-      lifecycle: 'DRAFT' | 'REGISTERED'; // DRAFT = ยังไม่เข้า SAP (badge "requested")
+      lifecycle: 'DRAFT' | 'REGISTERED' | 'CANCELLED'; // ดิบ ๆ จากตาราง — ป้ายใช้ displayStatus แทน
+      // id ของรูปที่แนบ (null = ยังไม่แนบ) — เป็น id ไม่ใช่ URL เพราะไฟล์อยู่หลัง authGuard
+      // แปลงเป็นรูปที่แสดงได้ด้วย fileBlobUrl() ซึ่งแนบ token ให้
+      imageId: string | null;
+      /** ชื่อสถานที่ที่ของชิ้นนี้จะไปอยู่ (null = ยังไม่ระบุ) — ใช้ในใบแจ้งขออนุมัติ */
+      locationName: string | null;
+      /** ตำแหน่งย่อย (null = ไม่ได้ระบุ) — ต่อท้าย locationName ในใบแจ้งขออนุมัติ */
+      subLocationName: string | null;
       grpoLineId: string;
       grpoNo: string; // ← ชิ้นนี้มาจากรอบไหน (asset.grpoLine.grpo.grpoNo) — committed
+      /** ผู้ถือครอง (null = ของกลาง ไม่มีคนถือ) — สูตรชื่อเดียวกับ dropdown ในฟอร์ม */
+      employeeName: string | null;
+      /** แผนกที่สังกัด — คนละแกนกับผู้ถือครอง ของกลางไม่มีคนถือแต่มีแผนกได้ */
+      departmentName: string | null;
+      /** ระยะประกัน — ดิบทั้งคู่ ฝั่งนี้ประกอบเป็นข้อความเอง */
+      warrantyStartDate: string | null;
+      warrantyEndDate: string | null;
+
+      // ── ใครตัดสินใจอะไรกับชิ้นนี้ (backend เลือกมาให้แล้วว่าเป็นระดับใบหรือระดับชิ้น)
+      /** เลข SAP — มีเมื่อ displayStatus = 'registered' */
+      assetNumber: string | null;
+      /**
+       * URL ที่ฝังอยู่ใน QR ของสติกเกอร์ชิ้นนี้ (null = ยังไม่มีเลข จึงยังไม่มี QR)
+       *
+       * วาดรูป QR จากค่านี้ตรง ๆ ห้ามประกอบ URL เองจาก assetNumber — ค่านี้คือสิ่งที่ถูก
+       * เก็บไว้ตอนออกเลขและตรงกับที่พิมพ์ลงสติกเกอร์จริง ถ้าประกอบเองจะเห็นค่าที่ "ควรเป็น"
+       * แล้วความไม่ตรงกันระหว่างจอกับของจริงจะไม่มีใครเห็น
+       */
+      qrCode: string | null;
+      /** ผู้อนุมัติใบที่ชิ้นนี้สังกัด */
+      approvedByName: string | null;
+      /**
+       * ใครออกเลขให้ชิ้นนี้ (null = ยังไม่มีเลข หรือเป็นชิ้นเก่าก่อน 0019 ที่ไม่ได้บันทึกไว้)
+       * รายชิ้น ไม่ใช่ "คนกดปิดทั้งใบ" ซึ่งยังว่างตลอดช่วงที่บัญชีทยอยออกเลข
+       */
+      registeredByName: string | null;
+      /** เหตุผลที่ถูกตีกลับ (ระดับชิ้นชนะระดับใบ) */
+      rejectReason: string | null;
+      rejectedByName: string | null;
+      /** ตีกลับมาจากไหน — MANAGER (ทั้งใบ) หรือ FINANCE (รายชิ้น) */
+      rejectedRole: string | null;
+      /**
+       * เคยถูกตีกลับและผู้ขอแก้กลับมาแล้ว แต่ยังไม่ได้ออกเลข
+       *
+       * ไม่ใช่สถานะใหม่ — ชิ้นนี้อยู่ในคิวออกเลขเหมือนชิ้นปกติทุกอย่าง เป็นแค่ป้ายบอกบัญชี
+       * ว่า "ตัวนี้เคยสั่งให้แก้ไป ตรวจซ้ำก่อนออกเลข" (backend ล้างให้เองเมื่อออกเลข/ปิดถาวร/ตีกลับซ้ำ)
+       */
+      rejectFixed: boolean;
+      cancelReason: string | null;
+      cancelledByName: string | null;
     }
   | {
       index: number;
       status: 'pending'; // ของมาถึงแล้ว ยังไม่ลง — กรอกได้
+      displayStatus: 'pendingCreation';
+      /** เลขชิ้นที่ backend จองไว้ให้ช่องนี้ — ต้องส่งค่านี้กลับไปตอน POST /assets */
+      unitNo: number;
       grpoLineId: string; // รอบที่คาดว่าจะไปผูก (allocate ตาม capacity) — pre-fill ตอนลงทะเบียน
       grpoNo: string;
     }
-  | { index: number; status: 'noGrpo' }; // ของยังมาไม่ถึง
+  | { index: number; status: 'noGrpo'; displayStatus: 'noGrpo' }; // ของยังมาไม่ถึง
 
 export interface AssetSlotItem {
   poItemId: string;
@@ -73,10 +154,267 @@ export interface AssetSlotsResponse {
   requestId: number;
   poNumber: string;
   status: AssetRequestStatus;
+  /**
+   * เหตุผลที่หัวหน้าตีกลับ — backend ส่งมาเฉพาะตอน status = 'REJECTED' เท่านั้น
+   * (ใบที่ส่งใหม่แล้วจะได้ null คืนมา แม้คอลัมน์ใน DB ยังเก็บเหตุผลรอบก่อนไว้เป็นประวัติ)
+   * null ตอน REJECTED ได้ด้วย — การ์ด Teams ส่ง comment ว่างมาได้
+   */
+  rejectReason: string | null;
   items: AssetSlotItem[];
 }
 
 // GET /assets?requestId= — คืนช่องทั้งหมดของใบคำขอ พร้อมสถานะ + grpoNo ต่อชิ้น
 export function getAssetSlots(requestId: number): Promise<AssetSlotsResponse> {
   return request<AssetSlotsResponse>(`/assets?requestId=${requestId}`, { method: 'GET' });
+}
+
+// ── กรอก/แก้รายละเอียดสินทรัพย์รายชิ้น (ฟอร์มใน AppAssetFormDialog) ──────────
+// ตรงกับ createAssetBody / updateAssetBody ของ backend เป๊ะ — ฟิลด์ไหน optional ที่นั่น
+// ก็ optional ที่นี่ ส่ง undefined ไม่ใช่ '' เมื่อผู้ใช้เว้นว่าง (คอลัมน์เป็น nullable)
+export interface AssetFormPayload {
+  description?: string;
+  /**
+   * null = ลบเลขเครื่องที่เคยกรอกไว้ (ใช้ได้เฉพาะตอน PATCH)
+   *
+   * undefined = ไม่ได้แก้ช่องนี้ backend จะไม่แตะคอลัมน์ — ถ้าส่ง undefined ตอนผู้ใช้ลบช่อง
+   * ค่าเดิมจะยังอยู่โดยไม่มีอะไรบอกว่าไม่ได้ลบ (หลักเดียวกับ imageId)
+   * ฝั่ง POST รับ null ไม่ได้ — ไม่มีเลขเครื่องก็แค่ไม่ส่ง key มา
+   */
+  serialNumber?: string | null;
+  assetClass?: string;
+  categoryId?: number;
+  /** string ไม่ใช่ id ตั้งแต่ 0012 — ตาราง uom ถูกถอด หน่วยนับมาจาก OITM.InvntryUom */
+  uom?: string;
+  locationId?: number;
+  subLocationId?: number;
+  departmentId?: number;
+  employeeId?: number;
+  warrantyStartDate?: string;
+  warrantyEndDate?: string;
+  acquisitionCost?: number;
+  /**
+   * null = ถอดรูปที่แนบไว้ออก (ใช้ได้เฉพาะตอน PATCH)
+   *
+   * undefined = ไม่ได้แก้ช่องนี้ backend จะไม่แตะคอลัมน์
+   * ฝั่ง POST รับ null ไม่ได้ — ไม่มีรูปก็แค่ไม่ส่ง key มา
+   */
+  imageId?: string | null;
+  brand?: string;
+  model?: string;
+}
+
+export interface CreateAssetPayload extends AssetFormPayload {
+  // แคบกว่าตัวแม่: ตอนสร้างส่ง null ไม่ได้ (backend จะตอบ 422) ไม่มีรูปก็แค่ไม่ส่ง key มา
+  // ประกาศไว้ให้ compiler จับแทนที่จะพึ่งคอมเมนต์
+  imageId?: string;
+  requestId: number;
+  grpoLineId: string;
+  // เลขช่องที่ผู้ใช้เห็นบนฟอร์ม — ส่งไปเพื่อให้ชิ้นที่บันทึกตรงกับช่องที่กด ไม่ใช่ต่อท้ายให้
+  unitNo?: number;
+  // FK NOT NULL ที่ DB จึงบังคับตอน create — ฝั่ง update แก้ทีละตัวได้
+  //
+  // categoryId/uomId ไม่อยู่ในนี้เพราะถูกถอดออกจาก createAssetBody แล้วใน migration 0007
+  // (คอลัมน์เป็น nullable แล้ว) — สองตัวนั้นอยู่ที่ OITM ของ SAP ไม่ได้อยู่บน PO
+  // คนกรอกฟอร์มจึงไม่มีทางรู้ ต้องรอ job ที่ map จาก itemCode มาเติมทีหลัง
+  locationId: number;
+}
+
+/**
+ * รายละเอียดของชิ้นที่บันทึกไว้แล้ว — ใช้เติมฟอร์มตอนกดแก้ไข
+ *
+ * GET /assets/:id คืนทั้งแถวพร้อม relation (category/uom/location/employee/image)
+ * ที่นี่ประกาศเฉพาะช่องที่ฟอร์มใช้ — ฟิลด์อื่นยังมาด้วยแต่ไม่ได้ประกาศไว้
+ *
+ * ⚠️ warrantyStartDate/EndDate เป็น ISO เต็ม ('2026-08-13T00:00:00.000Z') ไม่ใช่ 'YYYY-MM-DD'
+ *    ที่ AppDatePicker ใช้ — ผู้เรียกต้องตัดเอง
+ */
+export interface AssetDetail {
+  id: number;
+  description: string | null;
+  serialNumber: string | null;
+  assetClass: string | null;
+  acquisitionCost: number;
+  locationId: number;
+  subLocationId: number | null;
+  departmentId: number | null;
+  employeeId: number | null;
+  warrantyStartDate: string | null;
+  warrantyEndDate: string | null;
+  imageId: string | null;
+  lifecycle: 'DRAFT' | 'REGISTERED';
+}
+
+/** GET /assets/:id — รายละเอียดรายชิ้น */
+export function getAsset(id: number): Promise<AssetDetail> {
+  return request<AssetDetail>(`/assets/${id}`, { method: 'GET' });
+}
+
+/** POST /assets — ลงทะเบียนชิ้นใหม่ในช่องที่ยังว่าง */
+export function createAsset(payload: CreateAssetPayload): Promise<{ id: number }> {
+  return request<{ id: number }>('/assets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** PATCH /assets/:id — แก้ชิ้นที่กรอกไว้แล้ว (ทุกฟิลด์ optional) */
+export function updateAsset(id: number, payload: AssetFormPayload): Promise<{ id: number }> {
+  return request<{ id: number }>(`/assets/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── หน้า My asset ───────────────────────────────────────────────────────────
+
+/**
+ * ชุดตัวเลขบัญชีที่ sync มาจาก SAP
+ *
+ * ⚠️ ทุกช่องเป็นตัวเลขของปี `fiscalYear` ไม่ใช่ปีปัจจุบันเสมอไป — ของที่ตัดจำหน่าย/หยุด
+ * คิดค่าเสื่อมแล้วจะค้างที่ปีสุดท้ายของมัน (วัด 2026-08-20: 25% ของทะเบียนไม่ใช่ปีล่าสุด)
+ * **ห้ามแสดงยอดโดยไม่แสดงปีกำกับ** และห้ามเอายอดข้ามปีมาบวกกันเป็นยอดรวม
+ */
+export interface MyAssetAccounting {
+  fiscalYear: number;
+  bookedCost: number | null;
+  accumulatedDepreciation: number | null;
+  /** backend คำนวณให้ (bookedCost − accumulatedDepreciation) — ห้ามลบเองที่นี่ */
+  netBookValue: number | null;
+  salvageValue: number | null;
+  /** หน่วยเป็น **เดือน** ตามที่ SAP เก็บ — 0 ได้จริง เช่นที่ดินที่ไม่คิดค่าเสื่อม */
+  usefulLifeMonths: number | null;
+  remainingLifeMonths: number | null;
+  depreciationMethod: string | null;
+  depreciationStart: string | null;
+  depreciationEnd: string | null;
+  syncedAt: string;
+}
+
+export interface MyAssetItem {
+  id: number;
+  assetNumber: string | null;
+  description: string | null;
+  imageId: string | null;
+  /**
+   * URL ที่ฝังใน QR บนสติกเกอร์ — **วาดจากค่านี้เท่านั้น ห้ามประกอบเองจาก assetNumber**
+   * ค่านี้คือค่าที่ตรงกับสติกเกอร์ที่พิมพ์แปะไปแล้ว ถ้าจอประกอบเอง วันที่โดเมนเปลี่ยน
+   * จอจะโชว์ QR ที่ไม่ตรงกับของจริงบนเครื่องโดยไม่มีอะไรฟ้อง
+   */
+  qrCode: string | null;
+  categoryName: string | null;
+  locationName: string;
+  subLocationName: string | null;
+  acquisitionDate: string | null;
+  /** ราคาที่เสนอ/ยอดใบกำกับ — คนละค่ากับ accounting.bookedCost (APC ทางบัญชี) */
+  acquisitionCost: number | null;
+  accounting: MyAssetAccounting | null;
+}
+
+export interface MyAssetsResponse {
+  /** false = บัญชีผู้ใช้ยังไม่ผูกกับพนักงาน (คนละเรื่องกับ "ไม่มีสินทรัพย์") */
+  linkedToEmployee: boolean;
+  items: MyAssetItem[];
+}
+
+/** GET /assets/mine — สินทรัพย์ในความดูแลของคนที่ล็อกอินอยู่ (ยึดจาก token ไม่ส่ง id ไป) */
+export function getMyAssets(): Promise<MyAssetsResponse> {
+  return request<MyAssetsResponse>('/assets/mine', { method: 'GET' });
+}
+
+// ── หน้ารายละเอียดจากการสแกน QR ─────────────────────────────────────────────
+
+export interface AssetByNumberDetail {
+  id: number;
+  assetNumber: string;
+  description: string | null;
+  imageId: string | null;
+  serialNumber: string | null;
+  uom: string | null;
+  assetClass: string | null;
+  status: string;
+  lifecycle: string;
+  categoryName: string | null;
+  locationName: string;
+  subLocationName: string | null;
+  departmentName: string | null;
+  /** null = ทะเบียนยังไม่ระบุผู้ถือครอง (ของเก่าส่วนใหญ่เป็นแบบนี้) */
+  holderName: string | null;
+  acquisitionDate: string | null;
+  acquisitionCost: number | null;
+  accounting: MyAssetAccounting | null;
+}
+
+/**
+ * GET /assets/by-number?number=... — ค้นด้วยเลขสินทรัพย์ที่สแกนมาจาก QR
+ *
+ * ส่งเป็น query ไม่ใช่ path เพราะเลขจริงบางตัวมี '/' (MAC-212-13-001/1) ซึ่ง %2F ใน path
+ * จะถูก decode ก่อน match แล้ว 404 — ฝั่ง backend ก็รับเป็น query ด้วยเหตุผลเดียวกัน
+ */
+export function getAssetByNumber(assetNumber: string): Promise<AssetByNumberDetail> {
+  return request<AssetByNumberDetail>(`/assets/by-number?number=${encodeURIComponent(assetNumber)}`, {
+    method: 'GET',
+  });
+}
+
+// ── หน้า Asset Inventory — ทะเบียนสินทรัพย์ทั้งบริษัท ───────────────────────
+
+/** ยอดบัญชีแบบย่อสำหรับแถวในตาราง — รายละเอียดเต็มอยู่ในหน้าของชิ้นนั้น */
+export interface InventoryAccounting {
+  /**
+   * ปีบัญชีของตัวเลขชุดนี้ — **ไม่ใช่ปีปัจจุบันเสมอไป**
+   *
+   * ของที่ตัดจำหน่าย/หยุดคิดค่าเสื่อมแล้วจะค้างที่ปีสุดท้ายของมัน ต้องติดป้ายปีคู่กับยอด
+   * ทุกที่ที่แสดง ไม่งั้นคนจะอ่านเลขปี 2022 เป็นมูลค่าของวันนี้ (กติกาเดียวกับหน้า My asset)
+   */
+  fiscalYear: number
+  /** null = คำนวณไม่ได้ (SAP ให้ตัวเลขมาไม่ครบ) — ต่างจาก 0 ที่แปลว่าตัดค่าเสื่อมครบแล้ว */
+  netBookValue: number | null
+}
+
+export interface InventoryItem {
+  id: number
+  assetNumber: string
+  description: string | null
+  serialNumber: string | null
+  imageId: string | null
+  categoryName: string | null
+  departmentName: string | null
+  locationName: string
+  subLocationName: string | null
+  /** null = ทะเบียนยังไม่ระบุผู้ถือครอง */
+  holderName: string | null
+  status: string
+  acquisitionDate: string | null
+  /** null = SAP ยังไม่มียอดบัญชีให้ชิ้นนี้ */
+  accounting: InventoryAccounting | null
+}
+
+export interface InventoryParams {
+  page?: number
+  limit?: number
+  /** ค้นพร้อมกันสามช่อง: เลขสินทรัพย์ / รายละเอียด / เลขเครื่อง */
+  search?: string
+  departmentId?: number
+}
+
+/**
+ * GET /assets/inventory — แบ่งหน้าเสมอ (ทะเบียนจริงมี 2,700+ ชิ้น)
+ *
+ * ไม่จำกัดตาม role และไม่ล็อกแผนกตามคนที่ล็อกอิน — ทุกคนค้นทะเบียนได้
+ * (ต่างจาก /dashboard/overview ที่ล็อกแผนกไว้ เพราะอันนั้นเป็นมูลค่ารวมรายแผนก)
+ */
+export function getAssetInventory(params: InventoryParams = {}): Promise<Paginated<InventoryItem>> {
+  const query = new URLSearchParams()
+  if (params.page) query.set('page', String(params.page))
+  if (params.limit) query.set('limit', String(params.limit))
+  const search = params.search?.trim()
+  if (search) query.set('search', search)
+  if (params.departmentId) query.set('departmentId', String(params.departmentId))
+
+  const qs = query.toString()
+  return request<Paginated<InventoryItem>>(`/assets/inventory${qs ? `?${qs}` : ''}`, {
+    method: 'GET',
+  })
 }

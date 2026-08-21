@@ -2,14 +2,16 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useUiStore = defineStore('ui', () => {
-  const isSidebarCollapsed = ref(false)
+  // ผูกกับ checkbox `drawer-toggle` ของ daisyUI ใน MainLayout โดยตรง
+  // (บนจอ lg ขึ้นไป drawer เปิดค้างด้วย lg:drawer-open — ค่านี้จึงมีผลเฉพาะจอเล็ก)
+  const isSidebarOpen = ref(false)
 
   function toggleSidebar(): void {
-    isSidebarCollapsed.value = !isSidebarCollapsed.value
+    isSidebarOpen.value = !isSidebarOpen.value
   }
 
-  function collapseSidebar(): void {
-    isSidebarCollapsed.value = true
+  function closeSidebar(): void {
+    isSidebarOpen.value = false
   }
 
   // --- Profile menu popup (UserItem overlay) ---
@@ -29,11 +31,11 @@ export const useUiStore = defineStore('ui', () => {
 
   return {
     // state
-    isSidebarCollapsed,
+    isSidebarOpen,
     isProfileMenuOpen,
     // sidebar actions
     toggleSidebar,
-    collapseSidebar,
+    closeSidebar,
     // profile menu actions
     toggleProfileMenu,
     openProfileMenu,

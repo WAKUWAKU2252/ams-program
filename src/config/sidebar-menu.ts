@@ -5,6 +5,9 @@ export interface MenuItem {
   active: boolean;
   to: string;
   permission?: string;
+  // จำกัดให้เห็นเฉพาะบาง role — ต้องตรงกับ meta.roles ของ route เดียวกันใน router.ts
+  // (ไม่ใส่ = ทุก role เห็น) ซ่อนเมนูเฉย ๆ ไม่ได้กันเข้าหน้า คนละชั้นกับ router guard/backend
+  roles?: string[];
 }
 
 // ★ to ต้องเป็น absolute path (นำด้วย "/") เสมอ — router-link resolve relative path
@@ -15,7 +18,7 @@ export const menuItems: MenuItem[] = [
   {
     name: "dashboard",
     label: "Dashboard",
-    icon: "mdi-light:home",
+    icon: "lucide:layout-dashboard",
     active: true,
     to: "/dashboard",
     permission: "asset-request:view",
@@ -23,7 +26,7 @@ export const menuItems: MenuItem[] = [
   {
     name: "assets",
     label: "Create New Asset",
-    icon: "qlementine-icons:new-16",
+    icon: "lucide:file-plus-2",
     active: false,
     to: "/create",
     permission: "asset-request:view",
@@ -31,15 +34,15 @@ export const menuItems: MenuItem[] = [
   {
     name: "Asset Request",
     label: "Asset Requests",
-    icon: "qlementine-icons:file-16",
+    icon: "lucide:clipboard-list",
     to: "/assetrequest", // TODO: ยังไม่มีหน้าเพจจริง
     active: false,
-    permission: "asset-request:view",
+    roles: ["FINANCE","ADMIN"],
   },
   {
     name: "Asset Movements",
     label: "Asset Movements",
-    icon: "tabler:arrows-exchange",
+    icon: "lucide:arrow-left-right",
     to: "/asset-movements", // TODO: ยังไม่มีหน้าเพจจริง
     active: false,
     permission: "asset-movement:view",
@@ -47,7 +50,7 @@ export const menuItems: MenuItem[] = [
   {
     name: "Audit",
     label: "Audit",
-    icon: "icon-park-twotone:audit",
+    icon: "lucide:scan-search",
     to: "/audit", // TODO: ยังไม่มีหน้าเพจจริง
     active: false,
     permission: "audit:view",
@@ -55,10 +58,27 @@ export const menuItems: MenuItem[] = [
   {
     name: "My Assets",
     label: "My Assets",
-    icon: "bi:boxes",
+    icon: "lucide:boxes",
     to: "/my-assets", // TODO: ยังไม่มีหน้าเพจจริง
     active: false,
     permission: "my-assets:view",
+  },
+  {
+    name: "Asset Inventory",
+    label: "Asset Inventory",
+    icon: "lsicon:inventory-filled",
+    to: "/asset-inventory",
+    active: false,
+    // ไม่มี roles — ทุกคนค้นทะเบียนได้ (ตรงกับ route ที่ไม่มี meta.roles และ backend
+    // ที่ไม่มี requireRole ที่ GET /assets/inventory)
+  },
+    {
+    name: "Create User",
+    label: "Create User",
+    icon: "lucide:user-plus",
+    to: "/users/create",
+    active: false,
+    roles: ["ADMIN"],
   },
 ];
 

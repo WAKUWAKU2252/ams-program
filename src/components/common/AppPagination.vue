@@ -2,6 +2,7 @@
 // Pagination กลาง — คุมด้วย page/total/limit (ตรงกับ envelope Paginated<T> ของ backend)
 // ไม่ถือ state เอง: parent เป็นเจ้าของ page แล้วฟัง @update:page ไปโหลดหน้าใหม่
 import { computed } from 'vue'
+import { Icon } from '@iconify/vue'
 
 const props = defineProps<{
   page: number
@@ -39,38 +40,40 @@ function go(p: number) {
 
 <template>
   <!-- ซ่อนทั้งแถบถ้ามีหน้าเดียว -->
-  <nav v-if="totalPages > 1" class="flex items-center justify-center gap-1 select-none">
-    <button
-      type="button"
-      class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-100"
-      :disabled="page <= 1"
-      @click="go(page - 1)"
-    >
-      <i class="fa-solid fa-chevron-left" />
-    </button>
-
-    <template v-for="(p, i) in pages" :key="i">
-      <span v-if="p === '...'" class="px-2 text-gray-400">…</span>
+  <nav v-if="totalPages > 1" class="flex select-none justify-center">
+    <div class="join">
       <button
-        v-else
         type="button"
-        class="min-w-[36px] rounded-lg border px-3 py-1.5 text-sm"
-        :class="p === page
-          ? 'border-[var(--primary-color)] bg-[var(--primary-color)] text-white'
-          : 'border-gray-300 hover:bg-gray-100'"
-        @click="go(p)"
+        class="btn btn-sm join-item"
+        aria-label="หน้าก่อนหน้า"
+        :disabled="page <= 1"
+        @click="go(page - 1)"
       >
-        {{ p }}
+        <Icon icon="lucide:chevron-left" />
       </button>
-    </template>
 
-    <button
-      type="button"
-      class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-40 hover:bg-gray-100"
-      :disabled="page >= totalPages"
-      @click="go(page + 1)"
-    >
-      <i class="fa-solid fa-chevron-right" />
-    </button>
+      <template v-for="(p, i) in pages" :key="i">
+        <button v-if="p === '...'" type="button" class="btn btn-sm join-item btn-disabled">…</button>
+        <button
+          v-else
+          type="button"
+          class="btn btn-sm join-item"
+          :class="{ 'btn-active btn-primary': p === page }"
+          @click="go(p)"
+        >
+          {{ p }}
+        </button>
+      </template>
+
+      <button
+        type="button"
+        class="btn btn-sm join-item"
+        aria-label="หน้าถัดไป"
+        :disabled="page >= totalPages"
+        @click="go(page + 1)"
+      >
+        <Icon icon="lucide:chevron-right" />
+      </button>
+    </div>
   </nav>
 </template>

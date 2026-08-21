@@ -1,6 +1,7 @@
 <script setup lang="ts">
 
 import { ref, watch, onUnmounted } from 'vue'
+import { Icon } from '@iconify/vue'
 import Searching from './Searching.vue'
 import ShowPONumber from './Showponumber.vue'
 import type { PurchaseOrderSummary } from '@/services/purchaseOrder.service'
@@ -72,124 +73,91 @@ async function onCreateClick() {
   }
 }
 
+// ไม่ต้องล็อก scroll เอง — daisyUI ทำให้แล้วผ่าน :root:has(.modal.modal-open)
+// (ล็อกที่ :root พร้อม scrollbar-gutter: stable ล็อกเองที่ body จะทำให้หน้าเลื่อนเพราะ scrollbar หาย)
 watch(
   () => props.open,
   (isOpen) => {
-    if (isOpen) {
-      document.addEventListener('keydown', onKeydown)
-      document.body.style.overflow = 'hidden' // กันหน้าเบื้องหลัง scroll
-    } else {
-      document.removeEventListener('keydown', onKeydown)
-      document.body.style.overflow = ''
-    }
+    if (isOpen) document.addEventListener('keydown', onKeydown)
+    else document.removeEventListener('keydown', onKeydown)
   },
 )
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
-  document.body.style.overflow = ''
 })
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="modal-fade">
-      <div
-        v-if="open"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-        @mousedown.self="close"
-      >
-        <div
-          class="flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
-          :class="maxWidth ?? 'max-w-2xl'"
-        >
-          <!-- header — วางโครงเดียวกับ AppConfirmDialog: ไอคอนวงกลม + หัวข้อ + คำอธิบาย -->
-          <div class="flex items-start justify-between gap-4 px-6 pt-5 pb-4 sm:p-6 sm:pb-4">
-              <slot name="header">
-                <div class="flex flex-1 items-start gap-4">
-                  <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xl text-blue-500">
-                    <i class="fa-solid fa-file-circle-plus" />
-                  </div>
-                  <div>
-                    <h3 class="text-lg font-semibold leading-6 text-gray-900">
-                      Create New Request
-                    </h3>
-                    <p class="mt-1 text-sm text-gray-500">
-                      สร้างคำขอลงทะเบียนใหม่ — เลือก PO ที่ต้องการลงทะเบียนสินทรัพย์
-                    </p>
-                  </div>
-                </div>
-              </slot>
-
-              <button
-                type="button"
-                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-500 disabled:opacity-40"
-                aria-label="Close"
-                :disabled="creating"
-                @click="close"
+    <div class="modal backdrop-blur-sm" :class="{ 'modal-open': open }" role="dialog" aria-modal="true">
+      <div class="modal-box" :class="maxWidth ?? 'max-w-2xl'">
+        <!-- header — วางโครงเดียวกับ AppConfirmDialog: ไอคอนวงกลม + หัวข้อ + คำอธิบาย -->
+        <div class="flex items-start justify-between gap-4">
+          <slot name="header">
+            <div class="flex flex-1 items-start gap-4">
+              <div
+                class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-info/10 text-xl text-info"
               >
-                <i class="fa-solid fa-xmark text-base" />
-              </button>
+                <Icon icon="lucide:file-plus-2" />
+              </div>
+              <div class="text-left">
+                <h3 class="text-lg font-semibold">Create New Request</h3>
+                <p class="mt-1 text-sm text-base-content/60">
+                  สร้างคำขอลงทะเบียนใหม่ — เลือก PO ที่ต้องการลงทะเบียนสินทรัพย์
+                </p>
+              </div>
             </div>
+          </slot>
 
-          <!-- body (scroll ได้เมื่อเนื้อหายาว) -->
-          <div class="min-h-[330px] max-h-[80vh] overflow-y-auto px-6 pb-4 sm:px-8">
-            <slot name="body"/>
-            <Searching
-              ref="searchRef"
-              width-class="w-[400px]"
-              label="PO No. / Vendor Name"
-              class="mt-4"
-              :invalid="unSelect && !selectedPO"
-              @select="selectPO"
-            />
-            <p v-if="unSelect && !selectedPO" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-              *กรุณาเลือก PO ก่อนกด Create
-            </p>
-           
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm btn-circle"
+            aria-label="Close"
+            :disabled="creating"
+            @click="close"
+          >
+            <Icon icon="lucide:x" />
+          </button>
+        </div>
 
-            <p v-if="detailError" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{{ detailError }}</p>
-
-            <div class="mt-6">
-              <ShowPONumber :selectedPO="selectedPO" @clear="clearSelectedPO" />
-            </div>
+        <!-- body (scroll ได้เมื่อเนื้อหายาว) -->
+        <div class="min-h-[330px] py-4">
+          <slot name="body" />
+          <Searching
+            ref="searchRef"
+            label="PO No. / Vendor Name"
+            :invalid="unSelect && !selectedPO"
+            @select="selectPO"
+          />
+          <div v-if="unSelect && !selectedPO" role="alert" class="alert alert-error alert-soft mt-2">
+            <Icon icon="lucide:circle-alert" />
+            <span>กรุณาเลือก PO ก่อนกด Create</span>
           </div>
-          
 
-          <!-- footer — แถบเทาและปุ่มชุดเดียวกับ AppConfirmDialog (ปุ่มหลักอยู่ขวาสุด) -->
-          <div class="gap-2 bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
-            <slot name="footer" />
-            <button
-              type="button"
-              class="inline-flex w-full justify-center rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-              :disabled="creating"
-              @click="onCreateClick"
-            >
-              <i v-if="creating" class="fa-solid fa-spinner animate-spin mr-2 mt-0.5" />Create
-            </button>
-            <button
-              type="button"
-              class="mt-3 inline-flex w-full justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:mt-0 sm:w-auto"
-              :disabled="creating"
-              @click="close"
-            >
-              ยกเลิก
-            </button>
+          <div v-if="detailError" role="alert" class="alert alert-error alert-soft mt-2">
+            <Icon icon="lucide:circle-alert" />
+            <span>{{ detailError }}</span>
+          </div>
+
+          <div class="mt-6">
+            <ShowPONumber :selectedPO="selectedPO" @clear="clearSelectedPO" />
           </div>
         </div>
+
+        <div class="modal-action">
+          <slot name="footer" />
+          <button type="button" class="btn btn-ghost" :disabled="creating" @click="close">
+            ยกเลิก
+          </button>
+          <button type="button" class="btn btn-primary" :disabled="creating" @click="onCreateClick">
+            <span v-if="creating" class="loading loading-spinner loading-sm"></span>
+            Create
+          </button>
+        </div>
       </div>
-    </Transition>
+
+      <div class="modal-backdrop" @click="close"></div>
+    </div>
   </Teleport>
 </template>
-
-<style scoped>
-/* จังหวะเดียวกับ AppConfirmDialog (0.2s) — เปิดคนละกล่องแล้วความรู้สึกต้องเหมือนกัน */
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.modal-fade-enter-from,
-.modal-fade-leave-to {
-  opacity: 0;
-}
-</style>

@@ -40,25 +40,23 @@ function clearSelectedPO() {
 </script>
 
 <template>
-    <div class="card">
-        <div class="flex flex-col items-start min-w-0 w-full">
-            <h2 class="text-xl text-[var(--primary-color)] text-left">
-                รายละเอียดใบสั่งซื้อ Purchase Order
-            </h2>
+    <div class="card bg-base-100 shadow-sm">
+        <div class="card-body items-start gap-4 text-left">
+            <div class="w-full min-w-0">
+                <h2 class="card-title">รายละเอียดใบสั่งซื้อ Purchase Order</h2>
+                <p class="mb-4 text-sm text-base-content/70">ค้นหาและเลือกใบสั่งซื้อจากระบบ*</p>
 
-            <p class="mb-4 text-sm text-[var(--secondary-color)] text-left">
-                ค้นหาและเลือกใบสั่งซื้อจากระบบ*
-            </p>
+                <PurchaseOrderSearch ref="searchRef" @select="selectPO" />
 
-            <PurchaseOrderSearch ref="searchRef" @select="selectPO" />
+                <p v-if="loadingDetail" class="mt-2 flex items-center gap-2 text-sm text-base-content/70">
+                  <span class="loading loading-spinner loading-xs"></span>กำลังโหลดรายละเอียด PO...
+                </p>
+                <div v-if="detailError" role="alert" class="alert alert-error alert-soft mt-2">
+                  <span>{{ detailError }}</span>
+                </div>
+            </div>
 
-            <p v-if="loadingDetail" class="mt-2 text-sm text-[var(--secondary-color)]">
-              <i class="fa-solid fa-spinner animate-spin mr-1" />กำลังโหลดรายละเอียด PO...
-            </p>
-            <p v-if="detailError" class="mt-2 text-sm text-red-500">{{ detailError }}</p>
+            <ShowPONumber :selectedPO="selectedPO" @clear="clearSelectedPO" />
         </div>
-    <ShowPONumber
-    :selectedPO="selectedPO"
-    @clear="clearSelectedPO"/>
     </div>
 </template>

@@ -56,7 +56,9 @@ const { files, error, onFileChange, onDrop, removeFile } = useFileAttachment(pro
         @drop="onDrop"
       />
 
-      <p v-if="error" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{{ error }}</p>
+      <div v-if="error" role="alert" class="alert alert-error alert-soft">
+        <span>{{ error }}</span>
+      </div>
 
       <FileAttachList
         :files="files"

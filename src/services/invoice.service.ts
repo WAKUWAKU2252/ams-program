@@ -4,7 +4,7 @@
 //   1. POST /uploads (multipart, entityKind=INVOICE) -> ได้ attachmentId
 //   2. PATCH /grpo/:id/invoice { attachmentId }        -> ผูกไฟล์เข้ารอบ
 // ดูไฟล์ผ่าน GET /uploads/:id/file (ผ่าน authGuard จึงต้องแนบ token เอง → fetch เป็น blob)
-import { request, BASE_URL } from './httpClient';
+import { request, BASE_URL, ApiError } from './httpClient';
 import { getToken } from './auth.token';
 
 interface UploadResponse {
@@ -19,7 +19,14 @@ export async function uploadInvoice(file: File): Promise<string> {
   form.append('entityKind', 'INVOICE');
   form.append('files', file);
   const res = await request<UploadResponse>('/uploads', { method: 'POST', body: form });
-  return res.files[0].id;
+
+  // ตอบ 2xx แต่ files ว่าง = อัปโหลดผ่านแต่ไม่ได้ id กลับมา ผูกเข้ากับ GRPO ต่อไม่ได้อยู่ดี
+  // ถ้าปล่อยให้ .id พังเองจะได้ TypeError ที่ผู้เรียกแปลเป็น "แนบ invoice ไม่สำเร็จ"
+  // ก้อนกลาง ๆ แล้วไล่ต้นเหตุไม่ได้ว่าเป็นที่ response ผิดรูป ไม่ใช่ที่การอัปโหลด
+  const uploaded = res.files[0];
+  if (!uploaded) throw new ApiError('อัปโหลดสำเร็จแต่ไม่ได้รับข้อมูลไฟล์กลับมา', 500);
+
+  return uploaded.id;
 }
 
 /** ผูก invoice ที่อัปโหลดแล้วเข้ากับรอบ GRPO */

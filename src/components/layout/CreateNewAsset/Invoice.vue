@@ -15,15 +15,10 @@ const { files, error, onFileChange, onDrop, removeFile } = useFileAttachment(mod
 </script>
 
 <template>
-  <div class="card">
-    <div>
-      <h2 class="text-xl text-[var(--primary-color)] text-left">
-        1. Invoice
-      </h2>
-
-      <p class="mb-4 text-sm text-[var(--secondary-color)] text-left">
-        แนบเอกสารใบแจ้งหนี้
-      </p>
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body items-start text-left">
+      <h2 class="card-title">1. Invoice</h2>
+      <p class="mb-2 text-sm text-base-content/70">แนบเอกสารใบแจ้งหนี้</p>
 
       <Attachfilecard
         :module-key="moduleKey"
@@ -33,13 +28,12 @@ const { files, error, onFileChange, onDrop, removeFile } = useFileAttachment(mod
         @drop="onDrop"
       />
 
-      <p v-if="error" class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-        {{ error }}
-      </p>
+      <div v-if="error" role="alert" class="alert alert-error alert-soft mt-2">
+        <span>{{ error }}</span>
+      </div>
+
+      <!-- รายการไฟล์: รูปโชว์ภาพจริง / PDF โชว์ไอคอน + ชื่อ + ขนาด -->
+      <FileAttachList class="w-full" :files="files" @remove="removeFile" />
     </div>
-
-    <!-- รายการไฟล์: รูปโชว์ภาพจริง / PDF โชว์ไอคอน + ชื่อ + ขนาด -->
-    <FileAttachList :files="files" @remove="removeFile" />
-
   </div>
 </template>

@@ -3,8 +3,5 @@
 </script>
 
 <template>
-  <div class="p-4">
-    <h1 class="text-xl font-semibold">Asset Request</h1>
-    <!-- TODO: ตารางคำขอ (ลงทะเบียน/ย้าย) -->
-  </div>
+      <router-view />
 </template>

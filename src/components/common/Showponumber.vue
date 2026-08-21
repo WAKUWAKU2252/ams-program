@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PurchaseOrderSummary } from '@/services/purchaseOrder.service'
 import { formatDate } from '@/utils/date';
+import { Icon } from '@iconify/vue'
 
 // clearable: false = การ์ดอ่านอย่างเดียว (หน้า DraftForm — PO ของ draft เปลี่ยนไม่ได้)
 withDefaults(
@@ -18,30 +19,25 @@ const emit = defineEmits<{
 <template>
   <div
     v-if="selectedPO"
-    class="relative w-full min-w-0
-    bg-[var(--surface-bright)]
-    border-l-4 border-[var(--button-active)]
-    rounded-lg p-4 sm:p-6 pr-12
-    shadow-sm flex flex-col gap-1
-    transition-all hover:shadow-md"
+    class="card w-full min-w-0 border-l-4 border-primary bg-base-100 shadow-sm transition-shadow hover:shadow-md"
   >
-    <h5 class="text-base font-semibold text-[var(--primary-color)] text-left break-words">
-      PO NO. {{ selectedPO.poNumber }}
-    </h5>
-    <p class="text-sm text-[var(--secondary-color)] text-left break-words">
-      Vendor: {{ selectedPO.vendorName }}
-    </p>
-    <p class="text-sm text-[var(--secondary-color)] text-left">
-      PO Date: {{formatDate( selectedPO.poDate )}}
-    </p>
-    <button
-      v-if="clearable"
-      type="button"
-      class="absolute top-3 right-3 flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-red-500"
-      aria-label="Close"
-      @click="emit('clear')"
-    >
-      <i class="fa-solid fa-xmark block text-base"></i>
-    </button>
+    <div class="card-body gap-1 p-4 pr-12 sm:p-6 sm:pr-12">
+      <h5 class="card-title break-words text-base">PO NO. {{ selectedPO.poNumber }}</h5>
+      <p class="break-words text-left text-sm text-base-content/70">
+        Vendor: {{ selectedPO.vendorName }}
+      </p>
+      <p class="text-left text-sm text-base-content/70">
+        PO Date: {{ formatDate(selectedPO.poDate) }}
+      </p>
+      <button
+        v-if="clearable"
+        type="button"
+        class="btn btn-ghost btn-sm btn-circle absolute right-3 top-3"
+        aria-label="Clear"
+        @click="emit('clear')"
+      >
+        <Icon icon="lucide:x" />
+      </button>
+    </div>
   </div>
 </template>

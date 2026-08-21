@@ -24,23 +24,19 @@ const { files, error, onFileChange, onDrop, removeFile, formatSize } =
       @drop="onDrop"
     />
 
-    <p v-if="error" class="mt-2 text-sm text-red-500">
-      {{ error }}
-    </p>
+    <div v-if="error" role="alert" class="alert alert-error alert-soft mt-2">
+      <span>{{ error }}</span>
+    </div>
 
-    <ul v-if="files.length" class="mt-2 flex flex-col gap-1">
+    <ul v-if="files.length" class="list mt-2 rounded-box bg-base-100">
       <li
         v-for="(file, index) in files"
         :key="`${file.name}-${index}`"
-        class="flex items-center justify-between gap-2 rounded-md border border-[var(--line-color)] px-3 py-1.5 text-sm"
+        class="list-row items-center py-2"
       >
-        <span class="truncate text-[var(--primary-color)]">{{ file.name }}</span>
-        <span class="shrink-0 text-xs text-[var(--third-color)]">{{ formatSize(file.size) }}</span>
-        <button
-          type="button"
-          class="shrink-0 cursor-pointer border-none bg-transparent text-xs text-[#ef4444] hover:underline"
-          @click="removeFile(index)"
-        >
+        <span class="truncate text-sm">{{ file.name }}</span>
+        <span class="shrink-0 text-xs text-base-content/50">{{ formatSize(file.size) }}</span>
+        <button type="button" class="btn btn-ghost btn-xs text-error" @click="removeFile(index)">
           Remove
         </button>
       </li>

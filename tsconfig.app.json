@@ -8,7 +8,9 @@
 
     // Path mapping for cleaner imports.
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // ต้องตรงกับ alias ใน vite.config.ts — ดูเหตุผลเต็มที่นั่น
+      "@contract/asset-number": ["../ams-backend/src/common/asset-number.ts"]
     },
 
     // `vue-tsc --build` produces a .tsbuildinfo file for incremental type-checking.

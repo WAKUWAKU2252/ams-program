@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { Icon } from '@iconify/vue'
 import { listPurchaseOrders } from '@/services/purchaseOrder.service'
 import type { PurchaseOrderSummary } from '@/services/purchaseOrder.service'
 
@@ -13,7 +14,7 @@ const props = withDefaults(
     // parent สั่งให้ขอบ input แดง (เช่น validation ยังไม่ได้เลือก PO)
     invalid?: boolean
   }>(),
-  { widthClass: 'w-full max-w-[560px]' },
+  { widthClass: 'w-full max-w-lg' },
 )
 
 const emit = defineEmits<{
@@ -135,61 +136,48 @@ defineExpose({
   <!-- ตัวนอก: คุมความกว้าง + เป็นขอบเขต click-outside (ผ่าน searchRef) -->
   <div ref="searchRef" :class="props.widthClass">
     <!-- label อยู่นอกกรอบ relative — ไม่ไปดึงจุดกึ่งกลางของ icon/dropdown -->
-    <label
-      v-if="label"
-      for="po-search"
-      class="mb-1 block text-left text-sm font-medium text-gray-700"
-    >
+    <label v-if="label" for="po-search" class="label mb-1 text-sm font-medium">
       {{ label }}
     </label>
 
     <!-- กรอบ relative เฉพาะ input+icon+dropdown → icon/dropdown อิงจาก input เท่านั้น -->
     <div class="relative">
-      <input
-        id="po-search"
-        type="text"
-        v-model="query"
-        @keyup.enter="searchPO"
-        @focus="isOpen = true"
-        @input="isOpen = true"
-        placeholder="Search PO number..."
-        :class="[
-          'w-full rounded-[16px] border px-3 py-2 pr-10',
-          notFound || invalid ? 'border-red-500 shake' : 'border-gray-300',
-        ]"
-      />
-
-      <!-- Icon -->
-      <button
-        type="button"
-        class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-        aria-label="Search"
-        @click="searchPO"
+      <label
+        class="input w-full"
+        :class="notFound || invalid ? 'input-error shake' : ''"
       >
-        <i v-if="loading" class="fa-solid fa-spinner animate-spin" />
-        <i v-else class="fa-solid fa-magnifying-glass" />
-      </button>
+        <input
+          id="po-search"
+          v-model="query"
+          type="text"
+          placeholder="Search PO number..."
+          @keyup.enter="searchPO"
+          @focus="isOpen = true"
+          @input="isOpen = true"
+        />
+        <button type="button" class="btn btn-ghost btn-xs btn-square" aria-label="Search" @click="searchPO">
+          <span v-if="loading" class="loading loading-spinner loading-xs"></span>
+          <Icon v-else icon="lucide:search" class="opacity-60" />
+        </button>
+      </label>
 
-      <!-- Dropdown -->
+      <!-- Dropdown ผลค้นหา -->
       <ul
         v-if="isOpen && results.length"
-        class="absolute z-10 mt-1 w-full rounded-xl border bg-white shadow-lg text-left"
+        class="menu absolute z-20 mt-1 w-full rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
       >
-        <li
-          v-for="po in results"
-          :key="po.poNumber"
-          @mousedown.prevent="selectPO(po)"
-          class="cursor-pointer px-4 py-2 hover:bg-gray-100"
-        >
-          <span class="font-medium text-[var(--primary-color)]">{{ po.poNumber }}</span>
-          <span class="ml-2 text-sm text-gray-500">{{ po.vendorName }}</span>
+        <li v-for="po in results" :key="po.poNumber">
+          <a @mousedown.prevent="selectPO(po)">
+            <span class="font-mono font-medium">{{ po.poNumber }}</span>
+            <span class="truncate text-sm text-base-content/60">{{ po.vendorName }}</span>
+          </a>
         </li>
       </ul>
 
       <!-- ไม่พบผลลัพธ์ระหว่างพิมพ์ (dropdown) -->
       <div
         v-if="isOpen && !loading && query && !results.length"
-        class="absolute z-10 mt-1 w-full rounded-xl border bg-white px-4 py-3 text-sm text-gray-400 shadow-lg truncate"
+        class="absolute z-20 mt-1 w-full truncate rounded-box border border-base-300 bg-base-100 px-4 py-3 text-sm text-base-content/50 shadow-lg"
       >
         ไม่พบ PO "{{ query }}"
       </div>

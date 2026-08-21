@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './router'
-import { getToken, isTokenValid, clearToken } from '@/services/auth.token'
+import { getToken, isTokenValid, clearToken, getTokenRole } from '@/services/auth.token'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -15,7 +15,20 @@ router.beforeEach((to) => {
 
   if (!isTokenValid(getToken())) {
     clearToken()
-    return { path: '/login' }
+    // พากลับมาที่หน้าเดิมหลังล็อกอินเสร็จ (login.vue อ่าน query.redirect อยู่แล้ว)
+    //
+    // ★ จำเป็นกับ flow สแกน QR: คนเดินตรวจนับสแกนสติกเกอร์บนเครื่อง → มือถือยังไม่ได้
+    //   ล็อกอิน → เด้งไป login ถ้าไม่พก path มาด้วย พอล็อกอินเสร็จจะไปโผล่ dashboard
+    //   แล้วเขาต้องเดินกลับไปสแกนใหม่ ทั้งที่เพิ่งสแกนไปเมื่อกี้
+    return { path: '/login', query: { redirect: to.fullPath } }
+  }
+
+  // หน้าที่จำกัด role (meta.roles) — role ไม่ตรงให้กลับ dashboard แทนที่จะปล่อยให้เห็นฟอร์ม
+  // แล้วไปโดน 403 ตอนกดบันทึก; นี่เป็นแค่ UI guard ตัวบังคับจริงคือ requireRole ฝั่ง backend
+  const roles = to.meta.roles as string[] | undefined
+  if (roles?.length) {
+    const role = getTokenRole()
+    if (!role || !roles.includes(role)) return { path: '/dashboard' }
   }
 })
 

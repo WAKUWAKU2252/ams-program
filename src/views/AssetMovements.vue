@@ -4,8 +4,8 @@
 </script>
 
 <template>
-  <div class="p-4">
-    <h1 class="text-xl font-semibold text-[var(--primary-color)]">Asset Movements</h1>
-    <p class="mt-2 text-sm text-[var(--secondary-color)]">หน้านี้กำลังพัฒนา</p>
+  <div class="p-6 text-left">
+    <h1 class="text-2xl font-semibold">Asset Movements</h1>
+    <p class="mt-2 text-sm text-base-content/60">หน้านี้กำลังพัฒนา</p>
   </div>
 </template>

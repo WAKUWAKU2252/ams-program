@@ -2,24 +2,18 @@
 import ubislogo from '@/assets/UBIS.png'
 import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
+import { Icon } from '@iconify/vue'
 
 import SidebarItem from './SidebarItem.vue'
-import UserItemComponent from './UserItem.vue'
 import { menuItems } from '@/config/sidebar-menu'
-import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
+import { getTokenRole } from '@/services/auth.token'
 
 const props = defineProps<{
   userPermissions?: string[]
 }>()
 
-const uiStore = useUiStore()
 const authStore = useAuthStore()
-
-const {
-  isSidebarCollapsed,
-  isProfileMenuOpen,
-} = storeToRefs(uiStore)
 
 // ผู้ใช้ที่ล็อกอินอยู่ — มาจาก Auth store (service คืน mock ชั่วคราวจนกว่า backend auth พร้อม)
 const { user } = storeToRefs(authStore)
@@ -28,11 +22,17 @@ onMounted(() => {
   if (!authStore.user) authStore.getCurrentUser().catch(() => {})
 })
 
+// role มาจาก token (ไม่ต้องรอ /auth/me โหลดเสร็จ) เมนูจึงไม่กะพริบตอนเข้าหน้าครั้งแรก
+const currentRole = computed(() => getTokenRole())
+
 const filteredMenu = computed(() => {
   const permissions = props.userPermissions
-  if (!permissions) return menuItems
 
   return menuItems.filter((item) => {
+    // เมนูเฉพาะบาง role (เช่น Create User = ADMIN) — role ไม่ตรงก็ไม่ต้องแสดง
+    if (item.roles?.length && !item.roles.includes(currentRole.value ?? '')) return false
+
+    if (!permissions) return true
     if (!item.permission) return true
 
     return permissions.includes(item.permission)
@@ -41,52 +41,33 @@ const filteredMenu = computed(() => {
 </script>
 
 <template>
-  <aside
-    class="sticky top-0 h-screen transition-[width] duration-300 ease-in-out"
-  >
-    <div class="grid h-full grid-rows-[auto_1fr_auto] bg-[var(--Side-background)]">
-      <div class="grid justify-items-center items-center">
-        <img
-          :src="ubislogo"
-          draggable="false"
-          class="h-auto transition-[width,padding] duration-300 ease-in-out"
-        />
-        <p>Assets Management System</p>
-      </div>
+  <aside class="grid h-full min-h-screen w-64 grid-rows-[auto_1fr_auto] bg-base-200 text-base-content">
+    <div class="grid justify-items-center gap-1 px-8 pb-3 pt-7">
+      <img :src="ubislogo" draggable="false" alt="UBIS" class="h-auto w-40" />
+      <p class="text-center text-xs text-base-content/60">Assets Management System</p>
+    </div>
 
-      <nav class="mt-4 overflow-y-auto">
-        <ul>
-          <li v-for="item in filteredMenu" :key="item.name">
-            <SidebarItem
-              :item="item"
-            />
-          </li>
-        </ul>
-      </nav>
+    <nav class="overflow-y-auto">
+      <ul class="menu w-full gap-1 px-3">
+        <li v-for="item in filteredMenu" :key="item.name">
+          <SidebarItem :item="item" />
+        </li>
+      </ul>
+    </nav>
 
-      
-
-      <div class="pb-[30px] text-center">
-        <div class="border-t border-[#cecece] mx-5 my-2.5"></div>
-    <div>
-        {{ authStore.user?.displayName}} id: {{authStore.user?.id  }}
-      </div>
+    <div class="px-3 pb-6">
+      <div class="divider my-2"></div>
+      <div class="flex items-center gap-3 rounded-box px-3 py-2">
+        <div class="avatar avatar-placeholder">
+          <div class="w-9 rounded-full bg-primary text-primary-content">
+            <Icon icon="lucide:user" class="text-lg" />
+          </div>
+        </div>
+        <div class="min-w-0 text-left">
+          <p class="truncate text-sm font-medium">{{ user?.displayName ?? '—' }}</p>
+          <p class="truncate text-xs text-base-content/60">ID: {{ user?.employeeId ?? '—' }}</p>
+        </div>
       </div>
     </div>
   </aside>
 </template>
-
-<style scoped>
-
-.logo {
-  display: grid;
-  justify-items: center;
-  align-items: center;
-}
-
-img {
-  width: 200px;
-  height: auto;
-  padding: 30px 40px 10px;
-}
-</style>

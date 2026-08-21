@@ -3,8 +3,8 @@
 </script>
 
 <template>
-  <div class="p-4">
-    <h1 class="text-xl font-semibold">Audit</h1>
+  <div class="p-6 text-left">
+    <h1 class="text-2xl font-semibold">Audit</h1>
     <!-- TODO: รายการสุ่มตรวจ + สแกน QR -->
   </div>
 </template>

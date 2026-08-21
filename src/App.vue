@@ -8,6 +8,18 @@ import { useAuthStore } from './stores/auth'
 const connection = useConnectionStore()
 const auth = useAuthStore()
 
+// สีของ banner ตามสถานะสาย SSE — online เขียว, กำลังต่อ เหลือง, หลุด แดง
+const statusAlertClass = computed(() => {
+  switch (connection.status) {
+    case 'connected':
+      return 'alert-success'
+    case 'connecting':
+      return 'alert-warning'
+    default:
+      return 'alert-error'
+  }
+})
+
 // ต่อ SSE เฉพาะตอนมี token ที่ยังไม่หมดอายุ (= login แล้ว) — login/reload = ต่อ, logout/หมดอายุ = ตัดสาย
 // immediate: reload ที่ยังมี token valid อยู่ให้ต่อกลับเองโดยไม่ต้อง login ซ้ำ
 const loggedIn = computed(() => isTokenValid(auth.token))
@@ -37,35 +49,20 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div id="app" data-theme="emerald">
+  <!-- id="app" อยู่ที่ mount point ใน index.html แล้ว — ไม่ซ้ำที่นี่ (id ต้องไม่ซ้ำในหน้า) -->
+  <div class="min-h-screen bg-base-200 text-base-content">
     <Transition name="sse-fade">
-      <div v-if="visible" class="sse-status">{{ connection.statusText }}</div>
+      <div v-if="visible" class="toast toast-top toast-center z-[9999] pointer-events-none">
+        <div role="alert" class="alert alert-soft py-2 text-sm" :class="statusAlertClass">
+          <span>{{ connection.statusText }}</span>
+        </div>
+      </div>
     </Transition>
     <RouterView />
   </div>
 </template>
 
 <style scoped>
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  text-align: center;
-  margin-top: 0;
-}
-
-.sse-status {
-  position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 9999;
-  padding: 6px 30px;
-  border-radius: 9999px;
-  font-size: 13px;
-  background: rgba(0, 0, 0, 0.708);
-  color: #fff;
-  pointer-events: none;
-}
-
 .sse-fade-enter-active,
 .sse-fade-leave-active {
   transition: opacity 0.25s ease;

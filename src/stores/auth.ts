@@ -2,14 +2,15 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authService } from '@/services/auth.service'
 import { getToken, setToken as persistToken, clearToken, isTokenValid } from '@/services/auth.token'
-import type { User } from '@/types/user'
+import type { AuthUser } from '@/types/user'
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref<User | null>(null)
+  const user = ref<AuthUser | null>(null)
 
-  // token SSOT อยู่ที่ auth.token.ts (localStorage คีย์ 'authToken' — คีย์เดียวกับที่ httpClient/router guard ใช้)
-  // store ถือแค่ mirror reactive สำหรับ isAuthenticated — ห้ามเขียน localStorage เอง/ห้ามใช้คีย์อื่น
-  // (เดิม store ใช้คีย์ 'token' คนละตัวกับ httpClient จึง auth จริงกับ store ไม่ตรงกัน)
+  // token SSOT อยู่ที่ auth.token.ts (localStorage คีย์ 'authToken:<tabId>' แยกต่อแท็บ — ช่องเดียว
+  // กับที่ httpClient/router guard/SSE ใช้) store ถือแค่ mirror reactive สำหรับ isAuthenticated
+  // ★ ห้ามเขียน localStorage เอง/ห้ามประกอบคีย์เอง — ต้องผ่าน setToken/clearToken เท่านั้น
+  //   (เดิม store ใช้คีย์ 'token' คนละตัวกับ httpClient จึง auth จริงกับ store ไม่ตรงกัน)
   const token = ref<string | null>(getToken())
 
   const isAuthenticated = computed(() => isTokenValid(token.value) && !!user.value)

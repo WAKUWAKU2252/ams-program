@@ -3,6 +3,7 @@
 // component นี้ไม่รู้จัก logic validate/เก็บไฟล์เลย — ส่ง event ออกไปให้ผู้เรียกจัดการ (useFileAttachment)
 // จึงเอาไปใช้ซ้ำได้ทั้ง invoice และรูป asset ด้วยกติกาคนละชุด
 import { ref } from 'vue';
+import { Icon } from '@iconify/vue';
 
 interface Props {
   moduleKey: string;
@@ -51,7 +52,7 @@ function onDrop(event: DragEvent) {
 
 <template>
   <div
-    class="card-body flex w-full justify-start"
+    class="w-full"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent
     @dragleave.prevent="onDragLeave"
@@ -59,24 +60,23 @@ function onDrop(event: DragEvent) {
   >
     <label
       :for="`fileInput-${moduleKey}`"
-      class="grid min-h-[100px] w-full grid-cols-[30px_1fr] place-items-center gap-[5px] rounded-2xl border-2 border-dashed px-10 py-7 text-center transition-all duration-200 ease-in-out"
+      class="grid min-h-[100px] w-full grid-cols-[30px_1fr] place-items-center gap-2 rounded-box border-2 border-dashed px-10 py-7 text-center transition-all duration-200 ease-in-out"
       :class="[
         disabled
-          ? 'cursor-not-allowed border-[#e5e7eb] bg-[#f9fafb] opacity-50'
-          : 'cursor-pointer hover:border-[#9ca3af] hover:bg-[#f3f4f6]',
+          ? 'cursor-not-allowed border-base-300 bg-base-200 opacity-50'
+          : 'cursor-pointer hover:border-primary/50 hover:bg-base-200',
         isDragging && !disabled
-          ? 'border-[var(--primary-color)] bg-blue-50'
-          : 'border-[#d1d5db] bg-[#f9fafb]',
+          ? 'border-primary bg-primary/5 text-primary'
+          : 'border-base-300 bg-base-200 text-base-content/70',
       ]"
     >
-      <i
-        class="fa-solid transition-transform duration-200"
-        :class="isDragging && !disabled
-          ? 'fa-file-arrow-down scale-125 text-[var(--primary-color)]'
-          : 'fa-arrow-up-from-bracket'"
-      ></i>
+      <Icon
+        :icon="isDragging && !disabled ? 'lucide:file-down' : 'lucide:upload'"
+        class="text-xl transition-transform duration-200"
+        :class="{ 'scale-125': isDragging && !disabled }"
+      />
 
-      <span :class="isDragging && !disabled ? 'text-[var(--primary-color)]' : 'text-[var(--secondary-color)]'">
+      <span class="text-sm">
         <template v-if="isDragging && !disabled">วางไฟล์ที่นี่ได้เลย</template>
         <template v-else>
           Click to upload or drag and drop PDF, JPG, PNG (Max. {{ maxSizeMB }}MB)
