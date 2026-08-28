@@ -12,7 +12,6 @@ import { formatDate } from '@/utils/date'
 import { requestStatusMeta } from '@/utils/request-status'
 import type { RejectedPiece } from '@/types/rejected-piece'
 import { Icon } from '@iconify/vue'
-import { getPurchaseOrderByNumber } from '@/services/purchaseOrder.service'
 
 const props = defineProps<{
   requestId: string
@@ -93,25 +92,11 @@ const lockBanner = computed(() => {
 
 async function loadDraft() {
   try {
-    const detail = await getAssetRequest(Number(props.requestId))
-    draft.value = detail
-
-    if (detail?.poNumber) {
-      try {
-        const poData = await getPurchaseOrderByNumber(detail.poNumber)
-        if (draft.value && draft.value.purchaseOrder) {
-          // นำค่าที่ได้จาก Backend มายัดใส่ใน draft เพื่อให้หน้าเว็บนำไปใช้ต่อได้
-          // GET /asset-requests/:id คืน PO แถวดิบ ไม่มีข้อมูลหัวหน้าให้ ต้องดึงใบเต็มมาเติม
-          draft.value.purchaseOrder.departmentId = poData.departmentId
-          draft.value.purchaseOrder.managerId = poData.managerId
-          draft.value.purchaseOrder.managerFirstName = poData.managerFirstName
-          draft.value.purchaseOrder.managerLastName = poData.managerLastName
-          draft.value.purchaseOrder.manageremail = poData.manageremail
-        }
-      } catch (poErr) {
-        console.warn('ไม่สามารถดึงข้อมูล PO เพิ่มเติมได้:', poErr)
-      }
-    }
+    // GET /asset-requests/:id คืนแผนก/หัวหน้าของผู้ขอซื้อมาให้ในตัวแล้ว
+    // (เดิมต้องยิง GET /purchase-orders/:poNumber ซ้ำอีกรอบแล้วคัดลอกทีละช่องมายัดใส่
+    //  ซึ่งลืม departmentName ไปจริง ๆ แล้วค่าเป็น undefined โดยไม่มีอะไรฟ้อง —
+    //  ห้ามกลับไปทำแบบนั้นอีก ถ้าขาดช่องไหนให้ไปเพิ่มที่ backend)
+    draft.value = await getAssetRequest(Number(props.requestId))
 
     // เปิด presence ให้โหมด "แก้เฉพาะชิ้นที่ตีกลับ" ด้วย ไม่งั้น presenceState เป็น null
     // แล้ว editable จะ false ตลอด (ปุ่มแก้ไม่ติดทั้งที่ควรแก้ได้)
@@ -157,17 +142,8 @@ function scheduleRemoteRefresh() {
 async function refreshFromRemote() {
   try {
     // ไม่แตะ loading — จอไม่ควรกระพริบเป็นสปินเนอร์เพราะคนอื่นกดปุ่ม
-    const detail = await getAssetRequest(Number(props.requestId))
-    // เก็บข้อมูลหัวหน้าที่ loadDraft เติมไว้ — เส้นนี้ไม่ได้คืนมาให้ (ดู loadDraft)
-    const po = draft.value?.purchaseOrder
-    if (po && detail.purchaseOrder) {
-      detail.purchaseOrder.departmentId = po.departmentId
-      detail.purchaseOrder.managerId = po.managerId
-      detail.purchaseOrder.managerFirstName = po.managerFirstName
-      detail.purchaseOrder.managerLastName = po.managerLastName
-      detail.purchaseOrder.manageremail = po.manageremail
-    }
-    draft.value = detail
+    // ไม่ต้องเก็บข้อมูลแผนก/หัวหน้าข้ามรอบแล้ว — เส้นนี้คืนมาให้ครบเหมือน loadDraft
+    draft.value = await getAssetRequest(Number(props.requestId))
   } catch (e) {
     console.error('โหลดคำขอใหม่ไม่สำเร็จ:', e)
   }
@@ -327,7 +303,7 @@ onUnmounted(() => {
               </div>
 <div>
                 <p class="text-sm text-base-content/50">แผนก</p>
-                <p>{{ draft.purchaseOrder.departmentId}}</p>
+                <p>{{ draft.purchaseOrder.departmentName}}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">Vendor</p>

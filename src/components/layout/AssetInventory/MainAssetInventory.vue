@@ -21,36 +21,59 @@
 //    ซึ่งไม่ใช่ปีปัจจุบันเสมอไป (วัด 2026-08-20: 25% ของทะเบียน) ต้องติดป้ายปีคู่กับยอดเสมอ
 //    เหมือนหน้า My asset ไม่งั้นคนอ่านเลขปี 2022 เป็นมูลค่าวันนี้
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { Icon } from '@iconify/vue'
 import AppPagination from '@/components/common/AppPagination.vue'
+import AssetTable from '@/components/common/AssetTable.vue'
 import { getAssetInventory } from '@/services/asset.service'
 import type { InventoryItem } from '@/services/asset.service'
-import { listDepartments } from '@/services/master.service'
-import type { DepartmentOption } from '@/services/master.service'
-import { fileBlobUrl } from '@/services/attachment.service'
+import { listDepartments, listFiscalYears, listLocations } from '@/services/master.service'
+import type { DepartmentOption, MasterOption } from '@/services/master.service'
 import { ApiError } from '@/services/httpClient'
-import { formatDate } from '@/utils/date'
-import { formatMoney } from '@/utils/money'
-
-const router = useRouter()
+import AppAsset from '@/components/common/AppAsset.vue'
 
 const items = ref<InventoryItem[]>([])
 const total = ref(0)
 const page = ref(1)
-const limit = 20
+// หน้าละ 10 แถว — แถวสูงขึ้นเพราะคอลัมน์มูลค่าคงเหลือซ้อนปีบัญชีไว้ใต้ยอด
+// 20 แถวทำให้ต้องเลื่อนจอสองหน้ากว่าจะเจอแถบเลขหน้า
+const limit = 10
 const loading = ref(false)
 const loadError = ref('')
 
 /** ข้อความในช่องค้นหา — ยังไม่ใช่คำที่ยิงไปจริง (ดู debounce ข้างล่าง) */
 const searchText = ref('')
-const departmentId = ref<string>('')
+
+// ── ตัวกรอง ────────────────────────────────────────────────────────────────
+//
+// ทุกตัวเก็บเป็น string เพราะ <select>/<input> คืน string เสมอ แล้วแปลงตอนส่งให้ API
+// ที่เดียว ('' = ไม่กรอง) เก็บเป็น number แล้วต้องคอยระวัง 0 กับ '' ปนกันทุกจุดที่อ่าน
+const departmentId = ref('')
+const locationId = ref('')
+const status = ref('')
+const fiscalYear = ref('')
+const minNbv = ref('')
+const maxNbv = ref('')
+
 const departments = ref<DepartmentOption[]>([])
+const locations = ref<MasterOption[]>([])
+const fiscalYears = ref<number[]>([])
 
-const currentYear = new Date().getFullYear()
+/** ค่าใน enum asset_status ของ DB — ต้องตรงเป๊ะ ไม่งั้น backend ตอบ 422 */
+const STATUS_OPTIONS = [
+  { value: 'Active', label: 'Active' },
+  { value: 'Inactive', label: 'Inactive' },
+  { value: 'Under Maintenance', label: 'Under Maintenance' },
+  { value: 'Lost', label: 'Missing' },
+  { value: 'Disposed', label: 'Disposed' },
+]
 
-/** imageId -> blob URL — ไฟล์อยู่หลัง authGuard ใส่ src ตรง ๆ จะโดน 401 */
-const imageUrls = ref<Record<string, string>>({})
+/** '' → undefined, ตัวเลขที่แปลงไม่ได้ → undefined (กันช่องที่พิมพ์ค้างไว้ครึ่งทาง) */
+function num(value: string): number | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
 
 async function load() {
   loading.value = true
@@ -60,11 +83,15 @@ async function load() {
       page: page.value,
       limit,
       search: searchText.value,
-      departmentId: departmentId.value ? Number(departmentId.value) : undefined,
+      departmentId: num(departmentId.value),
+      locationId: num(locationId.value),
+      status: status.value || undefined,
+      fiscalYear: num(fiscalYear.value),
+      minNetBookValue: num(minNbv.value),
+      maxNetBookValue: num(maxNbv.value),
     })
     items.value = res.data
     total.value = res.total
-    await loadThumbnails(res.data)
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : 'โหลดรายการสินทรัพย์ไม่สำเร็จ'
     items.value = []
@@ -74,75 +101,63 @@ async function load() {
   }
 }
 
-/**
- * โหลดรูปทีละใบแบบไม่ให้ใบที่พังลากใบอื่นตาย
- *
- * รูปโหลดไม่ได้ไม่ใช่เรื่องคอขาดบาดตาย — ขึ้นไอคอนแทนแล้วไปต่อ ดีกว่าทั้งตารางค้างเพราะ
- * ไฟล์เดียวหาย (ไฟล์ถูกลบจาก disk แต่ imageId ยังอยู่เป็นเคสที่เกิดได้จริง)
- */
-async function loadThumbnails(list: InventoryItem[]) {
-  await Promise.all(
-    list.map(async (item) => {
-      if (!item.imageId || imageUrls.value[item.imageId]) return
-      try {
-        imageUrls.value[item.imageId] = await fileBlobUrl(item.imageId)
-      } catch {
-        // ปล่อยว่างไว้ ให้ template ขึ้นไอคอนแทน
-      }
-    }),
-  )
-}
-
-// blob URL ค้างใน memory จนกว่าจะ revoke — ออกจากหน้าแล้วไม่มีใครใช้ต่อ
-// ถ้าไม่คืนจะรั่วสะสมทุกครั้งที่เข้า-ออกหน้านี้ (ยิ่งหน้านี้เปลี่ยนหน้าบ่อยยิ่งสะสมเร็ว)
-onUnmounted(() => {
-  for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url)
-})
-
 onMounted(async () => {
-  // โหลดคู่กันไปเลย ไม่ต้องรอกัน — ตัวเลือกแผนกไม่ใช่เงื่อนไขของการโหลดตาราง
-  void loadDepartments()
+  // โหลดคู่กันไปเลย ไม่ต้องรอกัน — ตัวเลือกในกล่องกรองไม่ใช่เงื่อนไขของการโหลดตาราง
+  void loadFilterOptions()
   await load()
 })
 
 /**
- * ตัวเลือกแผนกมาจาก /master/departments ไม่ใช่จากผลลัพธ์ในหน้า
+ * ตัวเลือกในกล่องกรองมาจาก /master/* ไม่ใช่จากผลลัพธ์ในหน้า
  *
- * ต่างจาก Dashboard ที่อ่านจาก byDepartment ได้ — ที่นี่ข้อมูลมาทีละหน้า แผนกที่จะโผล่
- * จึงขึ้นกับว่าบังเอิญอยู่หน้าไหน ซึ่งใช้เป็นลิสต์ตัวกรองไม่ได้เลย
+ * ต่างจาก Dashboard ที่อ่านจาก byDepartment ได้ — ที่นี่ข้อมูลมาทีละหน้า แผนก/ที่ตั้ง
+ * ที่จะโผล่จึงขึ้นกับว่าบังเอิญอยู่หน้าไหน ซึ่งใช้เป็นลิสต์ตัวกรองไม่ได้เลย
+ *
+ * ★ แต่ละอันพังแยกกันได้ — ยิงพร้อมกันแล้ว catch ทีละตัว ไม่ใช้ Promise.all ที่
+ *   ตัวเดียวล้มแล้วลากที่เหลือหายไปด้วย กล่องที่โหลดไม่ได้จะเหลือแค่ตัวเลือก "ทั้งหมด"
+ *   ส่วนตารางยังค้นได้ตามปกติ
  */
-async function loadDepartments() {
-  try {
-    departments.value = await listDepartments()
-  } catch {
-    // เลือกแผนกไม่ได้ไม่ควรทำให้ทั้งหน้าพัง — ตารางยังค้นได้ตามปกติ
-  }
+function loadFilterOptions() {
+  void listDepartments()
+    .then((rows) => (departments.value = rows))
+    .catch(() => {})
+  void listLocations()
+    .then((rows) => (locations.value = rows))
+    .catch(() => {})
+  void listFiscalYears()
+    .then((rows) => (fiscalYears.value = rows))
+    .catch(() => {})
 }
 
-/**
- * หน่วงก่อนยิงตอนพิมพ์ค้น — ไม่งั้นพิมพ์ 10 ตัวอักษรได้ 10 request
- *
- * ★ ต้องรีเซ็ตกลับหน้า 1 ทุกครั้งที่เงื่อนไขเปลี่ยน: ค้างอยู่หน้า 5 แล้วพิมพ์ค้นจนเหลือ
- *   3 ชิ้น จะได้ตารางว่างทั้งที่มีผลลัพธ์ และแถบเลขหน้าก็หายไปด้วย (เหลือหน้าเดียว)
- *   = ไม่มีปุ่มให้กดกลับ ผู้ใช้ติดอยู่ตรงนั้นจนกว่าจะรีโหลดหน้า
- */
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
-watch(searchText, () => {
+/**
+ * ช่องที่ "พิมพ์" ต้องหน่วง ช่องที่ "กด" ไม่ต้อง
+ *
+ * คำค้นกับช่วงมูลค่าเป็นการพิมพ์ทีละตัวอักษร ถ้ายิงทุกครั้งจะได้ 10 request ต่อ 10 ตัวอักษร
+ * และช่วงมูลค่ายิ่งแย่กว่า เพราะระหว่างพิมพ์ "15000" จะยิงด้วยค่า 1, 15, 150, 1500 ก่อน
+ * ซึ่งแต่ละครั้งคือคิวรีที่ผลลัพธ์ต่างกันคนละโลก
+ */
+const debouncedLoad = () => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
     searchTimer = undefined
     page.value = 1
     void load()
   }, 350)
-})
+}
+
+watch([searchText, minNbv, maxNbv], debouncedLoad)
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
 })
 
-// เปลี่ยนแผนกยิงทันที ไม่ต้องหน่วง — เป็นการกดเลือกครั้งเดียว ไม่ใช่การพิมพ์รัว
-watch(departmentId, () => {
+// กล่องเลือกยิงทันที ไม่ต้องหน่วง — เป็นการกดเลือกครั้งเดียว ไม่ใช่การพิมพ์รัว
+//
+// ★ ทุกตัวต้องรีเซ็ตกลับหน้า 1 เสมอ ค้างอยู่หน้า 5 แล้วกรองจนเหลือ 3 ชิ้น จะได้ตารางว่าง
+//   ทั้งที่มีผลลัพธ์ และแถบเลขหน้าก็หายไปด้วย = ไม่มีปุ่มให้กดกลับ ผู้ใช้ติดอยู่ตรงนั้น
+watch([departmentId, locationId, status, fiscalYear], () => {
   page.value = 1
   void load()
 })
@@ -157,44 +172,237 @@ function onPageChange(next: number) {
 function clearFilters() {
   searchText.value = ''
   departmentId.value = ''
-  // watch ของ searchText หน่วง 350ms — กรองแผนกยิงทันทีอยู่แล้ว ปล่อยให้สองตัวนั้นทำงาน
+  locationId.value = ''
+  status.value = ''
+  fiscalYear.value = ''
+  minNbv.value = ''
+  maxNbv.value = ''
+  // ไม่เรียก load() เอง — watch ทั้งสองชุดข้างบนจับได้ครบทุกช่องอยู่แล้ว
+  // เรียกเองจะกลายเป็นยิงซ้อนกับ watch แล้วผลลัพธ์ที่มาทีหลังอาจเป็นของคิวรีเก่า
 }
 
-const hasFilter = computed(() => !!searchText.value.trim() || !!departmentId.value)
+// ── แผงตัวกรอง ─────────────────────────────────────────────────────────────
+//
+// เป็น dropdown แผงเดียวที่ "เลือกค่าได้ในตัวเอง" ไม่ใช่ dropdown ที่เลือกชนิดแล้วไป
+// โผล่ช่องกรอกข้างนอก — เปิดแผง กดหัวข้อที่ต้องการ มันกางออกในที่ แล้วกดเลือกค่าได้เลย
+//
+// ★ ค่าจริงยังอยู่ใน ref ของแต่ละแกนเหมือนเดิม แผงนี้เป็นแค่หน้าตา
+//   ปิดแผงแล้วตัวกรองยังทำงานอยู่ (badge บนปุ่มกับ chip ข้างล่างเป็นตัวบอก)
+const panelOpen = ref(false)
+/** หัวข้อที่กางอยู่ — ทีละอันเพื่อไม่ให้แผงยาวจนต้องเลื่อนหา */
+const expandedField = ref('')
+/** ช่องค้นในแผง — กรองรายชื่อ "หัวข้อตัวกรอง" ไม่ใช่กรองข้อมูลในตาราง */
+const filterSearch = ref('')
+
+const FILTER_FIELDS = [
+  { key: 'department', label: 'แผนก', icon: 'lucide:users' },
+  { key: 'location', label: 'ที่ตั้ง', icon: 'lucide:map-pin' },
+  { key: 'status', label: 'สถานะ', icon: 'lucide:activity' },
+  { key: 'fiscalYear', label: 'ปีบัญชีของตัวเลข', icon: 'lucide:calendar' },
+  { key: 'netBookValue', label: 'มูลค่าคงเหลือ', icon: 'lucide:coins' },
+]
+
+const visibleFields = computed(() => {
+  const q = filterSearch.value.trim().toLowerCase()
+  return q ? FILTER_FIELDS.filter((f) => f.label.toLowerCase().includes(q)) : FILTER_FIELDS
+})
+
+/** แกนไหนมีค่าอยู่แล้ว — เอาไปขึ้น badge บนหัวข้อในแผง */
+function filterHasValue(key: string): boolean {
+  switch (key) {
+    case 'department':
+      return !!departmentId.value
+    case 'location':
+      return !!locationId.value
+    case 'status':
+      return !!status.value
+    case 'fiscalYear':
+      return !!fiscalYear.value
+    case 'netBookValue':
+      return !!minNbv.value.trim() || !!maxNbv.value.trim()
+    default:
+      return false
+  }
+}
+
+function clearField(key: string) {
+  if (key === 'department') departmentId.value = ''
+  else if (key === 'location') locationId.value = ''
+  else if (key === 'status') status.value = ''
+  else if (key === 'fiscalYear') fiscalYear.value = ''
+  else if (key === 'netBookValue') {
+    minNbv.value = ''
+    maxNbv.value = ''
+  }
+}
 
 /**
- * เปิดหน้ารายละเอียดของชิ้นนั้น — ใช้เส้นเดียวกับที่ QR บนสติกเกอร์พาไป
+ * กดตัวเลือกเดิมซ้ำ = ปลดตัวกรองนั้น
  *
- * ต้อง encode: เลขจริงบางตัวมี '/' อยู่ข้างใน (MAC-212-13-001/1) ถ้าไม่ encode
- * router จะตัดเป็นคนละ segment แล้วตกไป catch-all → เด้ง dashboard โดยไม่บอกอะไร
+ * ในแผงไม่มีปุ่ม "ทุกแผนก" ให้กดเหมือนตอนเป็น <select> — การกดซ้ำจึงเป็นทางเดียว
+ * ที่ผู้ใช้จะกลับไปสถานะ "ไม่กรอง" ได้จากในลิสต์ (นอกจากกด × บนหัวข้อ)
+ *
+ * รับเป็น key ไม่ใช่ตัว ref — ใน <script setup> template จะ unwrap ref ให้อัตโนมัติ
+ * ส่งตัว ref ออกไปจาก template จึงไม่ได้ ได้แต่ค่าข้างใน
  */
+function toggleValue(key: string, value: string) {
+  const target =
+    key === 'department'
+      ? departmentId
+      : key === 'location'
+        ? locationId
+        : key === 'status'
+          ? status
+          : key === 'fiscalYear'
+            ? fiscalYear
+            : null
+  if (!target) return
+  target.value = target.value === value ? '' : value
+}
+
+/** ค่าที่เลือกไว้ของแกนนั้น เป็นข้อความอ่านออก — โชว์ใต้หัวข้อตอนหุบ */
+function fieldValueLabel(key: string): string {
+  switch (key) {
+    case 'department':
+      return departments.value.find((d) => String(d.id) === departmentId.value)?.name ?? ''
+    case 'location':
+      return locations.value.find((l) => String(l.id) === locationId.value)?.name ?? ''
+    case 'status':
+      return STATUS_OPTIONS.find((s) => s.value === status.value)?.label ?? status.value
+    case 'fiscalYear':
+      return fiscalYear.value
+    case 'netBookValue': {
+      const min = minNbv.value.trim()
+      const max = maxNbv.value.trim()
+      return min && max ? `${min}–${max}` : min ? `≥ ${min}` : `≤ ${max}`
+    }
+    default:
+      return ''
+  }
+}
+
+// ── ค้นในรายการตัวเลือก ────────────────────────────────────────────────────
+// แผนกจริงมี 62 แผนก ลิสต์เปล่า ๆ เลื่อนหาไม่ไหว ส่วนสถานะ/ปีมีไม่กี่ตัวจึงไม่ต้องมี
+const departmentSearch = ref('')
+const locationSearch = ref('')
+
+const filteredDepartments = computed(() => {
+  const q = departmentSearch.value.trim().toLowerCase()
+  return q ? departments.value.filter((d) => d.name.toLowerCase().includes(q)) : departments.value
+})
+
+const filteredLocations = computed(() => {
+  const q = locationSearch.value.trim().toLowerCase()
+  return q ? locations.value.filter((l) => l.name.toLowerCase().includes(q)) : locations.value
+})
+
+// ปิดแผงเมื่อคลิกนอกแผง — ไม่ปิดตอนคลิกในแผง ไม่งั้นกดเลือกค่าทีเดียวแผงหุบทุกครั้ง
+const panelRef = ref<HTMLElement | null>(null)
+
+function onDocumentPointerDown(e: PointerEvent) {
+  if (!panelOpen.value) return
+  if (panelRef.value && !panelRef.value.contains(e.target as Node)) panelOpen.value = false
+}
+
+function onPanelKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && panelOpen.value) panelOpen.value = false
+}
+
+watch(panelOpen, (open) => {
+  if (open) {
+    document.addEventListener('pointerdown', onDocumentPointerDown)
+    document.addEventListener('keydown', onPanelKeydown)
+  } else {
+    document.removeEventListener('pointerdown', onDocumentPointerDown)
+    document.removeEventListener('keydown', onPanelKeydown)
+  }
+})
+
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDown)
+  document.removeEventListener('keydown', onPanelKeydown)
+})
+
+/**
+ * ตัวกรองที่ใช้อยู่ตอนนี้ — แสดงเป็น chip ให้เห็นครบในบรรทัดเดียว
+ *
+ * ★ จำเป็นเพราะ dropdown โชว์ได้ทีละแกน ถ้าไม่มีบรรทัดนี้ ผู้ใช้ที่กรองไว้สามแกน
+ *   จะเห็นแค่แกนล่าสุด แล้วไม่รู้ว่าอีกสองตัวยังบีบผลลัพธ์อยู่
+ *
+ * นับคำค้นรวมด้วย ทั้งที่ช่องค้นอยู่คนละที่ — เพราะคำถามที่บรรทัดนี้ตอบคือ
+ * "ตอนนี้ตารางถูกจำกัดด้วยอะไรอยู่บ้าง" ซึ่งคำค้นก็เป็นหนึ่งในนั้น
+ */
+const activeFilterChips = computed(() => {
+  const chips: { key: string; label: string; clear: () => void }[] = []
+
+  const search = searchText.value.trim()
+  if (search) chips.push({ key: 'search', label: `ค้น: ${search}`, clear: () => (searchText.value = '') })
+
+  if (departmentId.value) {
+    const name = departments.value.find((d) => String(d.id) === departmentId.value)?.name
+    chips.push({ key: 'dep', label: `แผนก: ${name ?? departmentId.value}`, clear: () => (departmentId.value = '') })
+  }
+
+  if (locationId.value) {
+    const name = locations.value.find((l) => String(l.id) === locationId.value)?.name
+    chips.push({ key: 'loc', label: `ที่ตั้ง: ${name ?? locationId.value}`, clear: () => (locationId.value = '') })
+  }
+
+  if (status.value) {
+    const label = STATUS_OPTIONS.find((s) => s.value === status.value)?.label ?? status.value
+    chips.push({ key: 'status', label: `สถานะ: ${label}`, clear: () => (status.value = '') })
+  }
+
+  if (fiscalYear.value) {
+    chips.push({ key: 'year', label: `ปีบัญชี: ${fiscalYear.value}`, clear: () => (fiscalYear.value = '') })
+  }
+
+  // รวมสองช่องเป็น chip เดียว — เป็นช่วงเดียวกัน แยกเป็นสองอันแล้วอ่านไม่ออกว่าคู่กัน
+  const min = minNbv.value.trim()
+  const max = maxNbv.value.trim()
+  if (min || max) {
+    const text = min && max ? `${min}–${max}` : min ? `≥ ${min}` : `≤ ${max}`
+    chips.push({
+      key: 'nbv',
+      label: `มูลค่าคงเหลือ: ${text}`,
+      clear: () => {
+        minNbv.value = ''
+        maxNbv.value = ''
+      },
+    })
+  }
+
+  return chips
+})
+
+const hasFilter = computed(() => activeFilterChips.value.length > 0)
+
+/**
+ * ช่วงมูลค่าที่กรอกกลับหัว (ต่ำสุด > สูงสุด) — เตือนไว้ ไม่ใช่บล็อก
+ *
+ * backend ตอบผลว่างซึ่งถูกต้องตามที่ถาม แต่ผู้ใช้จะอ่านว่า "ไม่มีของ" ทั้งที่จริงคือ
+ * กรอกสลับกัน ป้ายเตือนบอกให้รู้ว่าทำไมถึงว่าง
+ */
+const nbvRangeInvalid = computed(() => {
+  const min = num(minNbv.value)
+  const max = num(maxNbv.value)
+  return min !== undefined && max !== undefined && min > max
+})
+
+// ── กดแถว = เปิด modal ไม่ใช่เด้งออกไปหน้ารายละเอียด ────────────────────────
+//
+// หน้านี้คือหน้า "กวาดหา" คนเปิดดูทีละหลายชิ้นเพื่อเทียบกัน การเด้งออกไปทำให้เสีย
+// ตำแหน่งหน้า คำค้น และตัวกรองทั้งหมด กลับมาต้องตั้งใหม่ทุกครั้ง
+//
+// เส้น /assets/:company/:number ยังอยู่เหมือนเดิม — นั่นคือปลายทางของ QR บนสติกเกอร์
+// ซึ่งเป็นคนละคนกัน (คนที่ยืนอยู่หน้าเครื่องจริง ไม่ใช่คนที่นั่งไล่ทะเบียน)
+const selectedItem = ref<InventoryItem | null>(null)
+const detailOpen = ref(false)
+
 function openAsset(item: InventoryItem) {
-  router.push(`/assets/${encodeURIComponent(item.assetNumber)}`)
+  selectedItem.value = item
+  detailOpen.value = true
 }
-
-const isStale = (item: InventoryItem) =>
-  item.accounting !== null && item.accounting.fiscalYear !== currentYear
-
-// ป้ายสถานะ — ชื่อไทยกับสีชุดเดียวกับที่ Dashboard ใช้ ต้องไม่เพี้ยนกันคนละหน้า
-const STATUS_LABEL: Record<string, string> = {
-  Active: 'active',
-  Inactive: 'Inactive',
-  Under_Maintenance : 'Under Maintenance',
-  Lost: 'Missing',
-  Disposed: 'Disposed',
-}
-
-const STATUS_BADGE: Record<string, string> = {
-  Active: 'badge-success',
-  Inactive: 'badge-ghost',
-  'Under Maintenance': 'badge-warning',
-  Lost: 'badge-error',
-  Disposed: 'badge-neutral',
-}
-
-// สถานะที่ไม่รู้จัก (เพิ่มค่าใน enum แล้วลืมมาแก้ที่นี่) ต้องโชว์ค่าดิบ ไม่ใช่ช่องว่าง
-const statusLabel = (status: string) => STATUS_LABEL[status] ?? status
-const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
 
 /** ลำดับที่กำลังแสดง เช่น "21–40 จาก 2,713 ชิ้น" */
 const range = computed(() => {
@@ -228,23 +436,240 @@ const range = computed(() => {
         </div>
       </label>
 
-      <label class="form-control w-full max-w-xs text-left">
-        <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/60">
-          <Icon icon="lucide:filter" class="size-3.5" />
-          แผนก
-        </span>
-        <select v-model="departmentId" class="select w-full">
-          <option value="">ทุกแผนก</option>
-          <option v-for="d in departments" :key="d.id" :value="String(d.id)">{{ d.name }}</option>
-        </select>
-      </label>
+      <!-- ── แผงตัวกรอง ─────────────────────────────────────────────────────
+           dropdown แผงเดียวที่เลือกค่าได้ในตัวเอง — กดหัวข้อแล้วกางออกในที่
+           ไม่ใช่กดแล้วไปโผล่ช่องกรอกข้างนอกแผง -->
+      <div ref="panelRef" class="relative">
+        <button
+          class="btn btn-sm"
+          :class="hasFilter ? 'btn-primary' : 'btn'"
+          :aria-expanded="panelOpen"
+          @click="panelOpen = !panelOpen"
+        >
+          <Icon icon="lucide:sliders-horizontal" class="size-4" />
+          ตัวกรอง
+          <span v-if="hasFilter" class="badge badge-xs badge-neutral">
+            {{ activeFilterChips.length }}
+          </span>
+          <Icon
+            icon="lucide:chevron-down"
+            class="size-4 transition-transform"
+            :class="{ 'rotate-180': panelOpen }"
+          />
+        </button>
 
-      <button v-if="hasFilter" class="btn btn-ghost btn-sm" @click="clearFilters">
-        <Icon icon="lucide:x" class="size-4" />
-        ล้างตัวกรอง
-      </button>
+        <div
+          v-if="panelOpen"
+          class="absolute left-0 z-30 mt-2 w-80 rounded-box border border-base-300 bg-base-100 shadow-lg"
+        >
+          <div class="flex items-center justify-between border-b border-base-300 px-3 py-2">
+            <span class="text-sm font-semibold">ตัวกรอง</span>
+            <button
+              class="btn btn-ghost btn-xs"
+              :disabled="!hasFilter"
+              @click="clearFilters"
+            >
+              ล้างทั้งหมด
+            </button>
+          </div>
+
+          <!-- ค้นหัวข้อตัวกรอง ไม่ใช่ค้นข้อมูลในตาราง — ป้ายต้องเขียนให้ต่างกันชัด ๆ
+               ไม่งั้นคนพิมพ์เลขสินทรัพย์ลงช่องนี้แล้วงงว่าทำไมไม่มีอะไรเกิดขึ้น -->
+          <div class="px-3 pt-2">
+            <label class="input input-sm flex w-full items-center gap-2">
+              <Icon icon="lucide:search" class="size-3.5 shrink-0 opacity-50" />
+              <input v-model="filterSearch" type="search" class="grow" placeholder="ค้นหาตัวกรอง..." />
+            </label>
+          </div>
+
+          <div class="max-h-96 overflow-y-auto p-1.5">
+            <div v-for="f in visibleFields" :key="f.key" class="rounded-btn">
+              <!-- หัวข้อ: กดแล้วกาง/หุบ ตัวที่กรองอยู่มี badge กับปุ่ม × ให้ปลดได้จากตรงนี้ -->
+              <div
+                class="flex w-full cursor-pointer items-center gap-2 rounded-btn px-2 py-2 hover:bg-base-200"
+                @click="expandedField = expandedField === f.key ? '' : f.key"
+              >
+                <Icon :icon="f.icon" class="size-4 shrink-0 opacity-60" />
+                <span class="flex-1 text-left text-sm">{{ f.label }}</span>
+
+                <span
+                  v-if="filterHasValue(f.key)"
+                  class="badge badge-sm badge-primary gap-1 pr-1"
+                  @click.stop="clearField(f.key)"
+                >
+                  1
+                  <Icon icon="lucide:x" class="size-3" />
+                </span>
+
+                <Icon
+                  icon="lucide:chevron-down"
+                  class="size-4 shrink-0 opacity-50 transition-transform"
+                  :class="{ 'rotate-180': expandedField === f.key }"
+                />
+              </div>
+
+              <!-- ค่าที่เลือกไว้ โชว์ใต้หัวข้อตอนหุบ จะได้รู้ว่ากรองด้วยอะไรอยู่โดยไม่ต้องกางดู -->
+              <p
+                v-if="filterHasValue(f.key) && expandedField !== f.key"
+                class="px-2 pb-2 pl-8 text-left text-xs text-base-content/60"
+              >
+                {{ fieldValueLabel(f.key) }}
+              </p>
+
+              <!-- เนื้อใน: เลือกค่าได้ตรงนี้เลย ไม่ต้องออกไปข้างนอกแผง -->
+              <div v-if="expandedField === f.key" class="px-2 pb-2">
+                <template v-if="f.key === 'department'">
+                  <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
+                    <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
+                    <input v-model="departmentSearch" type="search" class="grow" placeholder="ค้นแผนก" />
+                  </label>
+                  <ul class="max-h-44 overflow-y-auto">
+                    <li v-for="d in filteredDepartments" :key="d.id">
+                      <button
+                        class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                        :class="{ 'bg-primary/10 font-medium': departmentId === String(d.id) }"
+                        @click="toggleValue('department', String(d.id))"
+                      >
+                        <Icon
+                          :icon="departmentId === String(d.id) ? 'lucide:check' : 'lucide:minus'"
+                          class="size-3.5 shrink-0"
+                          :class="departmentId === String(d.id) ? 'text-primary' : 'opacity-0'"
+                        />
+                        <span class="truncate">{{ d.name }}</span>
+                      </button>
+                    </li>
+                    <li v-if="!filteredDepartments.length" class="px-2 py-2 text-xs text-base-content/50">
+                      ไม่พบแผนกที่ตรงกับคำค้น
+                    </li>
+                  </ul>
+                </template>
+
+                <template v-else-if="f.key === 'location'">
+                  <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
+                    <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
+                    <input v-model="locationSearch" type="search" class="grow" placeholder="ค้นที่ตั้ง" />
+                  </label>
+                  <ul class="max-h-44 overflow-y-auto">
+                    <li v-for="l in filteredLocations" :key="l.id">
+                      <button
+                        class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                        :class="{ 'bg-primary/10 font-medium': locationId === String(l.id) }"
+                        @click="toggleValue('location', String(l.id))"
+                      >
+                        <Icon
+                          :icon="locationId === String(l.id) ? 'lucide:check' : 'lucide:minus'"
+                          class="size-3.5 shrink-0"
+                          :class="locationId === String(l.id) ? 'text-primary' : 'opacity-0'"
+                        />
+                        <span class="truncate">{{ l.name }}</span>
+                      </button>
+                    </li>
+                    <li v-if="!filteredLocations.length" class="px-2 py-2 text-xs text-base-content/50">
+                      ไม่พบที่ตั้งที่ตรงกับคำค้น
+                    </li>
+                  </ul>
+                </template>
+
+                <ul v-else-if="f.key === 'status'">
+                  <li v-for="s in STATUS_OPTIONS" :key="s.value">
+                    <button
+                      class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                      :class="{ 'bg-primary/10 font-medium': status === s.value }"
+                      @click="toggleValue('status', s.value)"
+                    >
+                      <Icon
+                        :icon="status === s.value ? 'lucide:check' : 'lucide:minus'"
+                        class="size-3.5 shrink-0"
+                        :class="status === s.value ? 'text-primary' : 'opacity-0'"
+                      />
+                      {{ s.label }}
+                    </button>
+                  </li>
+                </ul>
+
+                <ul v-else-if="f.key === 'fiscalYear'" class="max-h-44 overflow-y-auto">
+                  <li v-for="y in fiscalYears" :key="y">
+                    <button
+                      class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                      :class="{ 'bg-primary/10 font-medium': fiscalYear === String(y) }"
+                      @click="toggleValue('fiscalYear', String(y))"
+                    >
+                      <Icon
+                        :icon="fiscalYear === String(y) ? 'lucide:check' : 'lucide:minus'"
+                        class="size-3.5 shrink-0"
+                        :class="fiscalYear === String(y) ? 'text-primary' : 'opacity-0'"
+                      />
+                      {{ y }}
+                    </button>
+                  </li>
+                  <li v-if="!fiscalYears.length" class="px-2 py-2 text-xs text-base-content/50">
+                    ยังไม่มีตัวเลขบัญชีในทะเบียน
+                  </li>
+                </ul>
+
+                <template v-else-if="f.key === 'netBookValue'">
+                  <!-- ★ type="text" ไม่ใช่ type="number" โดยตั้งใจ
+                       v-model บน type="number" ทำให้ Vue แปลงค่าเป็น Number ให้อัตโนมัติ
+                       (vModelText เห็น el.type === 'number' แล้วเรียก looseToNumber)
+                       ref ที่ประกาศเป็น string จึงกลายเป็น number กลางคัน แล้ว .trim() ระเบิด
+                       — เคยพังมาแล้ว ตัวกรองเงียบไปทั้งตัวโดยหน้าจอไม่ฟ้องอะไรเลย
+                       inputmode="decimal" ยังให้แป้นตัวเลขบนมือถือเหมือนเดิม -->
+                  <div class="join w-full">
+                    <input
+                      v-model="minNbv"
+                      type="text"
+                      inputmode="decimal"
+                      class="input input-sm join-item w-full"
+                      :class="{ 'input-error': nbvRangeInvalid }"
+                      placeholder="ต่ำสุด"
+                    />
+                    <input
+                      v-model="maxNbv"
+                      type="text"
+                      inputmode="decimal"
+                      class="input input-sm join-item w-full"
+                      :class="{ 'input-error': nbvRangeInvalid }"
+                      placeholder="สูงสุด"
+                    />
+                  </div>
+                  <p v-if="nbvRangeInvalid" class="mt-1.5 text-left text-xs text-error">
+                    ต่ำสุดมากกว่าสูงสุด จึงไม่มีชิ้นไหนเข้าเงื่อนไข
+                  </p>
+                </template>
+              </div>
+            </div>
+
+            <p v-if="!visibleFields.length" class="px-2 py-3 text-center text-xs text-base-content/50">
+              ไม่พบตัวกรองที่ตรงกับคำค้น
+            </p>
+          </div>
+
+          <!-- ★ สองตัวกรองนี้ตัดชิ้นที่ยังไม่มีตัวเลขบัญชีออกจากผลโดยปริยาย (เทียบค่าไม่ได้)
+               ต้องบอกไว้ ไม่งั้นยอดที่หายไปจะดูเหมือนข้อมูลหาย -->
+          <p
+            v-if="fiscalYear || minNbv.trim() || maxNbv.trim()"
+            class="flex items-start gap-1.5 border-t border-base-300 px-3 py-2 text-left text-xs text-base-content/60"
+          >
+            <Icon icon="lucide:info" class="mt-0.5 size-3.5 shrink-0" />
+            กรองด้วยปีบัญชีหรือช่วงมูลค่า จะไม่รวมชิ้นที่ SAP ยังไม่มีตัวเลขบัญชีให้
+          </p>
+        </div>
+      </div>
 
       <span class="ml-auto text-sm text-base-content/60">{{ range }}</span>
+    </div>
+
+    <!-- ตัวกรองที่ใช้อยู่ — เห็นได้โดยไม่ต้องเปิดแผง กดที่ตัวไหนก็ปลดตัวนั้น -->
+    <div v-if="hasFilter" class="mt-2 flex flex-wrap items-center gap-1.5">
+      <button
+        v-for="chip in activeFilterChips"
+        :key="chip.key"
+        class="badge badge-sm badge-ghost gap-1 pr-1"
+        @click="chip.clear()"
+      >
+        {{ chip.label }}
+        <Icon icon="lucide:x" class="size-3" />
+      </button>
     </div>
 
     <div v-if="loadError" role="alert" class="alert alert-error alert-soft mt-4">
@@ -253,114 +678,23 @@ const range = computed(() => {
       <button class="btn btn-sm" @click="load">ลองใหม่</button>
     </div>
 
-    <!-- ── ตาราง ──────────────────────────────────────────────────────────
-         min-h = พื้นที่ 8 แถวพอดี — วัดจากของจริงในเบราว์เซอร์: แถวละ 68.8px
-         (รูป size-11 = 44px คุมความสูง + padding ของ daisyUI) + หัวตาราง 45.8px
-         = 597px จึงตั้ง 37.5rem (600px)
-
-         กันกล่องยุบตามจำนวนผลลัพธ์: ค้นจนเหลือชิ้นเดียวแล้วกล่องหดจาก 20 แถวเหลือ 1
-         ทำให้แถบเลขหน้ากับที่ว่างท้ายหน้ากระโดดขึ้นมาเกือบเต็มจอ ล็อกไว้แล้วตำแหน่งนิ่ง
-         ★ แก้ความสูงรูป/เปลี่ยนเป็น table-sm เมื่อไหร่ ต้องวัดใหม่แล้วแก้เลขนี้ด้วย
-
-         ไม่ใช้ max-h เพราะไม่ต้องการให้ตารางมี scroll ของตัวเองซ้อนกับ scroll ของหน้า -->
-    <div class="mt-4 min-h-[37.5rem] overflow-x-auto rounded-box border border-base-300">
-      <table class="table table-pin-rows">
-        <thead>
-          <tr>
-            <th class="w-16"></th>
-            <th>เลขสินทรัพย์</th>
-            <th class="w-12 ">รายละเอียด</th>
-            <th>แผนก</th>
-            <th>ที่ตั้ง</th>
-            <th>ผู้ดูแล</th>
-            <th class="text-center">สถานะ</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="item in items"
-            :key="item.id"
-            class="cursor-pointer hover:bg-base-200"
-            @click="openAsset(item)"
-          >
-            <td>
-              <div class="grid size-11 place-items-center overflow-hidden rounded bg-base-200">
-                <img
-                  v-if="item.imageId && imageUrls[item.imageId]"
-                  :src="imageUrls[item.imageId]"
-                  :alt="item.description ?? item.assetNumber"
-                  class="size-full object-cover"
-                />
-                <Icon v-else icon="mdi:image-off-outline" class="size-5 opacity-30" />
-              </div>
-            </td>
-
-            <td class="font-mono whitespace-nowrap">
-              {{ item.assetNumber }}
-              <div v-if="item.serialNumber" class="font-sans text-xs text-base-content/60">
-                S/N {{ item.serialNumber }}
-              </div>
-            </td>
-
-            <td class="max-w-xs">
-              <div class="truncate">{{ item.description ?? '—' }}</div>
-              <div class="flex flex-wrap items-center gap-1 text-xs text-base-content/60">
-                <span v-if="item.categoryName">{{ item.categoryName }}</span>
-                <span v-if="item.categoryName && item.acquisitionDate">·</span>
-                <span v-if="item.acquisitionDate">ลงทะเบียนเมื่อ {{ formatDate(item.acquisitionDate) }}</span>
-              </div>
-            </td>
-
-            <td class="whitespace-nowrap">
-              <span :class="item.departmentName ? '' : 'text-base-content/40 italic'">
-                {{ item.departmentName ?? 'ยังไม่ระบุ' }}
-              </span>
-            </td>
-
-            <td>
-              <div class="whitespace-nowrap">{{ item.locationName }}</div>
-              <div v-if="item.subLocationName" class="text-xs text-base-content/60">
-                {{ item.subLocationName }}
-              </div>
-            </td>
-
-            <td>
-              <span :class="item.holderName ? '' : 'text-base-content/40 italic'">
-                {{ item.holderName ?? 'ไม่ระบุ' }}
-              </span>
-            </td>
-
-            <td class="text-center">
-              <span class="badge badge-sm whitespace-nowrap" :class="statusBadge(item.status)">
-                {{ statusLabel(item.status) }}
-              </span>
-            </td>
-
-
-          </tr>
-
-          <tr v-if="loading && !items.length">
-            <td colspan="8" class="py-12 text-center text-base-content/50">
-              <span class="loading loading-spinner loading-lg mb-2 block" />
-              กำลังโหลด...
-            </td>
-          </tr>
-
-          <!-- แยกสองข้อความให้ขาด: "ค้นไม่เจอ" แก้ด้วยการเปลี่ยนคำค้น
-               ส่วน "ทะเบียนยังว่าง" แก้ด้วยการไปลงทะเบียน คนละทางแก้กันคนละเรื่อง -->
-          <tr v-else-if="!items.length && !loadError">
-            <td colspan="8" class="py-12 text-center text-base-content/50">
-              <Icon icon="mdi:package-variant" class="mx-auto size-12 opacity-40" />
-              <template v-if="hasFilter">
-                <p class="mt-2">ไม่พบสินทรัพย์ที่ตรงกับเงื่อนไข</p>
-                <button class="btn btn-sm mt-3" @click="clearFilters">ล้างตัวกรอง</button>
-              </template>
-              <p v-else class="mt-2">ยังไม่มีสินทรัพย์ในทะเบียน</p>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <AssetTable
+      class="mt-4"
+      :items="items"
+      :loading="loading"
+      :min-rows="10"
+      show-accounting
+      @select="openAsset"
+    >
+      <template #empty>
+        <Icon icon="mdi:package-variant" class="mx-auto size-12 opacity-40" />
+        <template v-if="hasFilter">
+          <p class="mt-2">ไม่พบสินทรัพย์ที่ตรงกับเงื่อนไข</p>
+          <button class="btn btn-sm mt-3" @click="clearFilters">ล้างตัวกรอง</button>
+        </template>
+        <p v-else class="mt-2">ยังไม่มีสินทรัพย์ในทะเบียน</p>
+      </template>
+    </AssetTable>
 
     <AppPagination
       v-if="total > limit"
@@ -371,4 +705,7 @@ const range = computed(() => {
       @update:page="onPageChange"
     />
   </div>
+
+  <!-- Teleport ไป body อยู่แล้ว วางตรงไหนก็ได้ — ไว้ท้ายสุดเพื่อให้อ่านลำดับหน้าจอง่าย -->
+  <AppAsset v-model="detailOpen" :item="selectedItem" />
 </template>

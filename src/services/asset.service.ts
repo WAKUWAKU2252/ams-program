@@ -294,6 +294,11 @@ export interface MyAssetAccounting {
 
 export interface MyAssetItem {
   id: number;
+  /**
+   * บริษัทเจ้าของชิ้น — จำเป็นสำหรับเปิดรายละเอียดผ่าน AppAsset (ยิง /assets/by-number)
+   * ★ เลขสินทรัพย์ซ้ำกันข้ามบริษัทจริง 24 ตัว เลขเปล่าจึงชี้ได้สองชิ้น ต้องมาคู่กันเสมอ
+   */
+  companyCode: string;
   assetNumber: string | null;
   description: string | null;
   imageId: string | null;
@@ -343,19 +348,31 @@ export interface AssetByNumberDetail {
   holderName: string | null;
   acquisitionDate: string | null;
   acquisitionCost: number | null;
+  /**
+   * ระยะประกัน — สอง nullable อิสระจากกัน มีครบ 4 กรณีจริง
+   * (ไม่มีเลย / มีแต่วันเริ่ม / มีแต่วันจบ / มีทั้งคู่) ฝั่งแสดงผลต้องเขียนครบทุกกรณี
+   */
+  warrantyStartDate: string | null;
+  warrantyEndDate: string | null;
   accounting: MyAssetAccounting | null;
 }
 
 /**
- * GET /assets/by-number?number=... — ค้นด้วยเลขสินทรัพย์ที่สแกนมาจาก QR
+ * GET /assets/by-number?company=...&number=... — ค้นด้วยเลขสินทรัพย์ที่สแกนมาจาก QR
  *
  * ส่งเป็น query ไม่ใช่ path เพราะเลขจริงบางตัวมี '/' (MAC-212-13-001/1) ซึ่ง %2F ใน path
  * จะถูก decode ก่อน match แล้ว 404 — ฝั่ง backend ก็รับเป็น query ด้วยเหตุผลเดียวกัน
+ *
+ * ★ ต้องส่งบริษัทไปด้วย — ไม่ใช่เรื่องสิทธิ์ แต่เป็นเรื่องความกำกวม: เลขสินทรัพย์
+ *   ซ้ำกันข้ามบริษัทจริง 24 ตัว เลขเปล่าจึงตอบได้สองชิ้น ค่านี้มาจาก URL ที่ QR ฝังไว้
+ *   (backend ประกอบ URL ให้ตอนออกเลข — ฝั่งนี้ไม่เคยประกอบเอง)
  */
-export function getAssetByNumber(assetNumber: string): Promise<AssetByNumberDetail> {
-  return request<AssetByNumberDetail>(`/assets/by-number?number=${encodeURIComponent(assetNumber)}`, {
-    method: 'GET',
-  });
+export function getAssetByNumber(
+  companyCode: string,
+  assetNumber: string,
+): Promise<AssetByNumberDetail> {
+  const qs = new URLSearchParams({ company: companyCode, number: assetNumber });
+  return request<AssetByNumberDetail>(`/assets/by-number?${qs}`, { method: 'GET' });
 }
 
 // ── หน้า Asset Inventory — ทะเบียนสินทรัพย์ทั้งบริษัท ───────────────────────
@@ -375,6 +392,8 @@ export interface InventoryAccounting {
 
 export interface InventoryItem {
   id: number
+  /** ใช้ประกอบลิงก์ /assets/:company/:assetNumber — เลขสินทรัพย์ซ้ำกันข้ามบริษัทได้ */
+  companyCode: string
   assetNumber: string
   description: string | null
   serialNumber: string | null
@@ -397,6 +416,21 @@ export interface InventoryParams {
   /** ค้นพร้อมกันสามช่อง: เลขสินทรัพย์ / รายละเอียด / เลขเครื่อง */
   search?: string
   departmentId?: number
+  /** รหัสบริษัท เช่น 'UBA' — ตารางบน Dashboard ส่งมาให้ตรงกับการ์ดสรุปข้างบน */
+  companyCode?: string
+  locationId?: number
+  status?: string
+  /**
+   * ปีบัญชีของตัวเลขที่ sync มา — **ไม่ใช่ปีที่ซื้อ**
+   * ★ กรองด้วยตัวนี้แล้ว ชิ้นที่ยังไม่มีตัวเลขบัญชีจะหายจากผลลัพธ์ (เทียบปีไม่ได้)
+   */
+  fiscalYear?: number
+  /**
+   * ช่วงมูลค่าคงเหลือ
+   * ★ ชิ้นที่ SAP ให้ตัวเลขมาไม่ครบจะหายจากผลลัพธ์เช่นกัน — คำนวณ NBV ไม่ได้จึงเทียบไม่ได้
+   */
+  minNetBookValue?: number
+  maxNetBookValue?: number
 }
 
 /**
@@ -412,6 +446,18 @@ export function getAssetInventory(params: InventoryParams = {}): Promise<Paginat
   const search = params.search?.trim()
   if (search) query.set('search', search)
   if (params.departmentId) query.set('departmentId', String(params.departmentId))
+  if (params.companyCode) query.set('companyCode', params.companyCode)
+  if (params.locationId) query.set('locationId', String(params.locationId))
+  if (params.status) query.set('status', params.status)
+  if (params.fiscalYear) query.set('fiscalYear', String(params.fiscalYear))
+  // ★ เทียบกับ undefined ไม่ใช่ falsy — 0 เป็นค่าที่ใช้จริง ("ตัดค่าเสื่อมหมดแล้ว")
+  //   ถ้าเขียน `if (params.minNetBookValue)` การกรอก 0 จะเงียบหายไปทั้งที่ผู้ใช้ตั้งใจ
+  if (params.minNetBookValue !== undefined) {
+    query.set('minNetBookValue', String(params.minNetBookValue))
+  }
+  if (params.maxNetBookValue !== undefined) {
+    query.set('maxNetBookValue', String(params.maxNetBookValue))
+  }
 
   const qs = query.toString()
   return request<Paginated<InventoryItem>>(`/assets/inventory${qs ? `?${qs}` : ''}`, {

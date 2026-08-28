@@ -32,6 +32,7 @@ import { ApiError } from '@/services/httpClient'
 import { formatDate, formatDateTime } from '@/utils/date'
 import { ASSET_NUMBER_REGEX } from '@contract/asset-number'
 import { Icon } from '@iconify/vue'
+import ApexCharts from 'apexcharts'
 
 const props = defineProps<{ requestId: string }>()
 const router = useRouter()
@@ -754,6 +755,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+
   <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
     <div class="flex items-start justify-between gap-4 text-left">
       <div>
@@ -831,7 +833,7 @@ onUnmounted(() => {
                 <p>{{ header.approvedByName ?? '—' }}</p>
               </div>
               <div>
-                <p class="text-sm text-base-content/50">ขอซื้อโดย</p>
+                <p class="text-sm text-base-content/50">ผู้ซื้อโดย</p>
                 <p>{{ header.ownerPrName ?? '—' }}</p>
               </div>
               <div>
@@ -848,6 +850,11 @@ onUnmounted(() => {
                 <p class="text-sm text-base-content/50">วันที่อนุมัติ</p>
                 <p>{{ formatDateTime(header.approvedAt) }}</p>
               </div>
+              <div>
+                <p class="text-sm text-base-content/50">แผนกผู้ขอซื้อ</p>
+                <p>{{ header.departmentName ?? '—' }}</p>
+              </div>
+
             </div>
           </div>
         </div>

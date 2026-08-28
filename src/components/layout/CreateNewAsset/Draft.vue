@@ -204,8 +204,6 @@ const clearSearch = () => {
             <td class="truncate">{{ d.ownerPrName ?? '—' }}</td>
             <td class="truncate">{{ formatDateTime(d.updatedAt) }}</td>
             <td class="text-right">
-              <!-- ใบที่บัญชีตีกลับรายชิ้นยังเป็น APPROVED (การตีกลับเกิดที่ "ชิ้น" ไม่ใช่ที่ใบ)
-                   ป้ายสถานะจึงบอกไม่ได้ว่ามีงานค้างอยู่ ต้องมีตัวเลขกำกับว่าเหลือกี่ชิ้นที่ต้องแก้ -->
               <div class="flex flex-wrap items-center justify-end gap-1">
                 <span
                   class="badge whitespace-nowrap"
@@ -225,7 +223,6 @@ const clearSearch = () => {
             </td>
             <td>
               <div class="flex items-center justify-center gap-1">
-                <!-- ปุ่ม Edit -->
                 <button
                   class="btn btn-ghost btn-sm btn-square"
                   title="แก้ไขคำขอ"
@@ -233,7 +230,6 @@ const clearSearch = () => {
                 >
                   <Icon icon="lucide:square-pen" class="text-lg" />
                 </button>
-                <!-- ปุ่มถังขยะ = เอาออกจากลิสต์ของตัวเองเท่านั้น ไม่ได้ลบใบคำขอ -->
                 <button
                   class="btn btn-ghost btn-sm btn-square hover:text-error"
                   title="เอาออกจากรายการของฉัน"

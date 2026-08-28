@@ -147,6 +147,7 @@ export interface PendingRegistrationRow {
   approvedByName: string | null
   vendorName: string | null
   ownerPrName: string | null
+  departmentName: string | null
   /** วันที่บน PO จาก SAP (null = PO เก่าบางใบไม่มีวันที่ในต้นทาง) */
   poDate: string | null
   /** จำนวนชิ้นทั้งหมดในใบ (ไม่นับที่ถูกยกเลิก) */

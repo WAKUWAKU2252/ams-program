@@ -126,3 +126,13 @@ export function listEmployees(params: ListEmployeesParams = {}): Promise<Paginat
     { method: 'GET' },
   );
 }
+
+/**
+ * GET /master/fiscal-years — ปีบัญชีที่มีอยู่จริงในทะเบียน เรียงจากใหม่ไปเก่า
+ *
+ * อ่านจากข้อมูลจริง ไม่ใช่ไล่ช่วงปีเอาเองฝั่งจอ — ตัวเลขที่ sync มาค้างที่ปีเก่าได้จริง
+ * และค้างไม่เท่ากัน ถ้าไล่ช่วงเองจะมีตัวเลือกที่กดแล้วว่างปนอยู่
+ */
+export function listFiscalYears(): Promise<number[]> {
+  return request<number[]>('/master/fiscal-years', { method: 'GET' });
+}

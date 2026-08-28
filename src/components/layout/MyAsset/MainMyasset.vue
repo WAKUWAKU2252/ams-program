@@ -12,13 +12,12 @@
 // และเตือนให้ชัดเมื่อเป็นปีเก่า ไม่งั้นผู้ใช้จะอ่านเลขปี 2022 เป็นมูลค่าวันนี้
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
-import QRCode from 'qrcode'
+import AppAsset from '@/components/common/AppAsset.vue'
 import { getMyAssets } from '@/services/asset.service'
 import type { MyAssetItem } from '@/services/asset.service'
 import { fileBlobUrl } from '@/services/attachment.service'
 import { ApiError } from '@/services/httpClient'
-import { formatDate } from '@/utils/date'
-import { formatMoney, formatMonths } from '@/utils/money'
+import { formatMoney } from '@/utils/money'
 
 const items = ref<MyAssetItem[]>([])
 const linkedToEmployee = ref(true)
@@ -97,42 +96,12 @@ const summary = computed(() => {
 })
 
 const selected = ref<MyAssetItem | null>(null)
-const detailDialog = ref<HTMLDialogElement | null>(null)
+const detailOpen = ref(false)
 
 function openDetail(item: MyAssetItem) {
   selected.value = item
-  detailDialog.value?.showModal()
+  detailOpen.value = true
 }
-
-// ── QR ของชิ้นที่เปิดดูอยู่ ──────────────────────────────────────────────────
-//
-// วาดจาก item.qrCode ที่ backend เก็บไว้ **ห้ามประกอบ URL เองจาก assetNumber** — ค่าที่เก็บ
-// คือค่าที่ตรงกับสติกเกอร์ที่พิมพ์แปะไปแล้ว ถ้าจอประกอบเอง วันที่ APP_BASE_URL เปลี่ยน
-// จอจะโชว์ QR ใหม่ที่พาไปคนละที่กับสติกเกอร์บนเครื่องจริง โดยไม่มีอะไรฟ้อง
-//
-// errorCorrectionLevel 'M' (กู้ได้ ~15%) — ตรงกับที่ AssetRequestForm ใช้ ต้องเหมือนกัน
-// ทั้งระบบ ไม่งั้น QR ของชิ้นเดียวกันที่วาดจากคนละหน้าจะหน้าตาไม่เหมือนกัน
-const qrDataUrl = ref('')
-
-watch(
-  () => selected.value?.qrCode ?? null,
-  async (value) => {
-    if (!value) {
-      qrDataUrl.value = ''
-      return
-    }
-    try {
-      qrDataUrl.value = await QRCode.toDataURL(value, {
-        margin: 1,
-        width: 256,
-        errorCorrectionLevel: 'M',
-      })
-    } catch {
-      // วาดไม่ได้ก็ไม่โชว์รูป แต่ข้อความ URL ยังอยู่ให้ก๊อปไปใช้ต่อได้
-      qrDataUrl.value = ''
-    }
-  },
-)
 
 /** สัดส่วนค่าเสื่อมที่ตัดไปแล้ว 0–100 — null เมื่อคำนวณไม่ได้หรือของไม่คิดค่าเสื่อม */
 function depreciationPercent(item: MyAssetItem): number | null {
@@ -144,25 +113,6 @@ function depreciationPercent(item: MyAssetItem): number | null {
 
 const isStale = (item: MyAssetItem) =>
   item.accounting !== null && item.accounting.fiscalYear !== currentYear
-
-type Accounting = NonNullable<MyAssetItem['accounting']>
-
-/** อายุการใช้งาน — 0 เดือนที่ช่องนี้แปลว่าของชิ้นนี้ไม่คิดค่าเสื่อมเลย (ที่ดิน) */
-function usefulLifeLabel(a: Accounting): string {
-  return a.usefulLifeMonths === 0 ? 'ไม่คิดค่าเสื่อม' : formatMonths(a.usefulLifeMonths)
-}
-
-/**
- * อายุคงเหลือ — 0 ที่ช่องนี้แปลว่า "ตัดครบแล้ว" ไม่ใช่ "ไม่คิดค่าเสื่อม"
- *
- * แยกสองเคสด้วยอายุตั้งต้น: ของที่ไม่คิดค่าเสื่อมตั้งแต่แรกจะเป็น 0 ทั้งคู่ ถ้าดูแต่ช่องนี้
- * ช่องเดียวจะบอกว่าที่ดิน "หมดอายุแล้ว" ซึ่งผิดคนละเรื่อง
- */
-function remainingLifeLabel(a: Accounting): string {
-  if (a.usefulLifeMonths === 0) return 'ไม่คิดค่าเสื่อม'
-  if (a.remainingLifeMonths === 0) return 'ตัดค่าเสื่อมครบแล้ว'
-  return formatMonths(a.remainingLifeMonths)
-}
 
 /**
  * ตัดค่าเสื่อมครบแล้ว = มูลค่าคงเหลือลงมาเท่ากับมูลค่าซากพอดี
@@ -245,7 +195,7 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
       <p class="mt-3">ยังไม่มีสินทรัพย์ในความดูแลของคุณ</p>
     </div>
 
-    <div v-else class="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+    <div v-else class="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
       <div
         v-for="item in items"
         :key="item.id"
@@ -318,136 +268,8 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
     </div>
   </div>
 
-  <dialog ref="detailDialog" class="modal">
-    <div v-if="selected" class="modal-box max-w-2xl">
-      <h3 class="font-mono text-lg font-bold">{{ selected.description ?? '—' }}</h3>
-      <p class="text-sm text-base-content/70">{{ selected.assetNumber ?? '—' }}</p>
-
-      <div class="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-        <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-          <span class="text-base-content/60">หมวด</span><span>{{ selected.categoryName ?? '—' }}</span>
-        </div>
-        <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-          <span class="text-base-content/60">ที่ตั้ง</span><span>{{ selected.locationName }}</span>
-        </div>
-        <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-          <span class="text-base-content/60">ตำแหน่งย่อย</span>
-          <span>{{ selected.subLocationName ?? '—' }}</span>
-        </div>
-        <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-          <span class="text-base-content/60">วันที่ได้มา</span>
-          <span>{{ formatDate(selected.acquisitionDate) }}</span>
-        </div>
-        <div class="flex justify-between gap-2 border-b border-base-200 py-1 sm:col-span-2">
-          <span class="text-base-content/60">ราคาที่ซื้อ/ตามใบกำกับ</span>
-          <span>{{ formatMoney(selected.acquisitionCost) }}</span>
-        </div>
-      </div>
-
-      <template v-if="selected.accounting">
-        <div class="mt-5 flex items-center gap-2">
-          <h4 class="font-semibold">มูลค่าทางบัญชี</h4>
-          <span class="badge badge-sm" :class="isStale(selected) ? 'badge-warning' : 'badge-ghost'">
-            ปีบัญชี {{ selected.accounting.fiscalYear }}
-          </span>
-        </div>
-
-        <!-- ตัวเลขปีเก่าอ่านผิดง่ายที่สุด — เตือนตรงจุดที่ตัวเลขอยู่ ไม่ใช่แค่ป้ายเล็ก ๆ -->
-        <div v-if="isStale(selected)" role="alert" class="alert alert-warning alert-soft mt-2 py-2">
-          <Icon icon="mdi:clock-alert-outline" class="size-5" />
-          <span class="text-sm">
-            ตัวเลขชุดนี้เป็นของปี {{ selected.accounting.fiscalYear }} ไม่ใช่ปีปัจจุบัน
-            — มักแปลว่าสินทรัพย์ถูกตัดจำหน่ายหรือหยุดคิดค่าเสื่อมไปแล้ว
-          </span>
-        </div>
-
-        <div class="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">ราคาทุนทางบัญชี</span>
-            <span>{{ formatMoney(selected.accounting.bookedCost) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">ค่าเสื่อมสะสม</span>
-            <span>{{ formatMoney(selected.accounting.accumulatedDepreciation) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1 font-semibold">
-            <span class="text-base-content/60">มูลค่าคงเหลือ</span>
-            <span>{{ formatMoney(selected.accounting.netBookValue) }}</span>
-          </div>
-          <!--
-            ของที่ตัดครบแล้วจะมี "มูลค่าคงเหลือ" เท่ากับ "มูลค่าซาก" บรรทัดล่างเป๊ะเสมอ
-            ถ้าไม่อธิบายไว้ตรงนี้ มันอ่านเหมือนโค้ดหยิบผิดช่อง (58% ของทะเบียนเป็นแบบนี้)
-          -->
-
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">มูลค่าซาก</span>
-            <span>{{ formatMoney(selected.accounting.salvageValue) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">อายุการใช้งาน</span>
-            <span>{{ usefulLifeLabel(selected.accounting) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">อายุคงเหลือ</span>
-            <span>{{ remainingLifeLabel(selected.accounting) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">เริ่มคิดค่าเสื่อม</span>
-            <span>{{ formatDate(selected.accounting.depreciationStart) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1">
-            <span class="text-base-content/60">สิ้นสุดค่าเสื่อม</span>
-            <span>{{ formatDate(selected.accounting.depreciationEnd) }}</span>
-          </div>
-          <div class="flex justify-between gap-2 border-b border-base-200 py-1 sm:col-span-2">
-            <span class="text-base-content/60">วิธีคิดค่าเสื่อม</span>
-            <span>{{ selected.accounting.depreciationMethod ?? '—' }}</span>
-          </div>
-        </div>
-
-        <p class="mt-2 text-xs text-base-content/50">
-          ดึงจาก SAP ล่าสุด {{ formatDate(selected.accounting.syncedAt) }}
-        </p>
-      </template>
-
-      <p v-else class="mt-5 text-sm text-base-content/60">
-        ชิ้นนี้ยังไม่มีข้อมูลบัญชีจาก SAP — เกิดได้เมื่อบัญชียังไม่ได้ลงทะเบียนสินทรัพย์ในระบบ SAP
-      </p>
-
-      <!-- ── QR สำหรับติดตัวเครื่อง — โผล่เฉพาะชิ้นที่มีเลขแล้ว (ไม่มีเลข = ไม่มีอะไรให้ชี้ถึง) -->
-      <div
-        v-if="selected.qrCode"
-        class="mt-5 flex flex-wrap items-center gap-4 rounded-box border border-base-300 bg-base-200/60 p-3"
-      >
-        <img
-          v-if="qrDataUrl"
-          :src="qrDataUrl"
-          :alt="`QR ของ ${selected.assetNumber}`"
-          class="size-28 shrink-0 rounded bg-white p-1"
-        />
-        <!-- วาดไม่สำเร็จก็ยังต้องเห็นว่ามี QR อยู่ และ URL ข้างล่างยังก๊อปไปใช้ต่อได้ -->
-        <div v-else class="grid size-28 shrink-0 place-items-center rounded bg-base-300">
-          <Icon icon="mdi:qrcode-remove" class="size-6 opacity-40" />
-        </div>
-
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase opacity-60">
-            <Icon icon="mdi:qrcode" class="size-4" />
-            QR สำหรับติดตัวเครื่อง
-          </div>
-          <p class="mt-1 font-mono text-xs break-all opacity-80">{{ selected.qrCode }}</p>
-          <p class="mt-1 text-xs opacity-60">
-            สแกนด้วยกล้องมือถือแล้วเปิดหน้าสินทรัพย์ของชิ้นนี้ได้เลย
-          </p>
-        </div>
-      </div>
-
-      <div class="modal-action">
-        <form method="dialog"><button class="btn">ปิด</button></form>
-      </div>
-    </div>
-
-    <!-- คลิกนอกกล่องแล้วปิด — พฤติกรรมที่คนคาดหวังจาก modal -->
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
-  </dialog>
+  <!-- รายละเอียดใช้ AppAsset ตัวเดียวกับหน้าทะเบียนและ Dashboard — ชิ้นเดียวกันต้องหน้าตา
+       เหมือนกันทุกทางเข้า และ modal ไปดึงรายละเอียดเต็มจาก /assets/by-number เอง
+       (ของที่ลิสต์นี้มีไม่ครบ เช่น S/N, หน่วยนับ, ระยะประกัน, แผนก/ผู้ครอบครอง) -->
+  <AppAsset v-model="detailOpen" :item="selected" :qr-code="selected?.qrCode" />
 </template>

@@ -32,7 +32,10 @@ export const routes: RouteRecordRaw[] = [
     component: () => import("@/layouts/BlankLayout.vue"),
     children: [
       {
-        path: ":assetNumber(.*)",
+        // ★ บริษัทมาก่อนเลข (0021) — เลขสินทรัพย์ซ้ำกันข้ามบริษัทจริง 24 ตัว
+        //   เลขเปล่าจึงชี้ได้สองชิ้น URL นี้คือสิ่งที่ QR บนสติกเกอร์พามา
+        //   :company กินแค่ segment แรก ส่วน (.*) กินหางที่เหลือ เลขที่มี '/' จึงยังรอด
+        path: ":company/:assetNumber(.*)",
         name: "asset-by-number",
         component: () => import("@/views/AssetByNumber.vue"),
         meta: { requiresAuth: false, title: "Asset" },

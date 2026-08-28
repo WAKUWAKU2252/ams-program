@@ -35,6 +35,7 @@ export interface PurchaseOrder {
   ownerPrName: string | null;
   ownerPrId: number | null;
   departmentId: number | null;
+  departmentName: string |null
   // หัวหน้าของผู้ขอซื้อ — มีเฉพาะใน GET /purchase-orders/:poNumber (findOneOrFail ไต่ให้)
   // list ไม่มีให้ และ GET /asset-requests/:id ก็ไม่มี ต้องดึงใบเต็มมาเติมเอง
   // null ได้ทุกช่อง: PO เก่าไม่มี ownerPrId / แผนกยังไม่ตั้งหัวหน้า / หัวหน้าไม่มีอีเมล

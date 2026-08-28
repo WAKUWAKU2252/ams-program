@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// หน้าที่เปิดจากการสแกน QR บนสติกเกอร์ — /assets/:assetNumber
+// หน้าที่เปิดจากการสแกน QR บนสติกเกอร์ — /assets/:company/:assetNumber
 //
 // คนใช้จริงคือคนที่ยืนอยู่หน้าเครื่อง ถือมือถือ และมักไม่ใช่เจ้าของชิ้นนั้น (ช่าง/ผู้ตรวจนับ/
 // เจ้าของห้อง) หน้านี้จึงต้องตอบสามคำถามให้ได้ในหน้าจอเดียวโดยไม่ต้องเลื่อน:
@@ -9,7 +9,7 @@
 // ── เลขสินทรัพย์มาจาก path จึงต้องรับทุกอักขระ
 //
 // ของจริงมีเลขที่มี '/' (MAC-212-13-001/1) และมีตัวที่เป็นชื่อสินค้าภาษาไทยยาว 48 ตัว
-// route จึงประกาศเป็น :assetNumber(.*) และส่งต่อ backend ทาง query string ไม่ใช่ path
+// route จึงประกาศเป็น :company/:assetNumber(.*) และส่งต่อ backend ทาง query string ไม่ใช่ path
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Icon } from '@iconify/vue'
@@ -36,15 +36,26 @@ const assetNumber = computed(() => {
   return Array.isArray(raw) ? raw.join('/') : (raw ?? '')
 })
 
+/**
+ * บริษัทเจ้าของชิ้น — มาจาก segment แรกของ path ที่ QR ฝังไว้
+ *
+ * จำเป็นเพราะเลขสินทรัพย์ซ้ำกันข้ามบริษัทจริง 24 ตัว เลขเปล่าจึงตอบไม่ได้ว่าชิ้นไหน
+ * (ไม่เกี่ยวกับสิทธิ์ — หน้านี้ยังเปิดได้โดยไม่ต้องล็อกอินเหมือนเดิม)
+ */
+const companyCode = computed(() => {
+  const raw = route.params.company
+  return Array.isArray(raw) ? (raw[0] ?? '') : (raw ?? '')
+})
+
 async function load() {
-  if (!assetNumber.value) return
+  if (!assetNumber.value || !companyCode.value) return
   loading.value = true
   loadError.value = ''
   notFound.value = false
   revokeImage()
 
   try {
-    const data = await getAssetByNumber(assetNumber.value)
+    const data = await getAssetByNumber(companyCode.value, assetNumber.value)
     asset.value = data
     if (data.imageId) {
       try {
@@ -72,7 +83,7 @@ function revokeImage() {
 
 // สแกนชิ้นถัดไปขณะเปิดหน้านี้ค้างอยู่ = เปลี่ยนแค่ param ตัวเดียว component ไม่ถูกสร้างใหม่
 // ถ้าไม่ watch หน้าจะค้างข้อมูลชิ้นเดิมทั้งที่ URL เปลี่ยนแล้ว — ของที่คนเดินตรวจนับเจอบ่อย
-watch(assetNumber, load)
+watch([companyCode, assetNumber], load)
 onMounted(load)
 onUnmounted(revokeImage)
 
