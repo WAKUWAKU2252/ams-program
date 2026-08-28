@@ -24,6 +24,28 @@ export interface DashboardScope {
   departmentName: string | null
   /** true = ต้องปิดช่องเลือกแผนก (เลือกไปก็ไม่มีผล) */
   locked: boolean
+  /**
+   * บริษัทที่ตัวเลขชุดนี้นับมา — null = รวมทุกบริษัท
+   * ไม่ถูกล็อกตาม role เหมือนแผนก ทุกคนเลือกบริษัทไหนก็ได้
+   */
+  companyCode: string | null
+  companyName: string | null
+}
+
+/**
+ * หนึ่งแถวต่อหนึ่งบริษัท — ใช้ทั้งเป็นตัวเลือกใน dropdown และตัวเลขเทียบรายบริษัท
+ *
+ * ★ ก้อนนี้ไม่ถูกกรองด้วยบริษัทที่เลือกอยู่ (ต่างจาก byDepartment) จึงเอามาทำลิสต์
+ *   ตัวเลือกได้ตรง ๆ โดยไม่ต้องระวังว่าลิสต์จะยุบเหลือตัวเดียวเหมือนของแผนก
+ */
+export interface CompanySummary {
+  companyCode: string
+  companyName: string
+  assets: number
+  active: number
+  bookedCost: number | null
+  accumulatedDepreciation: number | null
+  netBookValue: number | null
 }
 
 export interface DashboardTotals {
@@ -72,18 +94,39 @@ export interface DepartmentSummary {
   netBookValue: number | null
 }
 
+/**
+ * การกระจายของอายุคงเหลือในแผนกที่เลือก — มีเฉพาะตอนเลือกแผนกเดียว
+ *
+ * ★ noDepreciation กับ noData แยกออกจาก buckets โดยตั้งใจ ห้ามเอาไปวาดรวมเป็นแท่ง
+ *   บนแกนเวลา — "ไม่คิดค่าเสื่อม" (ที่ดิน) กับ "ไม่มีข้อมูล" ไม่ใช่ช่วงเวลา
+ */
+export interface DashboardRemainingLife {
+  /** เรียงตามแกนเวลามาแล้วจาก backend — วาดตามลำดับนี้ได้เลย */
+  buckets: { label: string; count: number }[]
+  noDepreciation: number
+  noData: number
+}
+
 export interface DashboardOverview {
   scope: DashboardScope
   totals: DashboardTotals
   freshness: DashboardFreshness
   status: DashboardStatus
   byDepartment: DepartmentSummary[]
+  /** สรุปรายบริษัท — ไม่ถูกกรองด้วยบริษัทที่เลือก ใช้เป็นตัวเลือกใน dropdown ได้เลย */
+  byCompany: CompanySummary[]
+  /** null = ยังไม่ได้เลือกแผนก จึงไม่มีข้อมูลชุดนี้ (ดู DashboardRemainingLife) */
+  remainingLife: DashboardRemainingLife | null
 }
 
 /** GET /dashboard/overview — ไม่ส่ง departmentId = ทุกแผนกเท่าที่ role นั้นเห็นได้ */
 export function getDashboardOverview(
-  params: { departmentId?: number } = {},
+  params: { departmentId?: number; companyCode?: string } = {},
 ): Promise<DashboardOverview> {
-  const qs = params.departmentId ? `?departmentId=${params.departmentId}` : ''
-  return request<DashboardOverview>(`/dashboard/overview${qs}`, { method: 'GET' })
+  const query = new URLSearchParams()
+  if (params.departmentId) query.set('departmentId', String(params.departmentId))
+  if (params.companyCode) query.set('companyCode', params.companyCode)
+
+  const qs = query.toString()
+  return request<DashboardOverview>(`/dashboard/overview${qs ? `?${qs}` : ''}`, { method: 'GET' })
 }

@@ -20,37 +20,41 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import AppPagination from '@/components/common/AppPagination.vue'
 import { getDashboardOverview } from '@/services/dashboard.service'
-import type { AssetStatus, DashboardOverview, DepartmentSummary } from '@/services/dashboard.service'
+import type {
+  AssetStatus,
+  CompanySummary,
+  DashboardOverview,
+  DepartmentSummary,
+} from '@/services/dashboard.service'
 import { ApiError } from '@/services/httpClient'
 import { formatMoney } from '@/utils/money'
+import DepartmentSharePie from './DepartmentSharePie.vue'
+import DepartmentValueRankBar from './DepartmentValueRankBar.vue'
+import DepartmentTable from './DepartmentTable.vue'
+import DepreciationSplitDonut from './DepreciationSplitDonut.vue'
+import RemainingLifeChart from './RemainingLifeChart.vue'
 
 const data = ref<DashboardOverview | null>(null)
 const loading = ref(false)
 const loadError = ref('')
 
-/** ค่าในช่องเลือกแผนก — '' = ทุกแผนก (backend อาจไม่รับค่านี้ ดูหัวไฟล์ข้อ 1) */
 const selectedDepartmentId = ref<string>('')
-
-/**
- * ตัวเลือกในช่องเลือกแผนก = แผนกที่ "มีสินทรัพย์อยู่จริง" ซึ่งอ่านได้จากผลลัพธ์รอบที่ยัง
- * ไม่กรอง ไม่ต้องยิง /master/departments เพิ่ม
- *
- * ★ เก็บไว้จากรอบที่ scope.departmentId เป็น null เท่านั้น — พอกรองแผนกเดียวแล้ว
- *   byDepartment จะเหลือแถวเดียว ถ้าเขียนทับทุกรอบ ตัวเลือกอื่นจะหายไปหมดหลังกรองครั้งแรก
- *   แล้วผู้ใช้จะกลับไปดูแผนกอื่นไม่ได้เลยจนกว่าจะรีโหลดหน้า
- */
 const departmentOptions = ref<DepartmentSummary[]>([])
+
+/** '' = ทุกบริษัท — ตรงกับ scope.companyCode === null ที่ backend ตอบกลับ */
+const selectedCompanyCode = ref<string>('')
+const companyOptions = ref<CompanySummary[]>([])
 
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
     const departmentId = selectedDepartmentId.value ? Number(selectedDepartmentId.value) : undefined
-    const res = await getDashboardOverview({ departmentId })
+    const res = await getDashboardOverview({
+      departmentId,
+      companyCode: selectedCompanyCode.value || undefined,
+    })
     data.value = res
-    // ชุดแถวเปลี่ยนแล้ว ต้องกลับหน้า 1 — กรองแผนกตอนค้างอยู่หน้า 3 แล้วเหลือแถวเดียว
-    // จะได้ตารางว่างเปล่าทั้งที่ข้อมูลมีอยู่ (แถบเลขหน้าก็หายไปด้วยเพราะเหลือหน้าเดียว
-    // = ไม่มีปุ่มให้กดกลับ ผู้ใช้จะติดอยู่ตรงนั้นจนกว่าจะรีโหลดหน้า)
     departmentPage.value = 1
 
     if (res.scope.departmentId === null && res.scope.kind === 'ALL') {
@@ -58,10 +62,13 @@ async function load() {
       departmentOptions.value = res.byDepartment.filter((d) => d.departmentId !== null)
     }
 
-    // backend ทิ้งค่าที่ส่งไปแล้วบังคับเป็นแผนกอื่น (พนักงานทั่วไป) → ดึงช่องเลือกให้ตรงกับ
-    // ตัวเลขที่ได้จริง ไม่ปล่อยให้ช่องโชว์แผนกหนึ่งแต่ตัวเลขเป็นของอีกแผนก
+    companyOptions.value = res.byCompany
+
     const effective = res.scope.departmentId
     selectedDepartmentId.value = effective === null ? '' : String(effective)
+    // สะท้อนค่าที่ backend ใช้จริงกลับมาเหมือนแผนก — วันที่ backend เริ่มทิ้งค่าที่ส่งไป
+    // (เช่นเพิ่มการล็อกบริษัทตาม role) ช่องเลือกจะเด้งกลับเองโดยไม่ต้องแก้ตรงนี้
+    selectedCompanyCode.value = res.scope.companyCode ?? ''
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : 'โหลดข้อมูลภาพรวมไม่สำเร็จ'
     data.value = null
@@ -74,8 +81,8 @@ onMounted(load)
 
 // โหลดใหม่เมื่อผู้ใช้เปลี่ยนแผนก — load() เขียนทับ selectedDepartmentId ด้วยค่าที่ backend
 // ตอบกลับมา ซึ่งจะไม่วนซ้ำเพราะ watch ไม่ยิงเมื่อค่าเท่าเดิม (และถ้าต่างจริง ก็ควรโหลดตาม)
-watch(selectedDepartmentId, (next, prev) => {
-  if (next !== prev) void load()
+watch([selectedDepartmentId, selectedCompanyCode], (next, prev) => {
+  if (next[0] !== prev[0] || next[1] !== prev[1]) void load()
 })
 
 const scopeLabel = computed(() => {
@@ -116,11 +123,6 @@ const STATUS_TONE: Record<AssetStatus, string> = {
 const departmentName = (row: DepartmentSummary) => row.departmentName ?? 'ยังไม่ระบุแผนก'
 
 // ── แบ่งหน้าตารางสรุปรายแผนก ────────────────────────────────────────────────
-//
-// ตัดหน้าฝั่งจอ ไม่ใช่ฝั่ง API โดยตั้งใจ: byDepartment มาครบทั้งก้อนอยู่แล้วในคำขอเดียว
-// (แผนกมีหลักสิบ ไม่ใช่หลักพัน) การไปแบ่งหน้าที่ backend จะกลายเป็นยิง API ทุกครั้งที่
-// กดเปลี่ยนหน้า เพื่อข้อมูลที่ถืออยู่ในมือแล้ว — และยังทำให้ยอดรวมรายแผนกที่เอาไว้กระทบ
-// ยอดกับ totals ต้องดึงหลายรอบกว่าจะครบ
 const DEPARTMENT_PAGE_SIZE = 10
 const departmentPage = ref(1)
 
@@ -130,13 +132,6 @@ const pagedDepartments = computed(() => {
   return rows.slice(start, start + DEPARTMENT_PAGE_SIZE)
 })
 
-/**
- * ช่วงลำดับที่กำลังแสดง เช่น "11–20 จาก 23 แผนก"
- *
- * ต้องบอกด้วยว่าทั้งหมดมีกี่แผนก ไม่ใช่โชว์แค่เลขหน้า — ตารางนี้กระทบยอดกับช่อง
- * Total fixed asset ข้างบนได้ ถ้าไม่บอกว่ายังมีแผนกที่ไม่ได้อยู่บนหน้านี้ คนจะบวก
- * เฉพาะ 10 แถวที่เห็นแล้วสรุปว่าตัวเลขข้างบนผิด
- */
 const departmentRange = computed(() => {
   const total = data.value?.byDepartment.length ?? 0
   if (total === 0) return ''
@@ -146,16 +141,32 @@ const departmentRange = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
+<div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
     <div class="flex flex-wrap items-start justify-between gap-4 text-left">
       <div>
         <h1 class="text-3xl font-semibold sm:text-4xl">Dashboard</h1>
         <p class="text-base-content/70">ภาพรวมทะเบียนสินทรัพย์และมูลค่าทางบัญชี</p>
       </div>
 
+      <div class="flex w-full flex-wrap gap-3 sm:w-auto">
+      <!-- ช่องเลือกบริษัท — วางก่อนช่องแผนกตามลำดับที่คนอ่าน: บริษัทเป็นขอบเขตที่กว้างกว่า
+           ★ ไม่มีสถานะล็อกเหมือนแผนก บริษัทไม่ใช่แกนของสิทธิ์ (ดู DashboardScope) -->
+      <label class="form-control w-full max-w-xs text-left sm:w-30">
+        <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/60">
+          <Icon icon="lucide:building-2" class="size-3.5" />
+          บริษัท
+        </span>
+        <select v-model="selectedCompanyCode" class="select w-full" :disabled="loading">
+          <option value="">ทั้งหมด</option>
+          <option v-for="c in companyOptions" :key="c.companyCode" :value="c.companyCode">
+            {{ c.companyName }} ({{ c.assets.toLocaleString('th-TH') }})
+          </option>
+        </select>
+      </label>
+
       <!-- ช่องเลือกแผนก — ปิดไว้เมื่อ backend ล็อกขอบเขต (พนักงานทั่วไป)
            ป้ายข้างล่างบอกตรง ๆ ว่าเห็นได้แค่แผนกตัวเอง จะได้ไม่คิดว่าระบบเสีย -->
-      <label class="form-control w-full max-w-xs text-left">
+      <label class="form-control w-full max-w-xs text-left sm:w-64">
         <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/60">
           <Icon icon="lucide:filter" class="size-3.5" />
           แผนก
@@ -191,6 +202,7 @@ const departmentRange = computed(() => {
           </template>
         </select>
       </label>
+      </div>
     </div>
 
     <div v-if="loading && !data" class="mt-16 flex justify-center">
@@ -219,8 +231,13 @@ const departmentRange = computed(() => {
           <Icon icon="lucide:building-2" class="size-3.5" />
           {{ scopeLabel }}
         </span>
+          <span v-if="selectedCompanyCode" class="badge badge-ghost gap-1">
+            
+          {{ selectedCompanyCode}}
+        </span>
         <span v-if="loading" class="loading loading-spinner loading-xs" />
       </div>
+      
 
       <!-- ── ตัวเลขหลัก 5 ช่อง ─────────────────────────────────────────────────
            แยกเป็นกล่องละ stat ไม่ใช่ stats เดียวยาว ๆ — ยอดเงินระดับบริษัทยาวหลักสิบตัวอักษร
@@ -297,60 +314,38 @@ const departmentRange = computed(() => {
       <!-- ── ข้อจำกัดของยอดเงิน — ต้องอยู่ติดกับตัวเลข ไม่ใช่ซ่อนใน tooltip (ดูหัวไฟล์ข้อ 2) -->
 
 
+      <!-- ── กราฟสองตัวนี้อ่านจาก byDepartment ก้อนเดียวกับตารางข้างล่าง ────────────
+           ไม่มีการยิง API เพิ่ม และไม่มีการคำนวณยอดใหม่ฝั่งจอ — ตัวเลขบนกราฟกับในตาราง
+           จึงเป็นชุดเดียวกันเสมอ ห้ามเปลี่ยนไปดึงจาก endpoint อื่น ไม่งั้นสองที่นี้จะเริ่ม
+           ไม่ตรงกันโดยไม่มีอะไรฟ้อง
+
+           ★ กราฟตัดยอดให้เหลือเท่าที่อ่านออก (5 แผนก + อื่น ๆ / 10 อันดับแรก) ทั้งคู่จึง
+             "ไม่ใช่ที่สำหรับกระทบยอด" — ตารางสรุปรายแผนกข้างล่างคือที่ที่ครบ
+
+           ★ เคยหายไปทั้งแถวมาแล้วครั้งหนึ่งโดยที่ import ข้างบนยังอยู่ ซึ่งไม่มีอะไรฟ้องเลย
+             (import ที่ไม่ถูกใช้ไม่ทำให้ build พัง) ถ้าจะเอาออกจริง ให้ลบ import ด้วย -->
+      <div v-if="!selectedDepartmentId" class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <DepartmentSharePie :rows="data.byDepartment" class="lg:col-span-1" />
+        <DepartmentValueRankBar :rows="data.byDepartment" class="lg:col-span-2" />
+        
+      </div>
+      <div v-else  class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <!-- ★ สองกราฟนี้เป็นคู่กัน ซ้าย = แกนเงิน (กินราคาทุนไปแล้วเท่าไร)
+             ขวา = แกนเวลา (เหลืออายุอีกเท่าไร) อ่านคู่กันถึงจะแยกออกว่าแผนกนี้
+             ของเก่าจริง หรือแค่ใกล้ครบอายุทางบัญชี — อย่าแยกจากกัน -->
+        <DepreciationSplitDonut
+          class="lg:col-span-1"
+          :totals="data.totals"
+          :department-name="scopeLabel"
+        />
+        <RemainingLifeChart
+          class="lg:col-span-2"
+          :data="data.remainingLife"
+          :department-name="scopeLabel"
+        />
+      </div>
+
       <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <!-- ── สถานะรายชิ้น ─────────────────────────────────────────────────── -->
-        <div class="card border border-base-300 bg-base-100 shadow-sm lg:col-span-1">
-          <div class="card-body gap-3 text-left">
-            <h2 class="card-title text-base">สถานะสินทรัพย์</h2>
-
-            <p v-if="!data.status.breakdown.length" class="text-sm text-base-content/60">
-              ยังไม่มีสินทรัพย์ในขอบเขตนี้
-            </p>
-
-            <div v-for="row in data.status.breakdown" :key="row.status" class="space-y-1">
-              <div class="flex items-baseline justify-between gap-2 text-sm">
-                <span class="flex items-center gap-2">
-                  <span class="size-2.5 rounded-full" :class="STATUS_TONE[row.status]" />
-                  {{ STATUS_LABEL[row.status] }}
-                </span>
-                <span class="tabular-nums text-base-content/70">
-                  {{ row.count.toLocaleString('th-TH') }}
-                </span>
-              </div>
-              <div class="h-1.5 w-full overflow-hidden rounded-full bg-base-200">
-                <div
-                  class="h-full rounded-full"
-                  :class="STATUS_TONE[row.status]"
-                  :style="{ width: statusWidth(row.count) }"
-                />
-              </div>
-            </div>
-
-            <!-- ความสดของตัวเลขบัญชี — ตอบคำถาม "ยอดข้างบนเป็นข้อมูลของปีไหน" -->
-            <div class="mt-2 border-t border-base-200 pt-3 text-sm">
-              <h3 class="mb-1 font-medium">ข้อมูลตัวเลขทางบัญชี</h3>
-              <div class="flex justify-between gap-2 py-0.5">
-                <span class="text-base-content/60">ข้อมูลปี {{ data.freshness.fiscalYear }}</span>
-                <span class="tabular-nums">
-                  {{ data.freshness.currentYearCount.toLocaleString('th-TH') }}
-                </span>
-              </div>
-              <div class="flex justify-between gap-2 py-0.5">
-                <span class="text-base-content/60">ข้อมูลปีเก่า</span>
-                <span class="tabular-nums" :class="data.freshness.staleCount ? 'text-warning' : ''">
-                  {{ data.freshness.staleCount.toLocaleString('th-TH') }}
-                </span>
-              </div>
-              <div class="flex justify-between gap-2 py-0.5">
-                <span class="text-base-content/60">ยังไม่มีข้อมูลบัญชี</span>
-                <span class="tabular-nums">
-                  {{ data.freshness.noDataCount.toLocaleString('th-TH') }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- ── สรุปรายแผนก ──────────────────────────────────────────────────── -->
         <div class="card border border-base-300 bg-base-100 shadow-sm lg:col-span-2">
           <div class="card-body gap-3 text-left">
@@ -425,7 +420,75 @@ const departmentRange = computed(() => {
             />
           </div>
         </div>
+
+        
+        <!-- ── สถานะรายชิ้น ─────────────────────────────────────────────────── -->
+        <div class="card border border-base-300 bg-base-100 shadow-sm lg:col-span-1">
+          <div class="card-body gap-3 text-left">
+            <h2 class="card-title text-base">สถานะสินทรัพย์</h2>
+
+            <p v-if="!data.status.breakdown.length" class="text-sm text-base-content/60">
+              ยังไม่มีสินทรัพย์ในขอบเขตนี้
+            </p>
+
+            <div v-for="row in data.status.breakdown" :key="row.status" class="space-y-1">
+              <div class="flex items-baseline justify-between gap-2 text-sm">
+                <span class="flex items-center gap-2">
+                  <span class="size-2.5 rounded-full" :class="STATUS_TONE[row.status]" />
+                  {{ STATUS_LABEL[row.status] }}
+                </span>
+                <span class="tabular-nums text-base-content/70">
+                  {{ row.count.toLocaleString('th-TH') }}
+                </span>
+              </div>
+              <div class="h-1.5 w-full overflow-hidden rounded-full bg-base-200">
+                <div
+                  class="h-full rounded-full"
+                  :class="STATUS_TONE[row.status]"
+                  :style="{ width: statusWidth(row.count) }"
+                />
+              </div>
+            </div>
+
+            <!-- ความสดของตัวเลขบัญชี — ตอบคำถาม "ยอดข้างบนเป็นข้อมูลของปีไหน" -->
+            <div class="mt-2 border-t border-base-200 pt-3 text-sm">
+              <h3 class="mb-1 font-medium">ข้อมูลตัวเลขทางบัญชี</h3>
+              <div class="flex justify-between gap-2 py-0.5">
+                <span class="text-base-content/60">ข้อมูลปี {{ data.freshness.fiscalYear }}</span>
+                <span class="tabular-nums">
+                  {{ data.freshness.currentYearCount.toLocaleString('th-TH') }}
+                </span>
+              </div>
+              <div class="flex justify-between gap-2 py-0.5">
+                <span class="text-base-content/60">ข้อมูลปีเก่า</span>
+                <span class="tabular-nums" :class="data.freshness.staleCount ? 'text-warning' : ''">
+                  {{ data.freshness.staleCount.toLocaleString('th-TH') }}
+                </span>
+              </div>
+              <div class="flex justify-between gap-2 py-0.5">
+                <span class="text-base-content/60">ยังไม่มีข้อมูลบัญชี</span>
+                <span class="tabular-nums">
+                  {{ data.freshness.noDataCount.toLocaleString('th-TH') }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
       </div>
+      <!-- ชื่อแผนกส่งจาก scopeLabel ซึ่งอ่านมาจาก scope ที่ backend ตอบ ไม่ใช่จาก
+           selectedDepartmentId ที่หน้าจอส่งไป — เหตุผลอยู่ในข้อ 1 บนหัวไฟล์ -->
+      <!-- ★ ต้องส่ง company-code ลงไปด้วย ไม่ใช่แค่ department-id — ไม่งั้นการ์ดสรุปข้างบน
+           บอกยอดของ UBP แต่ตารางข้างล่างไล่ของ UBA มาให้ดู
+           ชื่อบริษัทอ่านจาก scope ที่ backend ตอบ ไม่ใช่จากค่าที่หน้าจอส่งไป (ดูข้อ 1 บนหัวไฟล์) -->
+      <DepartmentTable
+        class="mt-8"
+        :department-id="selectedDepartmentId"
+        :department-name="scopeLabel"
+        :company-code="selectedCompanyCode"
+        :company-name="data.scope.companyName"
+      />
     </template>
   </div>
 </template>
