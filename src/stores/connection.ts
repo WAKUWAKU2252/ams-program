@@ -40,6 +40,14 @@ export const useConnectionStore = defineStore('connection', {
       // เปิดซ้อนแปลว่ากินโควตา connection เพิ่มโดยที่ไม่มีใครถือตัวปิดสายเก่าไว้เลย
       if (this.conn) return;
       this.conn = openAppChanges({
+        // แท็บพื้นหลังไม่มีใครมองอยู่ ปล่อยสายคืนโควตา connection ให้แท็บหน้าไปก่อน
+        // (สายนี้เป็นผู้ฟังล้วน ๆ ไม่ถือ lock จึงปิดได้โดยไม่กระทบสิทธิ์ของใคร)
+        pauseWhenHidden: true,
+        // กลับมาเห็นแล้ว ช่วงที่ปิดไปอาจมี event ตกหล่น — นับเหมือนได้ 'changed' หนึ่งก้อน
+        // ให้หน้าที่ watch changeTick โหลดใหม่เอง ไม่ต้องมีทางพิเศษของตัวเอง
+        onResume: () => {
+          this.changeTick += 1;
+        },
         onConnection: (s) => {
           this.status = s;
         },

@@ -78,6 +78,12 @@ export interface LobbyHandlers {
   /** ใบใดใบหนึ่งในคิวเปลี่ยนแล้ว — ตารางต้องโหลดใหม่ (ได้ทุกก้อน รวมของตัวเอง) */
   onStatus?: (change: StatusChange) => void;
   onError?: (error: unknown) => void;
+  /**
+   * ปิดสายตอนแท็บถูกซ่อน (ดู StreamHandlers) — lobby ทำได้เพราะไม่ถือ lock ของใคร
+   * ★ PresenceHandlers ไม่มีสองตัวนี้โดยตั้งใจ สายนั้นถือ lock ปิดแล้วเสียคิว
+   */
+  pauseWhenHidden?: boolean;
+  onResume?: () => void;
 }
 
 /** ชื่อเดิมของสายที่ปิดได้ — คงไว้เพราะหน้าที่ใช้อยู่ import ชื่อนี้ (ตัวจริงอยู่ที่ sse.service) */

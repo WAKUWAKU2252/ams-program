@@ -66,6 +66,11 @@ function scheduleReload() {
 
 function openLobby() {
   lobbyConn = openRegistrationLobby({
+    // สายนี้ฟังอย่างเดียว ไม่ถือ lock ของใคร ปิดตอนแท็บถูกซ่อนได้โดยไม่มีผลข้างเคียง
+    // — โควตา connection ของเบราว์เซอร์เป็นของทั้งโปรไฟล์ ไม่ใช่ของแต่ละแท็บ
+    pauseWhenHidden: true,
+    // ช่วงที่ปิดไปอาจมีใบถูกอนุมัติ/ออกเลขเพิ่ม โหลดหนึ่งรอบตอนกลับมา
+    onResume: () => scheduleReload(),
     // ตารางนี้ไม่มีกล่องกรอกอะไร โหลดทับได้ตลอดเวลาโดยไม่ทำใครเสียงาน
     onStatus: () => scheduleReload(),
     onHolder: (h) => {
