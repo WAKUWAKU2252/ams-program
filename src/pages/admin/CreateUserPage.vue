@@ -228,7 +228,7 @@ const roles = [
               </div>
 
               <legend class="fieldset-legend mt-2">อีเมล</legend>
-              <input v-model="emp.email" type="email" class="input w-full" placeholder="name@ubisasia.com" />
+              <input v-model="emp.email" type="email" class="input w-full" placeholder="name@company.com" />
               <p class="label-text-alt mt-1 text-base-content/60">ไม่กรอกก็สร้างได้ แต่จะไม่ได้รับอีเมลแจ้งผลจากระบบ</p>
 
               <legend class="fieldset-legend mt-2">แผนก *</legend>
