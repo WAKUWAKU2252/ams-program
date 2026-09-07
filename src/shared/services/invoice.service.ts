@@ -14,7 +14,7 @@ interface UploadResponse {
 /** อัปโหลดไฟล์ invoice → คืน attachmentId (ยังไม่ผูกกับใคร จนกว่าจะ link) */
 export async function uploadInvoice(file: File): Promise<string> {
   const form = new FormData();
-  // ชื่อ field ต้องตรงกับ uploadBody (entityKind / files) เป๊ะ — ห้ามใส่ Content-Type เอง
+  // ชื่อ field ต้องตรงกับ uploadBody (entityKind / files) เป๊ะ - ห้ามใส่ Content-Type เอง
   // (browser ต้องเป็นคนแปะ boundary ให้ multipart)
   form.append('entityKind', 'INVOICE');
   form.append('files', file);
@@ -38,12 +38,12 @@ export function linkGrpoInvoice(grpoId: number, attachmentId: string): Promise<u
   });
 }
 
-/** ถอด invoice ใบที่ระบุออกจากรอบ (1 รอบมีหลายใบ) — ไม่ลบไฟล์ทิ้ง cleanupOrphans จัดการเอง */
+/** ถอด invoice ใบที่ระบุออกจากรอบ (1 รอบมีหลายใบ) - ไม่ลบไฟล์ทิ้ง cleanupOrphans จัดการเอง */
 export function unlinkGrpoInvoice(grpoId: number, attachmentId: string): Promise<unknown> {
   return request(`/grpo/${grpoId}/invoice/${attachmentId}`, { method: 'DELETE' });
 }
 
-/** โหลดไฟล์ invoice เป็น blob URL (endpoint ผ่าน authGuard ต้องแนบ token) — ใช้ preview inline / เปิดแท็บ
+/** โหลดไฟล์ invoice เป็น blob URL (endpoint ผ่าน authGuard ต้องแนบ token) - ใช้ preview inline / เปิดแท็บ
  *  ผู้เรียกต้อง revokeObjectURL เองเมื่อเลิกใช้ */
 export async function invoiceBlobUrl(attachmentId: string): Promise<string> {
   const token = getToken();

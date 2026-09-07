@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// เลือกผู้ถือครองสินทรัพย์ — dropdown ที่มีช่องค้นอยู่ในตัว
+// เลือกผู้ถือครองสินทรัพย์ - dropdown ที่มีช่องค้นอยู่ในตัว
 //
 // ทำแบบเดียวกับ Searching.vue (ค้น PO): ดึงมาชุดเดียวแล้วให้พิมพ์ค้นเพื่อกรองให้แคบลง
-// ไม่มีแถบเลขหน้า — /master/employees แบ่งหน้าอยู่ก็จริง แต่หน้าจอนี้ขอแค่หน้าแรก
+// ไม่มีแถบเลขหน้า - /master/employees แบ่งหน้าอยู่ก็จริง แต่หน้าจอนี้ขอแค่หน้าแรก
 // เพราะคนหาพนักงานจะพิมพ์ชื่อ ไม่ได้ไล่พลิกหน้าทีละ 8 คนจนครบ 257 คน
 import { ref, watch, onMounted, onUnmounted, useId, computed } from 'vue'
 import { Icon } from '@iconify/vue'
-import { listEmployees, type EmployeeOption } from '@/services/master.service'
+import { listEmployees, type EmployeeOption } from '@/shared/services/master.service'
 
 const props = withDefaults(
   defineProps<{
@@ -53,7 +53,7 @@ async function load() {
       page: 1,
       limit: LIMIT,
     })
-    if (seq !== requestSeq) return // มี request ใหม่กว่าเกิดขึ้นระหว่างรอ — ทิ้งผลนี้
+    if (seq !== requestSeq) return // มี request ใหม่กว่าเกิดขึ้นระหว่างรอ - ทิ้งผลนี้
     rows.value = res.data
     total.value = res.total
   } catch (e) {
@@ -87,19 +87,19 @@ function clear() {
 }
 
 /**
- * แปลง id ที่ parent ส่งมาให้เป็นชื่อ — ใช้ตอนฟอร์มโหลดผู้ถือครองเดิมของ asset มา
+ * แปลง id ที่ parent ส่งมาให้เป็นชื่อ - ใช้ตอนฟอร์มโหลดผู้ถือครองเดิมของ asset มา
  *
  * selectedName ถูกเซ็ตเฉพาะตอนผู้ใช้คลิกเลือกเท่านั้น ค่าที่มาจาก DB จึงไม่มีชื่อคู่มาด้วย
  * ถ้าไม่ยิงถามชื่อ ปุ่มจะโชว์ placeholder ทั้งที่ในฐานข้อมูลมีผู้ถือครองอยู่จริง
- * — ผู้ใช้จะเข้าใจว่ายังไม่เคยกรอก แล้วกดบันทึกทับด้วยค่าว่าง
+ * - ผู้ใช้จะเข้าใจว่ายังไม่เคยกรอก แล้วกดบันทึกทับด้วยค่าว่าง
  *
- * includeInactive: true — คนที่ลาออกแล้วยังต้องรู้ว่าเคยถือครองอะไรอยู่
+ * includeInactive: true - คนที่ลาออกแล้วยังต้องรู้ว่าเคยถือครองอะไรอยู่
  * (ค่าเริ่มต้นกรองคนที่ปิดใช้งานออก ซึ่งจะทำให้ชื่อหายไปเฉพาะคนกลุ่มนั้น)
  */
 async function resolveName(id: number) {
   try {
     const res = await listEmployees({ id, includeInactive: true, page: 1, limit: 1 })
-    // ระหว่างรอ ผู้ใช้อาจเลือกคนอื่นหรือกดล้างไปแล้ว — ห้ามเขียนทับของใหม่ด้วยของเก่า
+    // ระหว่างรอ ผู้ใช้อาจเลือกคนอื่นหรือกดล้างไปแล้ว - ห้ามเขียนทับของใหม่ด้วยของเก่า
     if (props.modelValue !== id) return
     selectedName.value = res.data[0]?.name ?? ''
   } catch (e) {
@@ -118,7 +118,7 @@ watch(
   { immediate: true },
 )
 
-// ปิด popover เมื่อคลิกนอก — popover API ปิดให้เองเฉพาะ light dismiss ซึ่งใช้ไม่ได้
+// ปิด popover เมื่อคลิกนอก - popover API ปิดให้เองเฉพาะ light dismiss ซึ่งใช้ไม่ได้
 // เมื่ออยู่ใน modal ที่ดักคลิกไว้
 function onClickOutside(e: MouseEvent) {
   if (!rootRef.value?.contains(e.target as Node)) popoverRef.value?.hidePopover()
@@ -178,7 +178,7 @@ onUnmounted(() => {
       <ul class="menu menu-sm w-full flex-nowrap px-0">
         <li v-for="emp in rows" :key="emp.id">
           <a :class="{ 'menu-active': emp.id === modelValue }" @click="select(emp)">
-            <!-- empId ว่างได้ (HR ยังไม่ให้รหัสบางคน) — ไม่งั้นจะขึ้นเป็น " - ชื่อ" ห้อยไว้ -->
+            <!-- empId ว่างได้ (HR ยังไม่ให้รหัสบางคน) - ไม่งั้นจะขึ้นเป็น " - ชื่อ" ห้อยไว้ -->
             <span class="font-mono text-xs opacity-60">{{ emp.empId || '-------' }}</span>
             <span class="truncate">{{ emp.name }}</span>
           </a>

@@ -1,7 +1,7 @@
 import { request } from './httpClient'
-import type { AuthUser } from '@/types/user'
+import type { AuthUser } from '@/shared/types/user'
 
-// mock ชั่วคราวระหว่างรอ backend auth — พอ API จริงมาให้ลบทิ้ง แล้วใช้ getCurrentUser()
+// mock ชั่วคราวระหว่างรอ backend auth - พอ API จริงมาให้ลบทิ้ง แล้วใช้ getCurrentUser()
 // component/store ไม่ต้องแก้เพราะยึด type User ตัวเดียวกันอยู่แล้ว
 
 interface LoginPayload {

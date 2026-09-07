@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// โครงหลักของหน้าในระบบ — daisyUI drawer: sidebar ค้างไว้บนจอใหญ่ (lg:drawer-open)
+// โครงหลักของหน้าในระบบ - daisyUI drawer: sidebar ค้างไว้บนจอใหญ่ (lg:drawer-open)
 // จอเล็กพับเก็บแล้วเปิดด้วยปุ่ม hamburger ใน Topbar (label ที่ชี้มาที่ checkbox ตัวเดียวกัน)
 // หน้าเนื้อหาเป็น child route มาแสดงใน <router-view/> ข้างล่าง
-import Sidebar from '@/components/layout/Sidebar/Sidebar.vue'
-import Topbar from '@/components/layout/TopBar/TopBar.vue'
-import { useUiStore } from '@/stores/ui'
+import Sidebar from '@/layouts/components/Sidebar.vue'
+import Topbar from '@/layouts/components/TopBar.vue'
+import { useUiStore } from '@/shared/stores/ui'
 import { storeToRefs } from 'pinia'
 
 const uiStore = useUiStore()

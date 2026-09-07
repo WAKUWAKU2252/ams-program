@@ -1,18 +1,20 @@
 <script setup lang="ts">
-// หน้าออกเลขของบัญชี — ทีละใบ (โครงเดียวกับ DraftForm ของหน้า Create New Asset)
+// หน้าออกเลขของบัญชี - ทีละใบ (โครงเดียวกับ DraftForm ของหน้า Create New Asset)
 //
 // ทำไมต้องเป็นหน้าแยก ไม่ใช่กางในตารางเหมือนเดิม: การออกเลขต้อง "จองใบ" ไว้ก่อน ไม่งั้น
 // บัญชีสองคนกรอกเลขใบเดียวกันพร้อมกันแล้วทับกันเงียบ ๆ การจองผูกกับ "หน้าที่เปิดอยู่"
 // (เปิดสาย SSE ค้าง = ถือ lock / ออกจากหน้า = ปล่อย) ซึ่งมีความหมายก็ต่อเมื่อเปิดได้ทีละใบ
 // ถ้ากางหลายใบพร้อมกันในตาราง คนคนเดียวจะถือ lock ค้างหลายใบและบล็อกคนอื่นทั้งแถบ
 //
-// lock เป็นของ "ใบ" ไม่ใช่ของ "ชิ้น" — บัญชีคนที่สองที่เข้ามาจะเห็นทุกอย่างแต่กดอะไรไม่ได้
+// lock เป็นของ "ใบ" ไม่ใช่ของ "ชิ้น" - บัญชีคนที่สองที่เข้ามาจะเห็นทุกอย่างแต่กดอะไรไม่ได้
 // จนกว่าคนแรกจะออก (backend บังคับซ้ำอีกชั้นที่ assertRegistrationHolder ไม่ใช่แค่ซ่อนปุ่ม)
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import QRCode from 'qrcode'
-import AppAssetNumberInput from '@/components/common/AppAssetNumberInput.vue'
-import InvoiceModal from '@/components/common/InvoiceModal.vue'
+import AssetNumberInput from '@/pages/asset-request/components/AssetNumberInput.vue'
+import AppAssetLocationMap from '@/shared/components/AppAssetLocationMap.vue'
+import InvoiceModal from '@/shared/components/InvoiceModal.vue'
+import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service'
 import {
   getPendingRegistration,
   assignAssetNumber,
@@ -20,17 +22,17 @@ import {
   rejectAsset,
   cancelAsset,
   uncancelAsset,
-} from '@/services/assetRequest.service'
-import type { PendingRegistrationRow } from '@/services/assetRequest.service'
-import { getAssetSlots } from '@/services/asset.service'
-import type { AssetSlotsResponse, InvoiceFile, SlotDisplayStatus } from '@/services/asset.service'
-import { openPresence } from '@/services/presence.service'
-import type { PresenceState, PresenceConnection } from '@/services/presence.service'
-import { fileBlobUrl } from '@/services/attachment.service'
-import { invoiceBlobUrl } from '@/services/invoice.service'
-import { ApiError } from '@/services/httpClient'
-import { formatDate, formatDateTime } from '@/utils/date'
-import { ASSET_NUMBER_REGEX } from '@contract/asset-number'
+} from '@/shared/services/assetRequest.service'
+import type { PendingRegistrationRow } from '@/shared/services/assetRequest.service'
+import { getAssetSlots } from '@/shared/services/asset.service'
+import type { AssetSlotsResponse, InvoiceFile, SlotDisplayStatus } from '@/shared/services/asset.service'
+import { openPresence } from '@/shared/services/presence.service'
+import type { PresenceState, PresenceConnection } from '@/shared/services/presence.service'
+import { fileBlobUrl } from '@/shared/services/attachment.service'
+import { invoiceBlobUrl } from '@/shared/services/invoice.service'
+import { ApiError } from '@/shared/services/httpClient'
+import { formatDate, formatDateTime } from '@/shared/utils/date'
+import { formatMoney } from '@/shared/utils/money'
 import { Icon } from '@iconify/vue'
 import ApexCharts from 'apexcharts'
 
@@ -78,7 +80,7 @@ async function loadAll() {
     openPresenceStream()
     startIdleTimer()
   } catch (e) {
-    // 404 = ใบไม่อยู่ในคิวแล้ว (ยืนยันไปแล้ว/ถูกลบ) — ไม่ใช่ error ของผู้ใช้
+    // 404 = ใบไม่อยู่ในคิวแล้ว (ยืนยันไปแล้ว/ถูกลบ) - ไม่ใช่ error ของผู้ใช้
     loadError.value =
       e instanceof ApiError ? e.message : 'เปิดใบนี้ไม่ได้ อาจถูกยืนยันหรือลบไปแล้ว'
   } finally {
@@ -93,7 +95,7 @@ function openPresenceStream() {
       onState: (s) => {
         presenceState.value = s
       },
-      // ใบนี้ถูกเปลี่ยนโดยคนอื่น — ที่พบจริงคือผู้ขอแก้ชิ้นที่เราตีกลับไป (ชิ้นนั้นกลับเข้าคิว
+      // ใบนี้ถูกเปลี่ยนโดยคนอื่น - ที่พบจริงคือผู้ขอแก้ชิ้นที่เราตีกลับไป (ชิ้นนั้นกลับเข้าคิว
       // ออกเลขทันที) และบัญชีคนที่สองที่เปิดดูอยู่ต้องเห็นเลขที่ holder เพิ่งกรอก
       onStatus: () => scheduleRemoteRefresh(),
       onError: (e) => console.error('presence error:', e),
@@ -108,7 +110,7 @@ function closePresence() {
 }
 
 /**
- * ถือ lock ค้างไว้โดยไม่ทำอะไร = บล็อกคนอื่นฟรี ๆ — เตะออกเหมือนหน้า DraftForm
+ * ถือ lock ค้างไว้โดยไม่ทำอะไร = บล็อกคนอื่นฟรี ๆ - เตะออกเหมือนหน้า DraftForm
  * (10 นาทีตรงกับที่นั่น ส่วน backend มี TTL 15 นาทีเป็นตาข่ายอีกชั้นเผื่อแท็บถูกฆ่าทิ้ง)
  */
 let idleTimer: ReturnType<typeof setTimeout> | undefined
@@ -143,11 +145,11 @@ function stopIdleTimer() {
  *
  * getAssetSlots คืนมาเป็น poItem → slot (โครงของหน้าลงทะเบียนซึ่งมองเป็นบรรทัด PO)
  * แต่บัญชีอ่านเป็นล็อตของที่มาถึง จึงต้องกลับด้านตรงนี้ ไม่ใช่ไปแก้ endpoint
- * — หน้าลงทะเบียนยังต้องใช้โครงเดิมอยู่
+ * - หน้าลงทะเบียนยังต้องใช้โครงเดิมอยู่
  */
 interface FlatSlot {
   assetId: number
-  /** บรรทัดของ PO — ใช้คู่กับ unitNo เป็นเลขชิ้นที่คนอ่าน (poLine.unitNo) */
+  /** บรรทัดของ PO - ใช้คู่กับ unitNo เป็นเลขชิ้นที่คนอ่าน (poLine.unitNo) */
   poLine: number
   unitNo: number
   description: string
@@ -159,31 +161,42 @@ interface FlatSlot {
   /** ผู้ถือครอง (null = ของกลาง) */
   employeeName: string | null
   departmentName: string | null
-  /** ประกอบเป็นข้อความบรรทัดเดียวแล้ว — ดูเหตุผลที่ warrantyText() */
+  /** ประกอบเป็นข้อความบรรทัดเดียวแล้ว - ดูเหตุผลที่ warrantyText() */
   warranty: string
-  /** ป้ายที่ backend คำนวณมาให้ — ตัวตัดสินว่าแถวนี้โชว์ปุ่มอะไร */
+  /** ป้ายที่ backend คำนวณมาให้ - ตัวตัดสินว่าแถวนี้โชว์ปุ่มอะไร */
   displayStatus: SlotDisplayStatus
-  /** เลข SAP ที่ออกไปแล้ว (null = ยังไม่ออก) — กล่องจัดการเอาไปเติมในช่องเพื่อให้แก้ทับได้ */
+  /** เลข SAP ที่ออกไปแล้ว (null = ยังไม่ออก) - กล่องจัดการเอาไปเติมในช่องเพื่อให้แก้ทับได้ */
   assetNumber: string | null
-  /** URL ที่ฝังใน QR ของสติกเกอร์ (null = ยังไม่มีเลข) — วาดรูปจากค่านี้ ไม่ประกอบเอง */
+  /** URL ที่ฝังใน QR ของสติกเกอร์ (null = ยังไม่มีเลข) - วาดรูปจากค่านี้ ไม่ประกอบเอง */
   qrCode: string | null
-  /** เคยถูกตีกลับแล้วผู้ขอแก้กลับมาแล้ว ยังไม่ได้ออกเลข — ป้าย "แก้ไขแล้ว" ในตาราง */
+  /** เคยถูกตีกลับแล้วผู้ขอแก้กลับมาแล้ว ยังไม่ได้ออกเลข - ป้าย "แก้ไขแล้ว" ในตาราง */
   rejectFixed: boolean
   rejectReason: string | null
   cancelReason: string | null
+
+  // ── ที่ตั้งแบบชี้บนผังได้ - location ข้างบนเป็นข้อความไว้อ่านในตาราง ส่วนตัวล่างนี้
+  //    คือของที่กล่องรายชิ้นเอาไปวาดหมุดบนผังจริง (ชุดเดียวกับที่หน้า QR ใช้)
+  /** true = สถานที่อยู่นอกผังของไซต์นี้ - ผังจะขึ้นข้อความแทนหมุด ไม่ใช่ "ยังไม่ระบุห้อง" */
+  locationOutPlan: boolean
+  subLocationId: number | null
+  planKey: string | null
+  posX: number | null
+  posY: number | null
+  /** ใช้เลือกไอคอนของหมุดเท่านั้น หน้านี้ไม่มีช่องหมวดให้แสดง */
+  categoryName: string | null
 }
 
 /**
- * ระยะประกันเป็นข้อความบรรทัดเดียว — สองคอลัมน์นี้ nullable อิสระจากกัน จึงมี 4 กรณีจริง
- * ปล่อยให้ template เขียน v-if ซ้อนกันเองแล้วจะได้ "— - 31/12/2570" ในกรณีที่มีแต่วันจบ
+ * ระยะประกันเป็นข้อความบรรทัดเดียว - สองคอลัมน์นี้ nullable อิสระจากกัน จึงมี 4 กรณีจริง
+ * ปล่อยให้ template เขียน v-if ซ้อนกันเองแล้วจะได้ "- - 31/12/2570" ในกรณีที่มีแต่วันจบ
  */
 function warrantyText(start: string | null, end: string | null): string {
-  if (!start && !end) return '—'
+  if (!start && !end) return '-'
   if (start && end) return `${formatDate(start)} – ${formatDate(end)}`
   return start ? `เริ่ม ${formatDate(start)}` : `ถึง ${formatDate(end!)}`
 }
 
-/** ข้อมูลของ "รอบ" ที่ตารางกับกล่องจัดการต้องใช้ — invoice ผูกกับรอบ ไม่ใช่กับชิ้น */
+/** ข้อมูลของ "รอบ" ที่ตารางกับกล่องจัดการต้องใช้ - invoice ผูกกับรอบ ไม่ใช่กับชิ้น */
 interface RoundGroup {
   grpoNo: string
   grpoId: number
@@ -197,7 +210,7 @@ const rounds = computed<RoundGroup[]>(() => {
 
   // grpoNo -> grpoId + invoice ของรอบนั้น
   // ทำเป็น lookup แยกเพราะ slot ไม่ได้พก grpoId/invoices มาด้วย (มันอยู่ที่ระดับ grpoLine)
-  // GRPO ใบเดียวคร่อมได้หลาย PO line จึงโผล่เป็น grpoLine หลายแถวที่มี grpoNo เดียวกัน —
+  // GRPO ใบเดียวคร่อมได้หลาย PO line จึงโผล่เป็น grpoLine หลายแถวที่มี grpoNo เดียวกัน -
   // grpoId กับ invoices เป็นของ "ใบ GRPO" จึงเหมือนกันทุกแถว หยิบแถวแรกที่เจอพอ
   const roundMeta = new Map<string, { grpoId: number; invoices: InvoiceFile[] }>()
   for (const item of data.items) {
@@ -210,7 +223,7 @@ const rounds = computed<RoundGroup[]>(() => {
   for (const item of data.items) {
     for (const slot of item.slots) {
       if (slot.status !== 'registered') continue
-      // getAssetSlots นับช่องข้ามใบ (PO เดียวเปิดคำขอได้หลายรอบ) — ใบนี้ต้องแสดงเฉพาะ
+      // getAssetSlots นับช่องข้ามใบ (PO เดียวเปิดคำขอได้หลายรอบ) - ใบนี้ต้องแสดงเฉพาะ
       // ของที่ตัวเองขอ ไม่งั้นของจากใบก่อนจะโผล่มาปนในรายการที่ส่งให้บัญชีดู
       if (slot.requestId !== id.value) continue
       const list = map.get(slot.grpoNo) ?? []
@@ -222,7 +235,8 @@ const rounds = computed<RoundGroup[]>(() => {
         description: item.itemDescription,
         serialNumber: slot.serialNumber,
         acquisitionCost: slot.acquisitionCost,
-        location: [slot.locationName, slot.subLocationName].filter(Boolean).join(' - ') || '—',
+        location: [slot.locationName, slot.subLocationName].filter(Boolean).join(' - ') || '-',
+        locationOutPlan: slot.locationOutPlan,
         imageId: slot.imageId,
         lifecycle: slot.lifecycle,
         employeeName: slot.employeeName,
@@ -234,11 +248,16 @@ const rounds = computed<RoundGroup[]>(() => {
         qrCode: slot.qrCode,
         rejectFixed: slot.rejectFixed,
         cancelReason: slot.cancelReason,
+        subLocationId: slot.subLocationId,
+        planKey: slot.planKey,
+        posX: slot.posX,
+        posY: slot.posY,
+        categoryName: slot.categoryName,
       })
     }
   }
   // เรียงแบบเดียวกับหน้า Create New Asset: ตามบรรทัด PO ก่อน แล้วค่อยตามเลขชิ้นในบรรทัดนั้น
-  // ได้ 0.1 0.2 0.3 → 1.1 1.2 — ไม่ใช่เรียงตาม unitNo ล้วนซึ่งจะสลับบรรทัดกันมั่ว
+  // ได้ 0.1 0.2 0.3 → 1.1 1.2 - ไม่ใช่เรียงตาม unitNo ล้วนซึ่งจะสลับบรรทัดกันมั่ว
   const byLineThenUnit = (a: FlatSlot, b: FlatSlot) => a.poLine - b.poLine || a.unitNo - b.unitNo
   const list: RoundGroup[] = [...map].map(([grpoNo, s]) => ({
     grpoNo,
@@ -252,7 +271,7 @@ const rounds = computed<RoundGroup[]>(() => {
   )
 })
 
-// ── รูป: /uploads/:id/file อยู่หลัง authGuard — ยัดใน <img src> ตรง ๆ จะโดน 401
+// ── รูป: /uploads/:id/file อยู่หลัง authGuard - ยัดใน <img src> ตรง ๆ จะโดน 401
 // ต้องโหลดเป็น blob พร้อม token (ดู attachment.service.ts) แล้ว revoke ตอนออกจากหน้า
 const imageUrls = ref<Record<string, string>>({})
 
@@ -264,25 +283,25 @@ async function loadThumbnails(data: AssetSlotsResponse) {
       try {
         imageUrls.value[slot.imageId] = await fileBlobUrl(slot.imageId)
       } catch {
-        // รูปโหลดไม่ได้ไม่ใช่เรื่องคอขาดบาดตาย — ปล่อยขึ้น placeholder
+        // รูปโหลดไม่ได้ไม่ใช่เรื่องคอขาดบาดตาย - ปล่อยขึ้น placeholder
       }
     }
   }
 }
 
-// ── กล่องจัดการรายชิ้น — กล่องเดียวสำหรับทุกการตัดสินใจของบัญชี ─────────────
+// ── กล่องจัดการรายชิ้น - กล่องเดียวสำหรับทุกการตัดสินใจของบัญชี ─────────────
 //
 // สามทางเลือก (ออกเลข / ตีกลับ / ปิดถาวร) อยู่ในกล่องเดียวกันโดยตั้งใจ ไม่แยกเป็นสามปุ่ม
-// ในตาราง เพราะทั้งสามอย่างตัดสินจาก "ข้อมูลชุดเดียวกัน" — รูปเต็ม S/N ราคา สถานที่
+// ในตาราง เพราะทั้งสามอย่างตัดสินจาก "ข้อมูลชุดเดียวกัน" - รูปเต็ม S/N ราคา สถานที่
 // ผู้ถือครอง แยกเป็นปุ่มในแถวแปลว่าบัญชีต้องตัดสินใจจากข้อมูลย่อบนตารางก่อนเปิดดูของจริง
 // ซึ่งเป็นทางที่กดผิดง่ายที่สุด (ทั้งสามอย่างย้อนยากคนละแบบ)
 type SlotAction = 'register' | 'reject' | 'cancel' | 'uncancel'
 
 const target = ref<{ round: RoundGroup; slot: FlatSlot } | null>(null)
-// รูปเต็มจอ — ซ้อนบนกล่องจัดการ ไม่ใช่กล่องแยก: บัญชีต้องซูมดู S/N บนตัวเครื่องแล้วปิดกลับ
+// รูปเต็มจอ - ซ้อนบนกล่องจัดการ ไม่ใช่กล่องแยก: บัญชีต้องซูมดู S/N บนตัวเครื่องแล้วปิดกลับ
 // มาที่ฟอร์มเดิมทันที ถ้าเป็นกล่องแยกจะต้องปิดสองชั้นกว่าจะได้กรอกต่อ
 const lightboxOpen = ref(false)
-// invoice เป็นของ "รอบรับของ" ไม่ใช่ของชิ้น — ปุ่มจึงอยู่ที่หัวรอบในตาราง ไม่ใช่ในกล่องรายชิ้น
+// invoice เป็นของ "รอบรับของ" ไม่ใช่ของชิ้น - ปุ่มจึงอยู่ที่หัวรอบในตาราง ไม่ใช่ในกล่องรายชิ้น
 // (ของเดิมอยู่ในกล่อง ซึ่งแปลว่าต้องเปิดชิ้นสักชิ้นก่อนถึงจะดูใบกำกับของรอบได้ ทั้งที่ใบกำกับ
 //  เป็นสิ่งที่บัญชีเปิดอ่านก่อนเริ่มไล่ตรวจทั้งรอบ)
 //
@@ -338,7 +357,7 @@ const ACTION_META: Record<
 }
 
 /**
- * ป้ายสถานะ "ตอนนี้" ของชิ้นที่เปิดอยู่ — กล่องนี้เปิดจากหลายสถานะ (รอออกเลข/ตีกลับ/ปิดถาวร)
+ * ป้ายสถานะ "ตอนนี้" ของชิ้นที่เปิดอยู่ - กล่องนี้เปิดจากหลายสถานะ (รอออกเลข/ตีกลับ/ปิดถาวร)
  * แล้วแท็บที่เห็นก็ต่างกันไปตามนั้น ถ้าไม่ติดป้ายไว้ที่หัวกล่องจะเดาไม่ออกว่าทำไมแท็บหาย
  *
  * สีคู่กับความหมาย: ตีกลับ = warning (ผู้ขอแก้แล้วกลับเข้าคิวได้) / ปิดถาวร = error (ทางตัน)
@@ -357,12 +376,12 @@ const SLOT_STATUS_BADGE: Partial<
 }
 
 // ── รูป QR ของชิ้นที่เปิดอยู่ ──────────────────────────────────────────────
-// วาดจาก slot.qrCode ที่ backend เก็บไว้ตอนออกเลข ไม่ประกอบ URL เองจาก assetNumber —
+// วาดจาก slot.qrCode ที่ backend เก็บไว้ตอนออกเลข ไม่ประกอบ URL เองจาก assetNumber -
 // ค่าที่เก็บไว้คือค่าที่ตรงกับสติกเกอร์ที่พิมพ์ไปแล้ว ถ้าจอประกอบเอง ความไม่ตรงกันระหว่าง
 // จอกับของจริงจะไม่มีใครเห็น
 //
 // errorCorrectionLevel 'M' (กู้ได้ ~15%): สูงกว่านี้ทนรอยขีดข่วนดีขึ้นก็จริง แต่โมดูลจะถี่ขึ้น
-// ซึ่งสวนทางกับสติกเกอร์ที่พิมพ์ขนาดเล็ก — ถ้าของจริงติดที่เครื่องจักรที่เลอะบ่อย ค่อยขยับเป็น 'Q'
+// ซึ่งสวนทางกับสติกเกอร์ที่พิมพ์ขนาดเล็ก - ถ้าของจริงติดที่เครื่องจักรที่เลอะบ่อย ค่อยขยับเป็น 'Q'
 // พร้อมขยายขนาดสติกเกอร์ไปด้วยกัน
 const qrDataUrl = ref('')
 
@@ -391,7 +410,7 @@ const slotStatus = computed(() =>
   target.value ? (SLOT_STATUS_BADGE[target.value.slot.displayStatus] ?? null) : null,
 )
 
-/** เหตุผลที่ชิ้นนี้ค้างอยู่ — เดิมมีแต่ในตาราง คนที่เปิดกล่องมาตัดสินใจต่อก็ต้องเห็นด้วย */
+/** เหตุผลที่ชิ้นนี้ค้างอยู่ - เดิมมีแต่ในตาราง คนที่เปิดกล่องมาตัดสินใจต่อก็ต้องเห็นด้วย */
 const blockedReason = computed(() => {
   const s = target.value?.slot
   if (!s) return null
@@ -408,7 +427,7 @@ const blockedReason = computed(() => {
 })
 
 /**
- * ข้อมูลประกอบการตัดสินใจ — เขียนเป็นข้อมูลแทน markup ซ้ำเจ็ดรอบใน template
+ * ข้อมูลประกอบการตัดสินใจ - เขียนเป็นข้อมูลแทน markup ซ้ำเจ็ดรอบใน template
  * แบ่งสองกองตรง ๆ ไม่ใช่ตัดครึ่งอัตโนมัติ เพราะมันคือลำดับที่บัญชีไล่ตรวจจริง:
  *   ซ้าย  = ชิ้นนี้คืออะไร (ชื่อของ S/N ราคา ประกัน)
  *   ขวา   = อยู่กับใคร ที่ไหน (แผนก สถานที่ ผู้ถือครอง)
@@ -419,7 +438,7 @@ interface SlotDetail {
   label: string
   value: string
   mono?: boolean
-  /** ค่าที่ไม่ใช่ข้อมูลจริง (ว่าง/ของกลาง) — ทำให้จางลงเพื่อไม่ให้อ่านปนกับค่าที่กรอกมาแล้ว */
+  /** ค่าที่ไม่ใช่ข้อมูลจริง (ว่าง/ของกลาง) - ทำให้จางลงเพื่อไม่ให้อ่านปนกับค่าที่กรอกมาแล้ว */
   muted?: boolean
 }
 
@@ -428,7 +447,7 @@ const detailColumns = computed<SlotDetail[][]>(() => {
   if (!s) return [[], []]
   return [
     [
-      // เลขที่ออกไปแล้วอยู่บนสุด — เป็นสิ่งที่ต้องตรวจก่อนตัดสินใจว่าจะแก้ไหม และยังเห็นได้
+      // เลขที่ออกไปแล้วอยู่บนสุด - เป็นสิ่งที่ต้องตรวจก่อนตัดสินใจว่าจะแก้ไหม และยังเห็นได้
       // ตอนสลับไปแท็บอื่นด้วย (ช่องกรอกโชว์เฉพาะแท็บออกเลข)
       ...(s.assetNumber
         ? [{ icon: 'mdi:tag-check-outline', label: 'เลขสินทรัพย์', value: s.assetNumber, mono: true }]
@@ -437,14 +456,14 @@ const detailColumns = computed<SlotDetail[][]>(() => {
       {
         icon: 'mdi:barcode',
         label: 'Serial No.',
-        value: s.serialNumber ?? '—',
+        value: s.serialNumber ?? '-',
         mono: true,
         muted: !s.serialNumber,
       },
       {
         icon: 'mdi:cash-multiple',
         label: 'ราคาทุน',
-        value: s.acquisitionCost.toLocaleString('th-TH') + ' ฿',
+        value: formatMoney(s.acquisitionCost) + ' ฿',
         mono: true,
       },
       { icon: 'mdi:shield-check-outline', label: 'ระยะประกัน', value: s.warranty },
@@ -453,11 +472,11 @@ const detailColumns = computed<SlotDetail[][]>(() => {
       {
         icon: 'mdi:domain',
         label: 'แผนก',
-        value: s.departmentName ?? '—',
+        value: s.departmentName ?? '-',
         muted: !s.departmentName,
       },
       { icon: 'mdi:map-marker-outline', label: 'สถานที่', value: s.location },
-      // null = ของกลาง ไม่ใช่ข้อมูลขาด — ต้องเขียนให้ต่างจากช่องที่ยังไม่ได้กรอก
+      // null = ของกลาง ไม่ใช่ข้อมูลขาด - ต้องเขียนให้ต่างจากช่องที่ยังไม่ได้กรอก
       {
         icon: 'mdi:account-outline',
         label: 'ผู้ถือครอง',
@@ -468,17 +487,17 @@ const detailColumns = computed<SlotDetail[][]>(() => {
   ]
 })
 
-/** แท็บที่เลือกได้ของชิ้นนี้ — ชิ้นที่ปิดถาวรแล้วทำได้อย่างเดียวคือปลดการปิด */
+/** แท็บที่เลือกได้ของชิ้นนี้ - ชิ้นที่ปิดถาวรแล้วทำได้อย่างเดียวคือปลดการปิด */
 const availableActions = computed<SlotAction[]>(() => {
   if (!target.value) return []
   if (target.value.slot.displayStatus === 'cancelled') return ['uncancel']
-  // ตีกลับซ้ำไม่ได้ (backend ตอบ 409) — ซ่อนแท็บไปเลยดีกว่าปล่อยให้กดแล้วเจอ error
+  // ตีกลับซ้ำไม่ได้ (backend ตอบ 409) - ซ่อนแท็บไปเลยดีกว่าปล่อยให้กดแล้วเจอ error
   return target.value.slot.displayStatus === 'rejected'
     ? ['register', 'cancel']
     : ['register', 'reject', 'cancel']
 })
 
-/** ตีกลับชิ้นที่ออกเลขแล้ว = เลขจะถูกล้าง — ตัวตัดสินว่าจะขึ้นคำเตือนแทนคำอธิบายปกติ
+/** ตีกลับชิ้นที่ออกเลขแล้ว = เลขจะถูกล้าง - ตัวตัดสินว่าจะขึ้นคำเตือนแทนคำอธิบายปกติ
  *  ปิดถาวรไม่เข้าเงื่อนไขนี้ เพราะเก็บเลขไว้ ปลดการปิดแล้วได้คืนเหมือนเดิม */
 const clearsAssetNumber = computed(
   () => action.value === 'reject' && Boolean(target.value?.slot.assetNumber),
@@ -487,22 +506,70 @@ const clearsAssetNumber = computed(
 const canSave = computed(() => {
   // ไม่ถือ lock = กดไม่ได้ทุกกรณี (backend ก็ปฏิเสธอยู่แล้ว ตรงนี้กันไม่ให้เสียเวลากรอก)
   if (!editable.value) return false
-  if (action.value === 'register') return ASSET_NUMBER_REGEX.test(assetNumber.value)
+  // ไม่ตรวจรูปแบบแล้ว - แค่ "ต้องไม่ว่าง" (เหตุผลเต็มอยู่ที่ AssetNumberInput.vue
+  // และ assignNumberBody ฝั่ง backend: regex เดิมกันเลขที่ SAP ออกให้จริงบางส่วนออกไปด้วย)
+  if (action.value === 'register') return assetNumber.value.trim().length > 0
   if (action.value === 'uncancel') return true
   return reason.value.trim().length > 0
+})
+
+// ── ผังบอกที่ตั้งของชิ้นที่กำลังเปิดดู ───────────────────────────────────────
+//
+// บัญชีต้องตัดสินใจออกเลข/ตีกลับจากของที่เห็น และ "อยู่ตรงไหน" เป็นหนึ่งในสิ่งที่ต้องตรวจ
+// ตัวหนังสือ "อาคาร A · ชั้น 2 · คลัง" ตอบไม่ได้ว่าคลังนั้นอยู่มุมไหนของโรงงาน คนที่ต้อง
+// เดินไปดูของจริงก่อนออกเลขจึงยังต้องไปถามอยู่ดี - ใช้ตัววาดตัวเดียวกับหน้า QR ไม่ก๊อป
+//
+// โหลดผังครั้งเดียวแล้วคาไว้ (แพทเทิร์นเดียวกับ ensurePlans ของ AppAssetDetail) และโหลด
+// ตอนเปิดกล่องชิ้นแรก ไม่ใช่ตอน mount - คนที่เข้ามาแค่ดูรายการเฉย ๆ ไม่ต้องจ่ายคำขอนี้
+const plans = ref<FloorPlan[]>([])
+let plansLoaded = false
+
+async function ensurePlans() {
+  if (plansLoaded) return
+  plansLoaded = true
+  try {
+    plans.value = await listFloorPlans()
+  } catch {
+    // ผังโหลดไม่ได้ต้องไม่ลากทั้งกล่องตาย - ที่ตั้งยังอ่านเป็นข้อความได้จากตาราง
+    // และ AppAssetLocationMap จะขึ้นกล่องบอกแทนเอง / ให้ลองใหม่ได้รอบหน้า
+    plansLoaded = false
+  }
+}
+
+/**
+ * ชิ้นที่กำลังเปิดดู ในรูปที่ AppAssetLocationMap ต้องการ
+ *
+ * assetNumber/description ใช้แค่เป็นป้ายบนหมุด - ชิ้นที่ยังไม่ออกเลขจึงตกไปใช้เลขชิ้น
+ * (poLine.unitNo) แทน ไม่ปล่อยให้ป้ายว่างซึ่งอ่านเป็น "หมุดของอะไรก็ไม่รู้"
+ */
+const mapTarget = computed(() => {
+  const s = target.value?.slot
+  if (!s) return null
+  return {
+    id: s.assetId,
+    assetNumber: s.assetNumber ?? `ชิ้นที่ ${s.poLine}.${s.unitNo}`,
+    description: s.description,
+    categoryName: s.categoryName,
+    subLocationId: s.subLocationId,
+    locationOutPlan: s.locationOutPlan,
+    planKey: s.planKey,
+    posX: s.posX,
+    posY: s.posY,
+  }
 })
 
 function openSlotAction(round: RoundGroup, slot: FlatSlot) {
   target.value = { round, slot }
   lightboxOpen.value = false
-  // ชิ้นที่ถูกตีกลับอยู่ ออกเลขไม่ได้จนกว่าผู้ขอจะแก้ — เปิดมาที่แท็บที่กดได้จริงแทน
+  void ensurePlans()
+  // ชิ้นที่ถูกตีกลับอยู่ ออกเลขไม่ได้จนกว่าผู้ขอจะแก้ - เปิดมาที่แท็บที่กดได้จริงแทน
   action.value =
     slot.displayStatus === 'cancelled'
       ? 'uncancel'
       : slot.displayStatus === 'rejected'
         ? 'cancel'
         : 'register'
-  // เติมเลขเดิมลงช่อง ไม่ใช่เปิดมาเป็นช่องว่าง — งานจริงคือ "แก้ตัวที่พิมพ์ผิด" ไม่ใช่พิมพ์ใหม่ทั้งเลข
+  // เติมเลขเดิมลงช่อง ไม่ใช่เปิดมาเป็นช่องว่าง - งานจริงคือ "แก้ตัวที่พิมพ์ผิด" ไม่ใช่พิมพ์ใหม่ทั้งเลข
   // และการเห็นเลขที่ลงไว้คือสิ่งแรกที่บัญชีต้องตรวจก่อนตัดสินใจว่าจะแก้ไหม
   assetNumber.value = slot.assetNumber ?? ''
   reason.value = ''
@@ -526,10 +593,10 @@ async function onInvoiceChanged() {
   invoiceRound.value = rounds.value.find((x) => x.grpoNo === r.grpoNo) ?? null
 }
 
-// ── ดู invoice เต็มจอ — ทางเดียวกับรูปสินทรัพย์ ไม่เปิดแท็บใหม่
+// ── ดู invoice เต็มจอ - ทางเดียวกับรูปสินทรัพย์ ไม่เปิดแท็บใหม่
 //
 // /uploads/:id/file อยู่หลัง authGuard เหมือนรูป จึงต้องดึงเป็น blob พร้อม token ก่อน
-// (ยัดใน src/iframe ตรง ๆ ได้ 401) — แท็บใหม่ที่ชี้ blob: ยังทำให้หลุดจากงานที่ค้างอยู่
+// (ยัดใน src/iframe ตรง ๆ ได้ 401) - แท็บใหม่ที่ชี้ blob: ยังทำให้หลุดจากงานที่ค้างอยู่
 // ในกล่อง กลับมาต้องหาที่เดิมใหม่ทุกครั้ง จึงดูซ้อนบนกล่องแล้วปิดกลับมาที่ฟอร์มเดิมแทน
 const invoiceUrls = ref<Record<string, string>>({})
 const invoiceLoading = ref(false)
@@ -537,7 +604,7 @@ const invoiceError = ref('')
 
 const currentInvoice = computed(() => invoiceRound.value?.invoices[invoiceIndex.value] ?? null)
 
-/** ที่แนบได้มีแค่ pdf/jpg/png (ดู accept ของ InvoiceModal) — 'other' จึงเป็นของเก่าหรือของแปลก */
+/** ที่แนบได้มีแค่ pdf/jpg/png (ดู accept ของ InvoiceModal) - 'other' จึงเป็นของเก่าหรือของแปลก */
 const invoiceKind = computed<'image' | 'pdf' | 'other'>(() => {
   const mime = currentInvoice.value?.mimeType ?? ''
   if (mime.startsWith('image/')) return 'image'
@@ -577,7 +644,7 @@ function openInvoiceView(round: RoundGroup) {
   void loadInvoice(round.invoices[0]!)
 }
 
-/** ไปกล่องแนบ/ถอดไฟล์ — ต้องปิดตัวดูก่อน .modal ของ daisyUI อยู่ที่ z-999 ต่ำกว่าจอดำนี้ */
+/** ไปกล่องแนบ/ถอดไฟล์ - ต้องปิดตัวดูก่อน .modal ของ daisyUI อยู่ที่ z-999 ต่ำกว่าจอดำนี้ */
 function openInvoiceManage() {
   invoiceViewOpen.value = false
   invoiceOpen.value = true
@@ -590,7 +657,7 @@ function showInvoice(i: number) {
   if (inv) void loadInvoice(inv)
 }
 
-// ESC ปิดชั้นที่ซ้อนอยู่บนสุด — <dialog> ตัวนี้ไม่ได้เปิดด้วย showModal() จึงไม่มี ESC มาให้เอง
+// ESC ปิดชั้นที่ซ้อนอยู่บนสุด - <dialog> ตัวนี้ไม่ได้เปิดด้วย showModal() จึงไม่มี ESC มาให้เอง
 // กล่องจัดการไฟล์มี handler ของมันเอง ถ้าเปิดอยู่ให้มันจัดการไป ไม่งั้นปิดพรวดทีเดียวสองชั้น
 function onEscape(e: KeyboardEvent) {
   if (e.key !== 'Escape' || invoiceOpen.value) return
@@ -612,7 +679,7 @@ async function onSave() {
     const { slot } = target.value
     const text = reason.value.trim()
 
-    // ออกเลขสำเร็จไม่ขึ้นข้อความอะไรบนหัวหน้าจอ — ผลของมันเห็นได้จากตัวเลข "x/y" กับป้าย
+    // ออกเลขสำเร็จไม่ขึ้นข้อความอะไรบนหัวหน้าจอ - ผลของมันเห็นได้จากตัวเลข "x/y" กับป้าย
     // สถานะในตารางที่รีเฟรชท้ายฟังก์ชันนี้อยู่แล้ว
     if (action.value === 'register') {
       await assignAssetNumber(id.value, slot.assetId, assetNumber.value)
@@ -628,7 +695,7 @@ async function onSave() {
     await Promise.all([loadSlots(), loadHeader()])
   } catch (e) {
     // 409 เลขซ้ำ / ตีกลับซ้ำ / ออกเลขทับชิ้นที่ถูกตีกลับ / ไม่ได้ถือ lock แล้ว
-    // — ข้อความจาก backend บอกครบแล้ว
+    // - ข้อความจาก backend บอกครบแล้ว
     saveError.value = e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ'
   } finally {
     saving.value = false
@@ -639,15 +706,15 @@ async function onSave() {
 //   ไม่มีชิ้นตีกลับ → ปิดงาน ใบหลุดจากคิว แจ้งเลขสินทรัพย์ให้ผู้ขอ
 //   มีชิ้นตีกลับ    → ยังไม่จบ ใบอยู่ในคิวต่อ แจ้งผู้ขอว่าต้องแก้อะไรบ้าง
 //
-// เงื่อนไขเปิดปุ่มคือ pendingAssets (รอบัญชี) เท่านั้น ห้ามเอา rejectedAssets มารวม —
+// เงื่อนไขเปิดปุ่มคือ pendingAssets (รอบัญชี) เท่านั้น ห้ามเอา rejectedAssets มารวม -
 // ชิ้นที่ตีกลับรอผู้ขออยู่ ถ้าเอามานับด้วยปุ่มจะถูก disable ค้างจนกว่าผู้ขอจะแก้ แล้วเมลแจ้ง
 // "มีรายการต้องแก้" จะไม่มีวันถูกส่งออกไปเลย
 const confirming = ref(false)
 
-/** ปุ่มนี้กดแล้วจะเกิดอะไร — ใช้ทั้งข้อความ สี และคำเตือนก่อนกด */
+/** ปุ่มนี้กดแล้วจะเกิดอะไร - ใช้ทั้งข้อความ สี และคำเตือนก่อนกด */
 const willReject = computed(() => (header.value?.rejectedAssets ?? 0) > 0)
 
-/** ออกเลขไปแล้วกี่ชิ้น — ต้องหักทั้งที่รอบัญชีและที่รอผู้ขอ ไม่งั้นชิ้นที่ตีกลับจะถูกนับว่าเสร็จ */
+/** ออกเลขไปแล้วกี่ชิ้น - ต้องหักทั้งที่รอบัญชีและที่รอผู้ขอ ไม่งั้นชิ้นที่ตีกลับจะถูกนับว่าเสร็จ */
 const registeredCount = computed(() => {
   const h = header.value
   return h ? h.totalAssets - h.pendingAssets - h.rejectedAssets : 0
@@ -666,7 +733,7 @@ async function onConfirm() {
     // กดผ่านแล้วออกจากหน้านี้เสมอ ไม่ว่าเมลจะออกหรือไม่
     //
     // ผลของการกดถูกบันทึกลง DB ไปแล้วทุกกรณี ส่วนเมลที่ส่งไม่ออกถูกเก็บไว้ที่
-    // completeNotifyError / rejectNotifyError ของใบนั้น — ไม่ได้หายไปไหน แค่ไม่เด้งขึ้นจอ
+    // completeNotifyError / rejectNotifyError ของใบนั้น - ไม่ได้หายไปไหน แค่ไม่เด้งขึ้นจอ
     // (ถ้าวันหลังอยากให้บัญชีเห็น ให้ทำเป็นคอลัมน์/ตัวกรองในหน้าคิว จะเห็นครบทุกใบทีเดียว
     //  ดีกว่าเด้งเป็นราย ๆ ตอนกด ซึ่งเห็นได้เฉพาะคนที่บังเอิญกดใบนั้น)
     //
@@ -684,7 +751,7 @@ async function onConfirm() {
 //
 // ★ ห้ามโหลดทับตอนกล่องจัดการ/ตัวดูไฟล์เปิดอยู่: target กับ invoiceRound เป็น snapshot ที่
 //   ถ่ายไว้ตอนกดเปิด (rounds สร้าง object ใหม่ทุกครั้งที่ slots เปลี่ยน) โหลดทับแล้วกล่องจะ
-//   ชี้ของเก่าค้าง และเลข/เหตุผลที่พิมพ์ไว้ก็หายไปกลางทาง — ตั้งธงรอไว้แล้วโหลดตอนเขาปิดกล่อง
+//   ชี้ของเก่าค้าง และเลข/เหตุผลที่พิมพ์ไว้ก็หายไปกลางทาง - ตั้งธงรอไว้แล้วโหลดตอนเขาปิดกล่อง
 const busyWithInput = computed(
   () =>
     target.value !== null ||
@@ -697,7 +764,7 @@ const busyWithInput = computed(
 let remoteTimer: ReturnType<typeof setTimeout> | undefined
 let remotePending = false
 
-/** รวบหลายก้อนเป็นการโหลดครั้งเดียว — บัญชีอีกฝั่งออกเลขทีละชิ้นรัว ๆ ได้ */
+/** รวบหลายก้อนเป็นการโหลดครั้งเดียว - บัญชีอีกฝั่งออกเลขทีละชิ้นรัว ๆ ได้ */
 function scheduleRemoteRefresh() {
   if (remoteTimer) clearTimeout(remoteTimer)
   remoteTimer = setTimeout(() => {
@@ -713,10 +780,10 @@ async function refreshFromRemote() {
   }
   remotePending = false
   try {
-    // ไม่แตะ loading — นี่ไม่ใช่การเปิดหน้า จอไม่ควรกระพริบเป็นสปินเนอร์เพราะคนอื่นกดปุ่ม
+    // ไม่แตะ loading - นี่ไม่ใช่การเปิดหน้า จอไม่ควรกระพริบเป็นสปินเนอร์เพราะคนอื่นกดปุ่ม
     await Promise.all([loadSlots(), loadHeader()])
   } catch (e) {
-    // 404 = บัญชีคนอื่นกดยืนยันปิดใบนี้ไปแล้ว ใบหลุดจากคิว — บอกให้รู้ ดีกว่าปล่อยให้กรอกต่อ
+    // 404 = บัญชีคนอื่นกดยืนยันปิดใบนี้ไปแล้ว ใบหลุดจากคิว - บอกให้รู้ ดีกว่าปล่อยให้กรอกต่อ
     // บนข้อมูลที่ใช้ไม่ได้แล้ว (ปุ่มจะ 409 อยู่ดีตอนกด)
     loadError.value = e instanceof ApiError ? e.message : 'ใบนี้ถูกเปลี่ยนแปลงแล้ว โหลดใหม่ไม่สำเร็จ'
   }
@@ -792,7 +859,7 @@ onUnmounted(() => {
   <span class="text-sm">{{ lockBanner }}</span>
 </div>
 
-      <!-- ── หัวใบ — ข้อมูลที่บัญชีต้องเห็นค้างไว้ตลอดขณะไล่กรอกทีละชิ้น -->
+      <!-- ── หัวใบ - ข้อมูลที่บัญชีต้องเห็นค้างไว้ตลอดขณะไล่กรอกทีละชิ้น -->
       <section class="mt-6">
         <div class="card bg-base-100 shadow-sm">
           <div class="card-body text-left">
@@ -807,7 +874,7 @@ onUnmounted(() => {
                   :class="header.pendingAssets > 0 ? 'badge-warning badge-soft' : 'badge-success badge-soft'">
                   ออกเลขแล้ว {{ registeredCount }}/{{ header.totalAssets }}
                 </span>
-                <!-- แยกป้ายกันชัด ๆ — ชิ้นที่รอผู้ขอแก้ไม่ใช่งานของบัญชี แต่ยังไม่จบเหมือนกัน -->
+                <!-- แยกป้ายกันชัด ๆ - ชิ้นที่รอผู้ขอแก้ไม่ใช่งานของบัญชี แต่ยังไม่จบเหมือนกัน -->
                 <span v-if="header.rejectedAssets > 0" class="badge badge-warning badge-soft whitespace-nowrap gap-1">
                   <Icon icon="mdi:undo-variant" class="size-3.5" />
                   รอผู้ขอแก้ {{ header.rejectedAssets }} ชิ้น
@@ -822,25 +889,25 @@ onUnmounted(() => {
               </div>
               <div>
                 <p class="text-sm text-base-content/50">Vendor</p>
-                <p>{{ header.vendorName ?? '—' }}</p>
+                <p>{{ header.vendorName ?? '-' }}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">ผู้ส่งคำขอ</p>
-                <p>{{ header.submittedByName ?? '—' }}</p>
+                <p>{{ header.submittedByName ?? '-' }}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">ผู้อนุมัติ</p>
-                <p>{{ header.approvedByName ?? '—' }}</p>
+                <p>{{ header.approvedByName ?? '-' }}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">ผู้ซื้อโดย</p>
-                <p>{{ header.ownerPrName ?? '—' }}</p>
+                <p>{{ header.ownerPrName ?? '-' }}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">วันที่สร้าง PO</p>
-                <!-- formatDate ไม่ใช่ formatDateTime — poDate เป็น date เปล่า ๆ จาก SAP
+                <!-- formatDate ไม่ใช่ formatDateTime - poDate เป็น date เปล่า ๆ จาก SAP
                      ไม่มีเวลาให้แสดง (ต่างจาก submittedAt/approvedAt ที่เป็น timestamp) -->
-                <p>{{ header.poDate ? formatDate(header.poDate) : '—' }}</p>
+                <p>{{ header.poDate ? formatDate(header.poDate) : '-' }}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">วันที่ส่งคำขอ</p>
@@ -852,7 +919,7 @@ onUnmounted(() => {
               </div>
               <div>
                 <p class="text-sm text-base-content/50">แผนกผู้ขอซื้อ</p>
-                <p>{{ header.departmentName ?? '—' }}</p>
+                <p>{{ header.departmentName ?? '-' }}</p>
               </div>
 
             </div>
@@ -868,14 +935,14 @@ onUnmounted(() => {
             <span class="font-mono text-sm font-medium">Grpo no. {{ round.grpoNo }}</span>
             <span class="text-xs text-base-content/60">{{ round.slots.length }} ชิ้น</span>
 
-            <!-- invoice ของรอบ — 1 รอบมีได้หลายใบ และทุกชิ้นในรอบใช้ชุดเดียวกัน จึงอยู่ที่หัวรอบ
+            <!-- invoice ของรอบ - 1 รอบมีได้หลายใบ และทุกชิ้นในรอบใช้ชุดเดียวกัน จึงอยู่ที่หัวรอบ
                  ไม่ใช่ในกล่องรายชิ้น: บัญชีเปิดใบกำกับอ่านเทียบราคา/S/N ก่อนเริ่มไล่ตรวจทั้งรอบ
                  ถ้าซ่อนไว้ในกล่องจะต้องเปิดชิ้นสักชิ้นก่อนถึงจะดูของที่เป็นของทั้งรอบได้
-                 รอบที่ยังไม่มีไฟล์ ปุ่มนี้พาไปกล่องแนบไฟล์แทน — ดู openInvoiceView() -->
+                 รอบที่ยังไม่มีไฟล์ ปุ่มนี้พาไปกล่องแนบไฟล์แทน - ดู openInvoiceView() -->
             <button type="button" class="btn btn-xs "
               :class="round.invoices.length ? 'btn-success btn-soft' : 'btn-ghost'" :title="round.invoices.length
                 ? 'ดู invoice ' + round.invoices.length + ' ใบ'
-                : 'ยังไม่มี invoice ในรอบนี้ — กดเพื่อแนบ'
+                : 'ยังไม่มี invoice ในรอบนี้ - กดเพื่อแนบ'
                 " @click="openInvoiceView(round)">
               <Icon icon="lucide:receipt-text" class="size-3.5" />
               invoice
@@ -902,7 +969,7 @@ onUnmounted(() => {
                 <tr v-for="s in round.slots" :key="s.assetId">
                   <td class="text-center font-mono">{{ s.poLine }}.{{ s.unitNo }}</td>
                   <td class="text-center">
-                    <!-- object-contain ไม่ใช่ cover — รูปสินทรัพย์ส่วนใหญ่ไม่ใช่จัตุรัส
+                    <!-- object-contain ไม่ใช่ cover - รูปสินทรัพย์ส่วนใหญ่ไม่ใช่จัตุรัส
                          cover จะขยายแล้วเฉือนขอบทิ้ง ซึ่งตัดส่วนที่ใช้ระบุของ (ป้าย/serial)
                          ออกพอดี พื้นหลัง base-200 ทำให้แถบว่างดูตั้งใจ ไม่ใช่รูปโหลดพลาด -->
                     <img v-if="s.imageId && imageUrls[s.imageId]" :src="imageUrls[s.imageId]"
@@ -912,15 +979,15 @@ onUnmounted(() => {
                     </div>
                   </td>
                   <td class="truncate text-sm">{{ s.description }}</td>
-                  <td class="font-mono text-sm">{{ s.serialNumber ?? '—' }}</td>
+                  <td class="font-mono text-sm">{{ s.serialNumber ?? '-' }}</td>
                   <td class="text-right font-mono text-sm">
-                    {{ s.acquisitionCost.toLocaleString('th-TH') }} ฿
+                    {{ formatMoney(s.acquisitionCost) }} ฿
                   </td>
                   <td class="truncate">{{ s.location }}</td>
                   <!-- ปุ่มเดียว เปิดกล่องเดียว แล้วเลือกในนั้นว่าจะออกเลข/ตีกลับ/ปิดถาวร
                        ทั้งสามอย่างตัดสินจากข้อมูลชุดเดียวกัน (รูปเต็ม S/N ราคา สถานที่)
                        จึงต้องให้เห็นของจริงก่อนเสมอ ไม่ใช่ตัดสินจากตารางย่อ
-                       ★ ไม่ disable ตอนไม่ได้ถือ lock — เปิดดูรายละเอียดยังต้องทำได้
+                       ★ ไม่ disable ตอนไม่ได้ถือ lock - เปิดดูรายละเอียดยังต้องทำได้
                          ตัวที่ถูกปิดคือปุ่มยืนยันในกล่อง (canSave) -->
                   <td class="text-center">
                     <button
@@ -941,7 +1008,7 @@ onUnmounted(() => {
                            ต้องเห็นจากตาราง ไม่งั้นบัญชีแยกไม่ออกจากชิ้นปกติที่ไม่เคยมีปัญหา
                            แล้วจะออกเลขให้โดยไม่ได้ตรวจซ้ำว่าแก้ตามที่สั่งไปจริงไหม -->
                       <span v-else-if="s.rejectFixed" class="badge badge-info badge-soft badge-sm gap-1"
-                        title="ผู้ขอแก้ข้อมูลตามที่ตีกลับไปแล้ว — ตรวจซ้ำก่อนออกเลข">
+                        title="ผู้ขอแก้ข้อมูลตามที่ตีกลับไปแล้ว - ตรวจซ้ำก่อนออกเลข">
                         <Icon icon="mdi:check-decagram-outline" class="size-3.5" />
                         แก้ไขแล้ว
                       </span>
@@ -958,7 +1025,7 @@ onUnmounted(() => {
         </p>
       </section>
 
-      <!-- ── ยืนยันทั้งใบ — ปุ่มเดียวของงานนี้ กดได้เมื่อบัญชีตัดสินครบทุกชิ้นแล้ว
+      <!-- ── ยืนยันทั้งใบ - ปุ่มเดียวของงานนี้ กดได้เมื่อบัญชีตัดสินครบทุกชิ้นแล้ว
            ข้อความ/สีเปลี่ยนตามผลที่จะเกิด เพราะสองอย่างนี้ต่างกันคนละเรื่อง:
            ปิดงาน = ใบจบ แก้อะไรไม่ได้อีก / แจ้งตีกลับ = ส่งงานกลับไปให้ผู้ขอแก้ ใบยังอยู่ -->
       <footer class="mt-6 flex flex-wrap items-center justify-end gap-3 pb-10">
@@ -979,7 +1046,7 @@ onUnmounted(() => {
       </footer>
     </template>
 
-    <!-- กล่องออกเลข — โชว์รายละเอียดทั้งชิ้นพร้อมรูปเต็ม ให้ตรวจก่อนผูกเลขที่แก้ทีหลังยาก
+    <!-- กล่องออกเลข - โชว์รายละเอียดทั้งชิ้นพร้อมรูปเต็ม ให้ตรวจก่อนผูกเลขที่แก้ทีหลังยาก
          (เลขสินทรัพย์เข้าทะเบียน SAP แล้วเปลี่ยนฝั่งเดียวไม่ได้ ต้องแก้ที่ SAP ด้วย) -->
     <dialog class="modal" :class="{ 'modal-open': target !== null }">
       <!-- p-0 + flex-col: หัวกล่องกับแถวปุ่มตรึงไว้ ให้เลื่อนเฉพาะเนื้อหาตรงกลาง
@@ -1031,7 +1098,7 @@ onUnmounted(() => {
             <span class="text-sm">{{ lockBanner }}</span>
           </div>
 
-          <!-- เหตุผลที่ชิ้นนี้ค้าง — ขึ้นก่อนทุกอย่างเพราะมันคือสาเหตุที่กล่องนี้ถูกเปิด -->
+          <!-- เหตุผลที่ชิ้นนี้ค้าง - ขึ้นก่อนทุกอย่างเพราะมันคือสาเหตุที่กล่องนี้ถูกเปิด -->
           <div v-if="blockedReason" role="alert" class="alert alert-soft items-start" :class="blockedReason.class">
             <Icon :icon="blockedReason.icon" class="size-5 shrink-0" />
             <div class="min-w-0">
@@ -1040,9 +1107,9 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- รูป | การดำเนินการ — ตัดสินใจโดยเห็นของอยู่ข้าง ๆ ไม่ต้องเลื่อนสลับไปมา -->
+          <!-- รูป | การดำเนินการ - ตัดสินใจโดยเห็นของอยู่ข้าง ๆ ไม่ต้องเลื่อนสลับไปมา -->
           <div class="grid gap-4 md:grid-cols-2">
-            <!-- ── รูป — object-cover ตรงนี้เพราะเป็นแค่ภาพนำสายตาให้รู้ว่าชิ้นไหน
+            <!-- ── รูป - object-cover ตรงนี้เพราะเป็นแค่ภาพนำสายตาให้รู้ว่าชิ้นไหน
                  ส่วนการตรวจ S/N บนตัวเครื่องทำในโหมดเต็มจอซึ่งเป็น contain ไม่มีอะไรถูกเฉือน -->
             <div class="relative h-52 overflow-hidden rounded-box bg-base-200 md:h-auto md:min-h-52">
               <button v-if="target.slot.imageId && imageUrls[target.slot.imageId]" type="button"
@@ -1087,7 +1154,7 @@ onUnmounted(() => {
               <!-- ออกเลข = ช่องเลข / ตีกลับกับปิดถาวร = ช่องเหตุผล (บังคับกรอกทั้งคู่)
                    ปลดการปิดไม่ต้องกรอกอะไร เป็นการย้อนคำสั่งเดิม ไม่ใช่คำสั่งใหม่ -->
               <fieldset class="fieldset mt-1">
-                <AppAssetNumberInput v-if="action === 'register'" v-model="assetNumber"
+                <AssetNumberInput v-if="action === 'register'" v-model="assetNumber"
                   :disabled="saving || !editable" @enter="onSave" />
                 <template v-else-if="action !== 'uncancel'">
                   <textarea v-model="reason" class="textarea w-full"
@@ -1097,7 +1164,7 @@ onUnmounted(() => {
                 </template>
 
                 <!-- ตีกลับชิ้นที่มีเลขแล้ว = เลขถูกล้าง (ck_asset_reject_only_draft ไม่ยอมให้ชิ้น
-                     ที่ยังถือเลขอยู่มีสถานะตีกลับ) — เขียนทับคำอธิบายปกติไปเลย ไม่ใช่ขึ้นกล่องเตือน
+                     ที่ยังถือเลขอยู่มีสถานะตีกลับ) - เขียนทับคำอธิบายปกติไปเลย ไม่ใช่ขึ้นกล่องเตือน
                      เพิ่มอีกใบ: ตำแหน่งนี้คือที่ที่ผู้ใช้อ่านอยู่แล้วก่อนกดยืนยัน -->
                 <p class="label flex w-full max-w-full items-start gap-1.5 break-words whitespace-normal" :class="clearsAssetNumber ? 'text-warning' : action === 'cancel' ? 'text-error' : ''
                   ">
@@ -1114,7 +1181,21 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- ── QR ของสติกเกอร์ — โผล่เฉพาะชิ้นที่ออกเลขแล้ว (ไม่มีเลข = ไม่มีอะไรให้ชี้ถึง)
+          <!-- ── ที่ตั้งบนผัง - เต็มความกว้างใต้แถวรูป/การดำเนินการ
+               ไม่บีบไปอยู่ข้างรูป: ผังกว้างครึ่งเดียวซูมยังไงก็อ่านไม่ออก และคำถาม
+               "ของอยู่ตรงไหน" เป็นคำถามที่ต้องตอบก่อนเดินไปตรวจ ไม่ใช่ของประกอบ
+               ตัววาดคือ AppAssetLocationMap ตัวเดียวกับหน้า QR - มันตัดสินเองว่าจะขึ้นผัง
+               หรือขึ้นข้อความบอกว่าทำไมขึ้นไม่ได้ (ไม่ระบุห้อง / ห้องยังไม่ได้ตีขอบเขต) -->
+          <section>
+            <h4 class="mb-2 flex items-center gap-1.5 text-xs font-bold tracking-wide uppercase">
+              <Icon icon="lucide:map-pin" class="size-3.5" />
+              ที่ตั้ง
+              <span class="ml-1 truncate normal-case opacity-60">{{ target.slot.location }}</span>
+            </h4>
+            <AppAssetLocationMap :detail="mapTarget" :plans="plans" map-class="h-56 w-full sm:h-72" />
+          </section>
+
+          <!-- ── QR ของสติกเกอร์ - โผล่เฉพาะชิ้นที่ออกเลขแล้ว (ไม่มีเลข = ไม่มีอะไรให้ชี้ถึง)
                ตีกลับเมื่อไหร่ backend ล้าง qrCode พร้อมเลข บล็อกนี้จึงหายไปเองโดยไม่ต้องเช็คซ้ำ -->
           <!-- <div v-if="target.slot.qrCode"
             class="flex flex-wrap items-center gap-4 rounded-box border border-base-300 bg-base-200/60 p-3">
@@ -1130,13 +1211,13 @@ onUnmounted(() => {
               </div>
               <p class="mt-1 font-mono text-xs break-all opacity-80">{{ target.slot.qrCode }}</p>
               <p class="mt-1 text-xs opacity-60">
-                สแกนด้วยกล้องมือถือแล้วเปิดหน้าสินทรัพย์ของชิ้นนี้ — ถ้าตีกลับ QR จะถูกล้างพร้อมเลข
+                สแกนด้วยกล้องมือถือแล้วเปิดหน้าสินทรัพย์ของชิ้นนี้ - ถ้าตีกลับ QR จะถูกล้างพร้อมเลข
                 สติกเกอร์ที่พิมพ์ไปแล้วจะใช้ไม่ได้
               </p>
             </div>
           </div> -->
 
-          <!-- ── รายละเอียด — สองกองแยกซ้าย/ขวา (มือถือยุบเป็นกองเดียวไล่ซ้ายก่อนแล้วต่อขวา)
+          <!-- ── รายละเอียด - สองกองแยกซ้าย/ขวา (มือถือยุบเป็นกองเดียวไล่ซ้ายก่อนแล้วต่อขวา)
                ใช้ list ไม่ใช่การ์ดแยกใบ: เจ็ดใบเรียงติดกันอ่านเป็นเจ็ดก้อน ต้องกวาดตาทีละใบ
                ส่วน list มีเส้นคั่นบาง ๆ ในกล่องเดียว ไล่ลงมาทีเดียวจบ -->
           <div class="grid gap-3 sm:grid-cols-8">
@@ -1160,12 +1241,12 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- ── แถวปุ่ม (ตรึงล่าง) — เหลือแต่ปุ่มที่เปลี่ยนสถานะจริง
+        <!-- ── แถวปุ่ม (ตรึงล่าง) - เหลือแต่ปุ่มที่เปลี่ยนสถานะจริง
              invoice ย้ายไปอยู่หัวรอบในตารางแล้ว (เป็นของทั้งรอบ ไม่ใช่ของชิ้นนี้) -->
         <div class="flex items-center justify-end gap-2 border-t border-base-300 bg-base-100 px-5 py-3">
           <div class="flex gap-2">
             <button class="btn btn-ghost" :disabled="saving" @click="target = null">ยกเลิก</button>
-            <!-- ปุ่มยืนยันปุ่มเดียว เปลี่ยนข้อความ/สีตาม action ที่เลือก — สีแดงของ "ปิดถาวร"
+            <!-- ปุ่มยืนยันปุ่มเดียว เปลี่ยนข้อความ/สีตาม action ที่เลือก - สีแดงของ "ปิดถาวร"
                  เป็นสัญญาณสุดท้ายก่อนกดสิ่งที่ผู้ใช้ทั่วไปย้อนเองไม่ได้ -->
             <button class="btn" :class="ACTION_META[action].btn" :disabled="!canSave || saving" @click="onSave">
               <span v-if="saving" class="loading loading-spinner loading-xs" />
@@ -1180,7 +1261,7 @@ onUnmounted(() => {
       </form>
     </dialog>
 
-    <!-- รูปเต็มจอ — object-contain ไม่เฉือนอะไรทิ้ง เพราะนี่คือโหมดที่บัญชีใช้ซูมอ่าน S/N
+    <!-- รูปเต็มจอ - object-contain ไม่เฉือนอะไรทิ้ง เพราะนี่คือโหมดที่บัญชีใช้ซูมอ่าน S/N
          บนตัวเครื่องจริง กดที่ไหนก็ปิด (ทั้งพื้นหลังและปุ่ม) แล้วกลับมาที่ฟอร์มเดิม
          z สูงกว่า .modal ของ daisyUI เพราะมันซ้อนบนกล่องที่ยังเปิดอยู่ -->
     <div v-if="lightboxOpen && target?.slot.imageId && imageUrls[target.slot.imageId]"
@@ -1194,7 +1275,7 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <!-- ── invoice เต็มจอ — โครงเดียวกับรูปสินทรัพย์ ซ้อนบนกล่องที่ยังเปิดอยู่ กดพื้นหลังหรือ ESC ปิด
+    <!-- ── invoice เต็มจอ - โครงเดียวกับรูปสินทรัพย์ ซ้อนบนกล่องที่ยังเปิดอยู่ กดพื้นหลังหรือ ESC ปิด
          รูป = object-contain / PDF = iframe ทั้งคู่ดูจบในหน้านี้ ไม่เด้งแท็บใหม่
          (แท็บใหม่ทำให้หลุดจากฟอร์มที่กำลังกรอก กลับมาต้องไล่หาชิ้นเดิมใหม่ทุกครั้ง) -->
     <div v-if="invoiceViewOpen && invoiceRound" class="fixed inset-0 z-[1000] flex flex-col gap-3 bg-black/80 p-4"
@@ -1203,7 +1284,7 @@ onUnmounted(() => {
         <div class="flex min-w-0 items-center gap-2">
           <Icon icon="lucide:receipt-text" class="size-5 shrink-0" />
           <div class="min-w-0">
-            <div class="truncate text-sm font-medium">{{ currentInvoice?.originalName ?? '—' }}</div>
+            <div class="truncate text-sm font-medium">{{ currentInvoice?.originalName ?? '-' }}</div>
             <div class="font-mono text-xs opacity-70">
               GRPO {{ invoiceRound.grpoNo }} · {{ invoiceIndex + 1 }}/{{
                 invoiceRound.invoices.length
@@ -1215,7 +1296,7 @@ onUnmounted(() => {
             จัดการไฟล์
           </button>
         </div>
-        <!-- ทางไปแนบ/ถอดไฟล์ — งานส่วนน้อยของหน้านี้ จึงเป็นปุ่มรอง ไม่ใช่สิ่งที่เจอตอนกด invoice -->
+        <!-- ทางไปแนบ/ถอดไฟล์ - งานส่วนน้อยของหน้านี้ จึงเป็นปุ่มรอง ไม่ใช่สิ่งที่เจอตอนกด invoice -->
         <div class="flex shrink-0 items-center gap-2">
           <button type="button" class="btn btn-circle btn-sm" aria-label="ปิด" @click="invoiceViewOpen = false">
             <Icon icon="mdi:close" class="size-5" />
@@ -1243,7 +1324,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- สลับใบ — 1 รอบแนบได้หลายใบ ทุกชิ้นในรอบใช้ชุดเดียวกัน -->
+      <!-- สลับใบ - 1 รอบแนบได้หลายใบ ทุกชิ้นในรอบใช้ชุดเดียวกัน -->
       <div v-if="invoiceRound.invoices.length > 1" class="flex flex-wrap justify-center gap-1.5" @click.stop>
         <button v-for="(inv, i) in invoiceRound.invoices" :key="inv.id" type="button" class="btn btn-xs max-w-48"
           :class="i === invoiceIndex ? 'btn-primary' : 'btn-neutral'" @click="showInvoice(i)">
@@ -1255,7 +1336,7 @@ onUnmounted(() => {
     </div>
 
     <!-- @changed: แนบ/ถอด invoice แล้วต้องโหลด slots ใหม่ ไม่งั้นตัวเลขบนปุ่มค้างของเดิม
-         อยู่นอก v-for ของรอบโดยตั้งใจ — เป็น overlay ตัวเดียว ถ้าเรนเดอร์ในลูปจะได้กล่อง
+         อยู่นอก v-for ของรอบโดยตั้งใจ - เป็น overlay ตัวเดียว ถ้าเรนเดอร์ในลูปจะได้กล่อง
          เท่าจำนวนรอบซ้อนกันอยู่ในหน้า ตัวไหนเปิดอยู่ก็แยกไม่ออก -->
     <InvoiceModal v-if="invoiceRound && invoiceOpen" :open="true" :grpo-id="invoiceRound.grpoId"
       :grpo-no="invoiceRound.grpoNo" :invoices="invoiceRound.invoices" @update:open="invoiceOpen = false"

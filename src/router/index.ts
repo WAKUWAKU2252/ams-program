@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { routes } from './router'
-import { getToken, isTokenValid, clearToken, getTokenRole } from '@/services/auth.token'
+import { routes } from './routes'
+import { getToken, isTokenValid, clearToken, getTokenRole } from '@/shared/services/auth.token'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -23,7 +23,7 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  // หน้าที่จำกัด role (meta.roles) — role ไม่ตรงให้กลับ dashboard แทนที่จะปล่อยให้เห็นฟอร์ม
+  // หน้าที่จำกัด role (meta.roles) - role ไม่ตรงให้กลับ dashboard แทนที่จะปล่อยให้เห็นฟอร์ม
   // แล้วไปโดน 403 ตอนกดบันทึก; นี่เป็นแค่ UI guard ตัวบังคับจริงคือ requireRole ฝั่ง backend
   const roles = to.meta.roles as string[] | undefined
   if (roles?.length) {

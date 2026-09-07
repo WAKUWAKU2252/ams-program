@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // เทสต์ชุดนี้เฝ้าเรื่องเดียว: "เปิดหลายแท็บใน browser เดียวกัน ต้องเป็นคนละ user ได้"
-// เคยพังมาแล้วเพราะ token เก็บ localStorage คีย์เดียวทั้งแอป — แท็บที่สอง login ทับแท็บแรก
+// เคยพังมาแล้วเพราะ token เก็บ localStorage คีย์เดียวทั้งแอป - แท็บที่สอง login ทับแท็บแรก
 // แล้วแท็บแรกยิงงานในนามคนใหม่ทั้งที่หน้าจอยังโชว์คนเดิม
 
-// frontend ไม่ verify ลายเซ็น อ่านแค่ payload — JWT ปลอมที่ decode ได้จึงพอสำหรับเทสต์
+// frontend ไม่ verify ลายเซ็น อ่านแค่ payload - JWT ปลอมที่ decode ได้จึงพอสำหรับเทสต์
 function fakeJwt(payload: Record<string, unknown>): string {
   const encode = (part: object) =>
     btoa(JSON.stringify(part)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -18,7 +18,7 @@ const deadToken = (sub: string) =>
   fakeJwt({ sub, role: 'EMPLOYEE', exp: Math.floor(Date.now() / 1000) - 10 })
 
 /**
- * จำลอง "เปิดแท็บใหม่" — โมดูลชุดใหม่ (tabId ที่ cache ไว้หายไป) + sessionStorage ว่าง
+ * จำลอง "เปิดแท็บใหม่" - โมดูลชุดใหม่ (tabId ที่ cache ไว้หายไป) + sessionStorage ว่าง
  * ส่วน localStorage ยังแชร์กันเหมือน browser จริง ซึ่งคือจุดที่เคยพัง
  */
 async function openTab() {

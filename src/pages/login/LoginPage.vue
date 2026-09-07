@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ApiError } from '@/services/httpClient'
-import { useAuthStore } from '@/stores/auth'
-import LoginForm from '@/components/common/Login/LoginForm.vue'
+import { ApiError } from '@/shared/services/httpClient'
+import { useAuthStore } from '@/shared/stores/auth'
+import LoginForm from '@/pages/login/components/LoginForm.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()

@@ -5,9 +5,9 @@ import { storeToRefs } from 'pinia'
 import { Icon } from '@iconify/vue'
 
 import SidebarItem from './SidebarItem.vue'
-import { menuItems } from '@/config/sidebar-menu'
-import { useAuthStore } from '@/stores/auth'
-import { getTokenRole } from '@/services/auth.token'
+import { menuItems } from '@/layouts/sidebar-menu'
+import { useAuthStore } from '@/shared/stores/auth'
+import { getTokenRole } from '@/shared/services/auth.token'
 
 const props = defineProps<{
   userPermissions?: string[]
@@ -15,7 +15,7 @@ const props = defineProps<{
 
 const authStore = useAuthStore()
 
-// ผู้ใช้ที่ล็อกอินอยู่ — มาจาก Auth store (service คืน mock ชั่วคราวจนกว่า backend auth พร้อม)
+// ผู้ใช้ที่ล็อกอินอยู่ - มาจาก Auth store (service คืน mock ชั่วคราวจนกว่า backend auth พร้อม)
 const { user } = storeToRefs(authStore)
 
 onMounted(() => {
@@ -29,7 +29,7 @@ const filteredMenu = computed(() => {
   const permissions = props.userPermissions
 
   return menuItems.filter((item) => {
-    // เมนูเฉพาะบาง role (เช่น Create User = ADMIN) — role ไม่ตรงก็ไม่ต้องแสดง
+    // เมนูเฉพาะบาง role (เช่น Create User = ADMIN) - role ไม่ตรงก็ไม่ต้องแสดง
     if (item.roles?.length && !item.roles.includes(currentRole.value ?? '')) return false
 
     if (!permissions) return true
@@ -64,8 +64,8 @@ const filteredMenu = computed(() => {
           </div>
         </div>
         <div class="min-w-0 text-left">
-          <p class="truncate text-sm font-medium">{{ user?.displayName ?? '—' }}</p>
-          <p class="truncate text-xs text-base-content/60">ID: {{ user?.employeeId ?? '—' }}</p>
+          <p class="truncate text-sm font-medium">{{ user?.displayName ?? '-' }}</p>
+          <p class="truncate text-xs text-base-content/60">ID: {{ user?.employeeId ?? '-' }}</p>
         </div>
       </div>
     </div>

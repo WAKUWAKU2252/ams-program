@@ -47,7 +47,7 @@ function onKeydown(e: KeyboardEvent) {
 
 const confirmBtn = ref<HTMLButtonElement | null>(null)
 
-// ไม่ต้องล็อก scroll เอง — daisyUI ทำให้แล้วผ่าน :root:has(.modal.modal-open)
+// ไม่ต้องล็อก scroll เอง - daisyUI ทำให้แล้วผ่าน :root:has(.modal.modal-open)
 // (ล็อกที่ :root พร้อม scrollbar-gutter: stable ล็อกเองที่ body จะทำให้หน้าเลื่อนเพราะ scrollbar หาย)
 watch(
   () => props.modelValue,
@@ -66,7 +66,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
-// สีของกล่อง = สี semantic ของ daisyUI ล้วน — เปลี่ยนธีมแล้วตามทันทีโดยไม่ต้องแก้ที่นี่
+// สีของกล่อง = สี semantic ของ daisyUI ล้วน - เปลี่ยนธีมแล้วตามทันทีโดยไม่ต้องแก้ที่นี่
 const theme = computed(() => {
   switch (props.variant) {
     case 'danger':

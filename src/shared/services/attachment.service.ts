@@ -1,17 +1,17 @@
 // services/attachment.service.ts
 //
-// ตัวแนบไฟล์ทั่วไป ผูกกับ upload module ของ backend (Elysia, prefix /uploads — ไม่มี /api นำหน้า)
+// ตัวแนบไฟล์ทั่วไป ผูกกับ upload module ของ backend (Elysia, prefix /uploads - ไม่มี /api นำหน้า)
 //   POST   /uploads          multipart { entityKind, files } -> { files: [{ id, name, url, size }] }
 //   GET    /uploads/:id/file เสิร์ฟไฟล์ (อยู่หลัง authGuard จึงต้องแนบ token → โหลดเป็น blob ดู fileBlobUrl)
 //   DELETE /uploads/:id      -> { success: true }
 //
 // จังหวะการทำงาน: ไฟล์ถูกอัป "ทันทีที่เลือก" (ยังไม่มีเจ้าของ) แล้วฝั่งเจ้าของ (asset.imageId /
-// grpo.invoiceId) มาชี้เข้ามาทีหลังตอน submit โดยใช้ id ที่ return กลับไป — ถ้าไม่ submit ไฟล์จะกำพร้า
+// grpo.invoiceId) มาชี้เข้ามาทีหลังตอน submit โดยใช้ id ที่ return กลับไป - ถ้าไม่ submit ไฟล์จะกำพร้า
 // และ cleanupOrphans (backend) กวาดทิ้งหลัง 24 ชม.
 //
 // หมายเหตุ: การแนบ invoice ของรอบ GRPO ใช้ invoice.service.ts (มี link/unlink เข้ากับ grpo ให้ครบ)
-import { request, BASE_URL } from './httpClient.js';
-import { getToken } from './auth.token.js';
+import { request, BASE_URL } from './httpClient';
+import { getToken } from './auth.token';
 
 // ต้องตรงกับ pgEnum doc_type / uploadBody.entityKind ฝั่ง backend เป๊ะ
 export type DocType = 'INVOICE' | 'ASSET_IMG';
@@ -20,7 +20,7 @@ export interface UploadResult {
   files: {
     id: string;
     name: string;
-    // relative path '/uploads/:id/file' — ห้ามยัดใน <img src> ตรง ๆ (โดน 401) ให้ใช้ fileBlobUrl()
+    // relative path '/uploads/:id/file' - ห้ามยัดใน <img src> ตรง ๆ (โดน 401) ให้ใช้ fileBlobUrl()
     url: string;
     size: number;
   }[];
@@ -38,7 +38,7 @@ export interface AttachmentRecord {
  * อัปโหลดไฟล์แนบ 1 ชนิด (INVOICE หรือ ASSET_IMG) ทันทีที่ผู้ใช้เลือก
  * - field ต้องชื่อ 'entityKind' และ 'files' ตรงกับ uploadBody ฝั่ง backend เป๊ะ
  * - append 'files' ซ้ำได้หลายรอบ = ส่งหลายไฟล์ใน field เดียว (ตรงกับ t.Files)
- * - "ห้าม" ตั้ง Content-Type เอง — browser ต้องเป็นคนแปะ multipart boundary (httpClient ไม่ยัด header นี้)
+ * - "ห้าม" ตั้ง Content-Type เอง - browser ต้องเป็นคนแปะ multipart boundary (httpClient ไม่ยัด header นี้)
  */
 export function uploadModuleFiles(entityKind: DocType, files: File[]): Promise<UploadResult> {
   const formData = new FormData();
@@ -47,13 +47,13 @@ export function uploadModuleFiles(entityKind: DocType, files: File[]): Promise<U
   return request<UploadResult>('/uploads', { method: 'POST', body: formData });
 }
 
-/** soft delete ไฟล์แนบ — backend ไม่ลบไฟล์จริงทันที ปล่อย cleanupOrphans เก็บทีหลัง */
+/** soft delete ไฟล์แนบ - backend ไม่ลบไฟล์จริงทันที ปล่อย cleanupOrphans เก็บทีหลัง */
 export function deleteUploadedFile(fileId: string): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(`/uploads/${fileId}`, { method: 'DELETE' });
 }
 
 /**
- * โหลดไฟล์เป็น blob URL สำหรับแสดงใน <img src> / เปิดแท็บ — endpoint อยู่หลัง authGuard
+ * โหลดไฟล์เป็น blob URL สำหรับแสดงใน <img src> / เปิดแท็บ - endpoint อยู่หลัง authGuard
  * จึงต้องแนบ token เอง (ใส่ URL ตรง ๆ จะได้ 401). ผู้เรียกต้อง URL.revokeObjectURL เองเมื่อเลิกใช้
  */
 export async function fileBlobUrl(fileId: string): Promise<string> {
@@ -66,9 +66,9 @@ export async function fileBlobUrl(fileId: string): Promise<string> {
 }
 
 /**
- * ถามรายการไฟล์แนบของ record — ยังไม่มี endpoint ฝั่ง backend (attachment ไม่รู้จักเจ้าของ
+ * ถามรายการไฟล์แนบของ record - ยังไม่มี endpoint ฝั่ง backend (attachment ไม่รู้จักเจ้าของ
  * ฝั่งเจ้าของถือ FK ชี้เข้ามา จึงต้องดึงผ่าน entity นั้น ๆ เช่น GET /assets, GET /grpo)
- * คง interface ไว้ แต่ยังต่อไม่ได้ — โยน error ชัด ๆ กันเผลอเรียกแล้วยิง path ที่ไม่มีจริง
+ * คง interface ไว้ แต่ยังต่อไม่ได้ - โยน error ชัด ๆ กันเผลอเรียกแล้วยิง path ที่ไม่มีจริง
  */
 export function getAttachments(_recordType: string, _recordId: string): Promise<AttachmentRecord[]> {
   return Promise.reject(

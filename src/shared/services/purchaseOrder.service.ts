@@ -31,12 +31,12 @@ export interface PurchaseOrder {
   items: PurchaseOrderItem[];
   createdAt: string;
   updatedAt: string;
-  // ผู้ขอซื้อ (OwnerPR) — คนที่เปิดใบขอซื้อฝั่ง SAP คนละคนกับ RequestBy (คนกดส่งใน AMS)
+  // ผู้ขอซื้อ (OwnerPR) - คนที่เปิดใบขอซื้อฝั่ง SAP คนละคนกับ RequestBy (คนกดส่งใน AMS)
   ownerPrName: string | null;
   ownerPrId: number | null;
   departmentId: number | null;
   departmentName: string |null
-  // หัวหน้าของผู้ขอซื้อ — มีเฉพาะใน GET /purchase-orders/:poNumber (findOneOrFail ไต่ให้)
+  // หัวหน้าของผู้ขอซื้อ - มีเฉพาะใน GET /purchase-orders/:poNumber (findOneOrFail ไต่ให้)
   // list ไม่มีให้ และ GET /asset-requests/:id ก็ไม่มี ต้องดึงใบเต็มมาเติมเอง
   // null ได้ทุกช่อง: PO เก่าไม่มี ownerPrId / แผนกยังไม่ตั้งหัวหน้า / หัวหน้าไม่มีอีเมล
   managerId: number | null;
@@ -45,7 +45,7 @@ export interface PurchaseOrder {
   manageremail: string | null;
 }
 
-// list แบบเบา (GET /purchase-orders) ไม่มี items — ใช้ getPurchaseOrderByNumber ดึงรายละเอียดทีหลัง
+// list แบบเบา (GET /purchase-orders) ไม่มี items - ใช้ getPurchaseOrderByNumber ดึงรายละเอียดทีหลัง
 export type PurchaseOrderSummary = Omit<PurchaseOrder, 'items'>;
 
 export interface Paginated<T> {
@@ -59,6 +59,10 @@ export interface ListPurchaseOrdersParams {
   search?: string;
   page?: number;
   limit?: number;
+  /** กรองตามบริษัทเจ้าของใบ - ไม่ส่ง = ทุกบริษัท */
+  companyCode?: string;
+  /** ไม่ส่ง = ใหม่สุดก่อน (ตรงกับค่าตั้งต้นฝั่ง backend) */
+  sort?: 'date_desc' | 'date_asc';
 }
 
 export function listPurchaseOrders(params: ListPurchaseOrdersParams = {},
@@ -67,6 +71,8 @@ export function listPurchaseOrders(params: ListPurchaseOrdersParams = {},
   if (params.search) query.set('search', params.search);
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
+  if (params.companyCode) query.set('companyCode', params.companyCode);
+  if (params.sort) query.set('sort', params.sort);
 
   const qs = query.toString();
   return request<Paginated<PurchaseOrderSummary>>(
@@ -79,6 +85,6 @@ export function getPurchaseOrderByNumber(poNumber: string): Promise<PurchaseOrde
   return request<PurchaseOrder>(`/purchase-orders/${poNumber}`, { method: 'GET' });
 }
 
-// getPoApprovers() ถูกถอดออกพร้อมการ rename เป็น OwnerPR — ไม่มีใครเรียก และยิงไป
+// getPoApprovers() ถูกถอดออกพร้อมการ rename เป็น OwnerPR - ไม่มีใครเรียก และยิงไป
 // /purchase-orders/:poNumber/approvers ซึ่ง backend ไม่เคยมี route นี้ (ได้ 404 ถ้าเรียก)
 // ข้อมูลผู้อนุมัติมาจาก GET /purchase-orders/:poNumber แล้ว (managerId/manageremail)

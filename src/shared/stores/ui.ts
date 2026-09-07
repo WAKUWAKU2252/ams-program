@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 export const useUiStore = defineStore('ui', () => {
   // ผูกกับ checkbox `drawer-toggle` ของ daisyUI ใน MainLayout โดยตรง
-  // (บนจอ lg ขึ้นไป drawer เปิดค้างด้วย lg:drawer-open — ค่านี้จึงมีผลเฉพาะจอเล็ก)
+  // (บนจอ lg ขึ้นไป drawer เปิดค้างด้วย lg:drawer-open - ค่านี้จึงมีผลเฉพาะจอเล็ก)
   const isSidebarOpen = ref(false)
 
   function toggleSidebar(): void {

@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import AppPagination from '@/components/common/AppPagination.vue'
-import AppModal from '@/components/common/AppModal.vue'
-import AppConfirmDialog from '@/components/common/AppConfirmDialog.vue'
-import { listDrafts, leaveRequest } from '@/services/assetRequest.service'
-import type { AssetRequestRow, ListDraftsParams } from '@/services/assetRequest.service'
-import { useConnectionStore } from '@/stores/connection'
-import { ApiError } from '@/services/httpClient'
-import { formatDateTime } from '@/utils/date'
-import { requestStatusMeta } from '@/utils/request-status'
+import AppPagination from '@/shared/components/AppPagination.vue'
+import CreateRequestModal from '@/pages/create-asset/components/CreateRequestModal.vue'
+import AppConfirmDialog from '@/shared/components/AppConfirmDialog.vue'
+import {
+  listDrafts,
+  leaveRequest,
+  listMyStuckNotifications,
+  retryNotifyApprover,
+} from '@/shared/services/assetRequest.service'
+import type { AssetRequestRow, ListDraftsParams, MyStuckRequest } from '@/shared/services/assetRequest.service'
+import { useConnectionStore } from '@/shared/stores/connection'
+import { ApiError } from '@/shared/services/httpClient'
+import { formatDateTime } from '@/shared/utils/date'
+import { requestStatusMeta } from '@/shared/utils/request-status'
 import { Icon } from '@iconify/vue'
 
 const router = useRouter()
@@ -67,10 +72,10 @@ function onPageChange(p: number) {
 // เคสหลักคือบัญชีตีกลับรายชิ้น: ใบนั้นเข้าลิสต์นี้เอง (listMyDrafts รวมใบ APPROVED ที่มีชิ้น
 // ถูกตีกลับ) แต่เกิดตอนผู้ขอไม่ได้ทำอะไรอยู่เลย ถ้าไม่มีสัญญาณก็ต้องเดารีเฟรชว่ามีงานเข้าหรือยัง
 //
-// ★ ไม่เปิดสาย SSE เองที่นี่ — ใช้สายเดียวของทั้งแอปที่ store ถืออยู่แล้ว (โควตา connection
+// ★ ไม่เปิดสาย SSE เองที่นี่ - ใช้สายเดียวของทั้งแอปที่ store ถืออยู่แล้ว (โควตา connection
 //   ของ browser มีจำกัด ดู services/sse.service.ts) หน้าที่ของหน้านี้เหลือแค่ watch ตัวนับ
 //
-// สัญญาณไม่มี requestId ติดมา — backend กรองมาแล้วว่าเหตุการณ์ไหนทำให้ลิสต์เปลี่ยนได้ แต่
+// สัญญาณไม่มี requestId ติดมา - backend กรองมาแล้วว่าเหตุการณ์ไหนทำให้ลิสต์เปลี่ยนได้ แต่
 // กรองรายคนไม่ได้ จึงเป็นไปได้ที่โหลดใหม่แล้วลิสต์เหมือนเดิม ซึ่งไม่เสียหายอะไร: หน้านี้
 // ไม่มีกล่องกรอก และ debounce รวบก้อนที่มาติด ๆ กันให้แล้ว
 const connection = useConnectionStore()
@@ -86,7 +91,50 @@ function scheduleReload() {
 
 watch(() => connection.changeTick, scheduleReload)
 
-onMounted(loadDrafts)
+// ── ใบที่ส่งไปแล้วแต่หัวหน้ายังไม่ได้รับการ์ด ────────────────────────────────
+//
+// ★ ต้องมีแถบนี้เพราะลิสต์ข้างล่างกรองแค่ DRAFT/REJECTED — ใบที่ส่งไปแล้วไม่โผล่ที่ไหนเลย
+//   ฝั่งผู้ขอ ถ้าการ์ดไม่ถึงหัวหน้า ใบจะค้างโดยไม่มีใครรู้: ผู้ขอคิดว่าส่งแล้ว หัวหน้าไม่รู้ว่ามีงาน
+//   และ submit ซ้ำก็ไม่ได้ (สถานะไม่ใช่ DRAFT/REJECTED แล้ว)
+//
+// ★ เตือนตอนกดส่งมีอยู่แล้วที่ DraftForm แต่เป็นข้อความครั้งเดียว ปิดเบราว์เซอร์ก็หาย
+//   ตัวนี้คือร่องรอยถาวรที่ยังอยู่จนกว่าการ์ดจะไปถึงจริง
+const stuck = ref<MyStuckRequest[]>([])
+const retrying = ref<number | null>(null)
+const retryMsg = ref('')
+
+async function loadStuck() {
+  try {
+    stuck.value = await listMyStuckNotifications()
+  } catch {
+    // แถบเตือนพังไม่ควรลากหน้าหลักตาย — รายการคำขอยังใช้งานได้ครบ
+    stuck.value = []
+  }
+}
+
+async function onRetryCard(requestId: number) {
+  if (retrying.value !== null) return
+  retrying.value = requestId
+  retryMsg.value = ''
+  try {
+    const res = await retryNotifyApprover(requestId)
+    retryMsg.value = res.notified
+      ? `ส่งการ์ดของคำขอ #${requestId} ใหม่เรียบร้อยแล้ว`
+      : `ยังส่งไม่ผ่าน: ${res.notifyError ?? 'ไม่ทราบสาเหตุ'}`
+    await loadStuck()
+  } catch (e) {
+    // ข้อความจาก backend บอกตรง ๆ ว่าต้องไปแก้อะไร (หัวหน้าไม่มีอีเมล/ไม่มีบัญชีใน AMS)
+    // ต้องโชว์ตามตรง ไม่กลบเป็น "ส่งไม่สำเร็จ" เฉย ๆ
+    retryMsg.value = e instanceof ApiError ? e.message : 'ส่งการ์ดซ้ำไม่สำเร็จ'
+  } finally {
+    retrying.value = null
+  }
+}
+
+onMounted(() => {
+  void loadDrafts()
+  void loadStuck()
+})
 
 onUnmounted(() => {
   if (reloadTimer) clearTimeout(reloadTimer)
@@ -148,6 +196,35 @@ const clearSearch = () => {
         <p class="text-base-content/70">รายการคำขอขึ้นทะเบียนของคุณ</p>
       </div>
 
+      <!-- ── ใบที่ส่งไปแล้วแต่การ์ดไม่ถึงหัวหน้า — ซ่อนทั้งแถบเมื่อไม่มี
+           ★ ผู้ขอเป็นคนเดียวที่รู้ว่าใบตัวเองค้าง (ลิสต์ข้างล่างกรองแค่ DRAFT/REJECTED
+             ใบที่ส่งไปแล้วจึงไม่โผล่ที่ไหนเลย) และเป็นคนกดส่งซ้ำได้ด้วย -->
+      <div v-if="stuck.length" role="alert" class="alert alert-warning alert-soft w-full items-start sm:order-last">
+        <Icon icon="mdi:alert-outline" class="size-5 shrink-0" />
+        <div class="min-w-0 flex-1 space-y-2">
+          <p class="text-sm">
+            มี <span class="font-semibold">{{ stuck.length }}</span> คำขอที่ส่งไปแล้ว
+            <span class="font-semibold">แต่หัวหน้ายังไม่ได้รับการ์ดขออนุมัติ</span>
+            — ใบจะค้างจนกว่าจะส่งการ์ดใหม่
+          </p>
+          <div v-for="s in stuck" :key="s.id" class="flex flex-wrap items-center gap-2 text-sm">
+            <span class="font-mono">#{{ s.id }}</span>
+            <span class="font-mono opacity-70">{{ s.poNumber }}</span>
+            <span v-if="s.notifyError" class="max-w-[22rem] truncate opacity-70">{{ s.notifyError }}</span>
+            <button
+              type="button"
+              class="btn btn-xs"
+              :disabled="retrying !== null"
+              @click="onRetryCard(s.id)"
+            >
+              <span v-if="retrying === s.id" class="loading loading-spinner loading-xs"></span>
+              ส่งการ์ดซ้ำ
+            </button>
+          </div>
+          <p v-if="retryMsg" class="text-sm opacity-80">{{ retryMsg }}</p>
+        </div>
+      </div>
+
       <div class="flex items-center gap-3">
         <!-- ช่องค้นหา -->
         <label class="input input-md w-full max-w-[260px]">
@@ -184,24 +261,29 @@ const clearSearch = () => {
 
     <!-- ── ตาราง draft ── -->
     <div class="mt-6 overflow-x-auto rounded-box border border-base-300">
-      <table class="table table-zebra table-pin-rows">
+      <!-- ★ --freeze-1-w ต้องเท่ากับความกว้างจริงของคอลัมน์แรก (คลาส w-20 ข้างล่าง = 5rem)
+           CSS หาเองไม่ได้ ถ้าสองค่านี้ไม่ตรงกัน คอลัมน์ที่ตรึงจะซ้อนกันหรือมีช่องโหว่
+           ให้เนื้อหาเลื่อนทะลุขึ้นมาตรงกลาง — แก้ค่าไหนต้องแก้คู่กันเสมอ -->
+      <table class="table table-pin-rows table-freeze-first [--freeze-1-w:5rem]">
         <thead>
           <tr>
-            <th class="w-[15%] text-center">Request</th>
-            <th class="w-[25%] text-center">PO Number</th>
+            <th class="freeze-col text-center lg:w-[10%]">Request</th>
+            <th class="freeze-col-2 w-[20%] text-center">PO Number</th>
             <th class="w-[20%]">ผู้สร้าง</th>
             <th class="w-[20%]">ขอซื้อโดย</th>
             <th class="w-[20%]">แก้ล่าสุด</th>
             <th class="w-[10%] text-right">Status</th>
-            <th class="w-[10%]"></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="d in displayDrafts" :key="d.id" class="hover:bg-base-200">
-            <td class="truncate text-center">#{{ d.id }}</td>
-            <td class="truncate text-center font-mono">{{ d.poNumber }}</td>
-            <td class="truncate">{{ d.createdByName ?? '—' }}</td>
-            <td class="truncate">{{ d.ownerPrName ?? '—' }}</td>
+          <tr v-for="d in displayDrafts" :key="d.id" 
+          class="hover:bg-base-200 cursor-pointer"
+          @click="goForm(d.id)"
+          >
+            <td class="freeze-col w-20 truncate text-center lg:w-auto">#{{ d.id }}</td>
+            <td class="freeze-col-2 truncate text-center font-mono">{{ d.poNumber }}</td>
+            <td class="truncate">{{ d.createdByName ?? '-' }}</td>
+            <td class="truncate">{{ d.ownerPrName ?? '-' }}</td>
             <td class="truncate">{{ formatDateTime(d.updatedAt) }}</td>
             <td class="text-right">
               <div class="flex flex-wrap items-center justify-end gap-1">
@@ -221,19 +303,13 @@ const clearSearch = () => {
                 </span>
               </div>
             </td>
-            <td>
-              <div class="flex items-center justify-center gap-1">
+            <td class="text-left">
+              <div class="flex gap-1">
                 <button
-                  class="btn btn-ghost btn-sm btn-square"
-                  title="แก้ไขคำขอ"
-                  @click="goForm(d.id)"
-                >
-                  <Icon icon="lucide:square-pen" class="text-lg" />
-                </button>
-                <button
+                  type="button"
                   class="btn btn-ghost btn-sm btn-square hover:text-error"
                   title="เอาออกจากรายการของฉัน"
-                  @click="onDelete(d)"
+                  @click.stop="onDelete(d)"
                 >
                   <Icon icon="lucide:trash-2" class="text-lg" />
                 </button>
@@ -263,7 +339,7 @@ const clearSearch = () => {
     </div>
 
     <!-- ── modal ── -->
-    <AppModal v-model:open="modalOpen" title="สร้างคำขอใหม่" @created="onCreated" />
+    <CreateRequestModal v-model:open="modalOpen" title="สร้างคำขอใหม่" @created="onCreated" />
 
     <!-- ── ยืนยันการเอาออกจากลิสต์ ── -->
     <AppConfirmDialog

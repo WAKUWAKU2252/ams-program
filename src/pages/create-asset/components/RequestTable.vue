@@ -1,35 +1,36 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { fileBlobUrl } from '@/services/attachment.service';
-import HeadtableCreateNewAsset from '@/components/common/PolineTable/HeadtableCreateNewAsset.vue';
-import AppConfirmDialog from '@/components/common/AppConfirmDialog.vue';
+import { fileBlobUrl } from '@/shared/services/attachment.service';
+import PoLineTableHead from '@/pages/create-asset/components/PoLineTableHead.vue';
+import AppConfirmDialog from '@/shared/components/AppConfirmDialog.vue';
 import {
   getAssetSlots,
   type AssetSlot,
   type AssetSlotItem,
   type InvoiceFile,
   type SlotDisplayStatus,
-} from '@/services/asset.service';
+} from '@/shared/services/asset.service';
 import {
   declareLine,
   removeDeclaredLine,
   type AssetRequestStatus,
-} from '@/services/assetRequest.service';
-import InvoiceModal from '@/components/common/InvoiceModal.vue';
-import AppAssetFormDialog from '@/components/common/AppAssetFormDialog.vue';
-import type { AssetFormTarget } from '@/types/asset-form';
-import type { RejectedPiece } from '@/types/rejected-piece';
+} from '@/shared/services/assetRequest.service';
+import InvoiceModal from '@/shared/components/InvoiceModal.vue';
+import AssetFormDialog from '@/pages/create-asset/components/AssetFormDialog.vue';
+import type { AssetFormTarget } from '@/shared/types/asset-form';
+import type { RejectedPiece } from '@/shared/types/rejected-piece';
 import {
   listDepartments,
   listLocations,
   listSubLocations,
   type DepartmentOption,
   type MasterOption,
+  type LocationOption,
   type SubLocationOption,
-} from '@/services/master.service';
-import { ApiError } from '@/services/httpClient';
-import { formatDate } from '@/utils/date';
-import { rejectRoleLabel } from '@/utils/reject-role';
+} from '@/shared/services/master.service';
+import { ApiError } from '@/shared/services/httpClient';
+import { formatDate } from '@/shared/utils/date';
+import { rejectRoleLabel } from '@/shared/utils/reject-role';
 import { Icon } from '@iconify/vue';
 
 const props = withDefaults(
@@ -51,19 +52,19 @@ const props = withDefaults(
   },
 );
 
-/** งานระดับรอบ/ใบ (invoice, แจ้งจำนวน, ลบชิ้น) — ทำได้เฉพาะตอนแก้ได้ทั้งใบ */
+/** งานระดับรอบ/ใบ (invoice, แจ้งจำนวน, ลบชิ้น) - ทำได้เฉพาะตอนแก้ได้ทั้งใบ */
 const canEditRound = computed(() => props.editable && props.editableScope === 'all');
 
 const emit = defineEmits<{
   (e: 'over-cost', value: boolean): void;
-  /** ชิ้นที่ยังรอผู้ขอแก้ — DraftForm เอาไปขึ้น banner ว่าต้องแก้ชิ้นไหนบ้าง */
+  /** ชิ้นที่ยังรอผู้ขอแก้ - DraftForm เอาไปขึ้น banner ว่าต้องแก้ชิ้นไหนบ้าง */
   (e: 'rejected-pieces', value: RejectedPiece[]): void;
 }>();
 
 const items = ref<AssetSlotItem[]>([]);
-// สถานะของ "ใบคำขอ" ไม่ใช่ของชิ้น — ตัวตัดสินว่า badge รายชิ้นเป็น Saved / Requested / Rejected
+// สถานะของ "ใบคำขอ" ไม่ใช่ของชิ้น - ตัวตัดสินว่า badge รายชิ้นเป็น Saved / Requested / Rejected
 const requestStatus = ref<AssetRequestStatus>('DRAFT');
-// เหตุผลที่ถูกตีกลับ (มีเฉพาะตอน REJECTED) — ป้าย Rejected บอกแค่ว่า "ไม่ผ่าน"
+// เหตุผลที่ถูกตีกลับ (มีเฉพาะตอน REJECTED) - ป้าย Rejected บอกแค่ว่า "ไม่ผ่าน"
 // ผู้ใช้ต้องได้เหตุผลในจอเดียวกันถึงจะรู้ว่าต้องแก้อะไรก่อนกดส่งใหม่
 const rejectReason = ref<string | null>(null);
 const loading = ref(true);
@@ -98,7 +99,7 @@ const thumbUrls = ref(new Map<string, string>());
  * โหลดเฉพาะรูปของแถวที่ "เรนเดอร์อยู่จริง" ไม่ใช่ทุกใบในใบคำขอ
  *
  * ตารางกางเป็นชั้น: PO line ต้องกดกางก่อน (expandedIds เริ่มว่าง = ปิดหมด) แล้วในนั้น
- * ยังมีรอบรับของที่พับได้อีกชั้น — ช่องจะถูกเรนเดอร์ต่อเมื่อกางทั้งสองชั้น
+ * ยังมีรอบรับของที่พับได้อีกชั้น - ช่องจะถูกเรนเดอร์ต่อเมื่อกางทั้งสองชั้น
  *
  * ถ้าโหลดทุกใบตั้งแต่เปิดหน้า จะดาวน์โหลดรูปที่ไม่มีใครเห็นทั้งหมด และ endpoint
  * ส่งไฟล์เต็ม (ไม่มี thumbnail ฝั่ง server) ใบที่มี 50 ชิ้นจึงกินแบนด์วิดท์เป็นร้อย MB เปล่า ๆ
@@ -119,7 +120,7 @@ function visibleImageIds(): Set<string> {
   return ids;
 }
 
-/** id ที่ยังมีอยู่ในข้อมูล — ใช้ตัดสินว่า blob ไหนควรเก็บไว้ (คนละชุดกับที่ต้องโหลด) */
+/** id ที่ยังมีอยู่ในข้อมูล - ใช้ตัดสินว่า blob ไหนควรเก็บไว้ (คนละชุดกับที่ต้องโหลด) */
 function referencedImageIds(): Set<string> {
   const ids = new Set<string>();
   for (const item of items.value) {
@@ -131,7 +132,7 @@ function referencedImageIds(): Set<string> {
 }
 
 async function loadThumbnails() {
-  // พับแถวกลับไม่ทิ้ง blob — ไม่งั้นกางซ้ำทีก็โหลดใหม่ทุกที
+  // พับแถวกลับไม่ทิ้ง blob - ไม่งั้นกางซ้ำทีก็โหลดใหม่ทุกที
   // ทิ้งเฉพาะรูปที่หายไปจากข้อมูลจริง (ถูกถอดออกจาก asset) ไม่งั้นค้างใน memory ทั้ง session
   const keep = referencedImageIds();
   for (const [id, url] of thumbUrls.value) {
@@ -141,7 +142,7 @@ async function loadThumbnails() {
     }
   }
 
-  // โหลดพร้อมกัน — เรียงกันจะรอทีละรูป รอบที่กางอยู่มีได้หลายชิ้น
+  // โหลดพร้อมกัน - เรียงกันจะรอทีละรูป รอบที่กางอยู่มีได้หลายชิ้น
   await Promise.all(
     [...visibleImageIds()]
       .filter((id) => !thumbUrls.value.has(id))
@@ -149,7 +150,7 @@ async function loadThumbnails() {
         try {
           thumbUrls.value.set(id, await fileBlobUrl(id));
         } catch (e) {
-          // รูปเดียวโหลดไม่ขึ้นไม่ควรทำให้ทั้งตารางพัง — ช่องนั้นแสดงไอคอนแทน
+          // รูปเดียวโหลดไม่ขึ้นไม่ควรทำให้ทั้งตารางพัง - ช่องนั้นแสดงไอคอนแทน
           console.error(`โหลดรูปย่อ ${id} ไม่สำเร็จ:`, e);
         }
       }),
@@ -202,18 +203,41 @@ function isRoundOpen(grpoLineId: string) {
   return !collapsedRounds.value.has(grpoLineId);
 }
 
-// กางแถวเมื่อไหร่ค่อยโหลดรูปของแถวนั้น — ตัวที่โหลดไว้แล้วถูก cache ไว้ กางซ้ำไม่ยิงใหม่
+// กางแถวเมื่อไหร่ค่อยโหลดรูปของแถวนั้น - ตัวที่โหลดไว้แล้วถูก cache ไว้ กางซ้ำไม่ยิงใหม่
 // (ทั้งสอง ref ถูกแทนที่ทั้งก้อนตอน toggle จึงไม่ต้อง deep watch)
 watch([expandedIds, collapsedRounds], () => void loadThumbnails());
 // ราคาต่อชิ้นที่จะโชว์: ลงทะเบียนแล้ว = ราคาจริงที่เก็บไว้ / ยังไม่ลง = ชิ้นที่เกิน receivedQty
 // (แตกเพิ่มเอง) เริ่มที่ 0 ตรงกับ default ฝั่ง backend ส่วนชิ้นตาม SAP ใช้ unitPrice
 // ช่องที่ผูกกับรอบรับของแล้วเท่านั้น (noGrpo ไม่มีรอบให้สังกัด จึงไม่มาถึงตาราง)
-// — แคบชนิดตั้งแต่ตรงนี้ ตารางจะได้อ่าน unitNo/grpoLineId ได้โดยไม่ต้องเช็ค status ซ้ำ
+// - แคบชนิดตั้งแต่ตรงนี้ ตารางจะได้อ่าน unitNo/grpoLineId ได้โดยไม่ต้องเช็ค status ซ้ำ
 type RoundSlot = Exclude<AssetSlot, { status: 'noGrpo' }> & { price: number };
 
-/** ชิ้นนี้เป็นของใบคำขออื่นที่ลง PO line เดียวกันไว้ก่อน — ดูได้อย่างเดียว */
+/** ชิ้นนี้เป็นของใบคำขออื่นที่ลง PO line เดียวกันไว้ก่อน - ดูได้อย่างเดียว */
 function isFromOtherRequest(slot: RoundSlot): boolean {
   return slot.status === 'registered' && slot.requestId !== props.requestId;
+}
+
+/**
+ * ที่มาของชิ้นที่เป็นของใบอื่น - "อยู่ในคำขอ #12 · เปิดโดย สมชาย"
+ *
+ * ★ จำเป็นเพราะ PO เดียวเปิดได้หลายใบ: คนที่เปิดใบ B เห็นชิ้นของใบ A ที่ถูกตีกลับอยู่ใน
+ *   ตารางเดียวกัน แต่แก้จากหน้านี้ไม่ได้ ถ้าบอกแค่ "แก้ไขที่ใบนั้น" เขาจะไม่รู้ว่าใบไหน
+ *   และไม่รู้ว่าต้องไปคุยกับใคร - ซึ่งเป็นทางตันจริง ๆ เมื่อเจ้าของใบเดิมไม่อยู่
+ */
+function otherRequestLabel(slot: RoundSlot): string {
+  if (slot.status !== 'registered') return '';
+  const who = slot.requestCreatedByName?.trim();
+  return `อยู่ในคำขอหมายเลข #${slot.requestId}${who ? ` ที่เปิดโดยคุณ ${who}` : ''}`;
+}
+
+/**
+ * path ไปยังใบเจ้าของชิ้น
+ *
+ * ★ เช็ค status ในฟังก์ชัน ไม่ใช่ใน template - isFromOtherRequest ไม่ใช่ type predicate
+ *   vue-tsc จึงยัง narrow ชนิดให้ไม่ได้ แล้วอ่าน slot.requestId ตรง ๆ ใน template จะไม่ผ่าน
+ */
+function otherRequestPath(slot: RoundSlot): string {
+  return slot.status === 'registered' ? `/create/${slot.requestId}` : '';
 }
 
 interface RoundGroup {
@@ -267,10 +291,10 @@ const grouped = computed(() =>
 );
 
 /**
- * ชิ้นที่บัญชีตีกลับและยังรอผู้ขอแก้ — ส่งขึ้นให้ DraftForm ขึ้น banner (เลขชิ้นเท่านั้น)
+ * ชิ้นที่บัญชีตีกลับและยังรอผู้ขอแก้ - ส่งขึ้นให้ DraftForm ขึ้น banner (เลขชิ้นเท่านั้น)
  *
  * ★ นับเฉพาะชิ้นของใบนี้: getAssetSlots คืนช่องของ PO line เดียวกันข้ามใบมาด้วย (ใบก่อนหน้า
- *   ที่ลง PO line เดียวกันไว้ — ดู isFromOtherRequest) ชิ้นพวกนั้นผู้ขอแก้ไม่ได้ ถ้านับรวมมา
+ *   ที่ลง PO line เดียวกันไว้ - ดู isFromOtherRequest) ชิ้นพวกนั้นผู้ขอแก้ไม่ได้ ถ้านับรวมมา
  *   banner จะสั่งให้ไปแก้ชิ้นที่กดไม่ได้เลย
  *
  * ลำดับตาม grouped อยู่แล้ว = ลำดับเดียวกับที่ตารางเรียง คนอ่าน banner แล้วไล่หาแถวได้ตรง ๆ
@@ -288,7 +312,7 @@ const rejectedPieces = computed<RejectedPiece[]>(() =>
 );
 // ★ ผูกกับ loading ด้วย ไม่ใช่ immediate ล้วน ๆ: emit ตอนยังโหลดไม่เสร็จ = ส่ง [] ขึ้นไปก่อน
 //   แล้ว banner ของ DraftForm จะขึ้น "ยังไม่มีชิ้นที่ต้องแก้" อยู่ครู่หนึ่งแล้วเด้งเป็น
-//   "มี 2 ชิ้นต้องแก้" — ผิดก่อนแล้วถูก ซึ่งแย่กว่าไม่พูดอะไรเลยระหว่างรอ
+//   "มี 2 ชิ้นต้องแก้" - ผิดก่อนแล้วถูก ซึ่งแย่กว่าไม่พูดอะไรเลยระหว่างรอ
 //   (loading เริ่มเป็น true อยู่แล้ว immediate จึงไม่ยิงตอน mount)
 watch(
   [rejectedPieces, loading],
@@ -350,17 +374,17 @@ async function onRevertToSap() {
   }
 }
 
-// ── modal จัดการ invoice ต่อรอบ (แนบ/ถอด/preview — 1 รอบหลายใบ) ──
+// ── modal จัดการ invoice ต่อรอบ (แนบ/ถอด/preview - 1 รอบหลายใบ) ──
 // เก็บเป็น grpoId แล้ว compute รอบสดจาก grouped เพื่อให้ modal เห็น invoices ล่าสุดหลัง load()
 const invoiceGrpoId = ref<number | null>(null);
 const invoiceRound = computed(
   () => grouped.value.flatMap((g) => g.rounds).find((r) => r.grpoId === invoiceGrpoId.value) ?? null,
 );
 
-// ป้ายสถานะต่อชิ้น — สี/ข้อความตาม badgeKey
+// ป้ายสถานะต่อชิ้น - สี/ข้อความตาม badgeKey
 //   requested  = กรอกเป็น asset แล้วแต่ยังไม่เข้า SAP (lifecycle=DRAFT)
 //   registered = ลงทะเบียนใน SAP แล้ว มี assetNumber (lifecycle=REGISTERED)
-// desc = คำอธิบายที่โผล่ในกล่องตอนกดป้าย — ป้ายมีที่ว่างแค่คำเดียว ส่วนคำถามจริงของผู้ใช้
+// desc = คำอธิบายที่โผล่ในกล่องตอนกดป้าย - ป้ายมีที่ว่างแค่คำเดียว ส่วนคำถามจริงของผู้ใช้
 // คือ "แล้วต้องทำอะไรต่อ" ซึ่งตอบในป้ายไม่ได้ จึงย้ายมาไว้ในกล่องคู่กับเหตุผล
 const STATUS_META: Record<
   SlotDisplayStatus,
@@ -418,7 +442,7 @@ const STATUS_META: Record<
 
 // ── กล่องดูรายละเอียดสถานะ (กดที่ป้าย) ───────────────────────────────────────
 //
-// กล่องเดียวที่ใช้ร่วมกันทุกแถว ไม่ใช่ <dialog> ต่อชิ้น — วิธีหลังต้องตั้ง id ให้ไม่ซ้ำ
+// กล่องเดียวที่ใช้ร่วมกันทุกแถว ไม่ใช่ <dialog> ต่อชิ้น - วิธีหลังต้องตั้ง id ให้ไม่ซ้ำ
 // ซึ่ง slot.index ทำไม่ได้: มันเป็นลำดับ "ภายใน PO line" จึงซ้ำกันข้ามบรรทัด/ข้ามรอบ
 // (PO line 1 กับ 2 ต่างก็มี index 1) แล้ว getElementById จะคว้ากล่องของชิ้นอื่นมาเปิด
 // นอกจากนี้กล่องต่อชิ้นยังหมายถึง DOM node เท่าจำนวนแถวโดยที่เปิดทีละอันอยู่ดี
@@ -429,7 +453,7 @@ function openNote(slot: RoundSlot, poLine: number) {
 }
 
 /**
- * ข้อความอธิบายใต้ป้าย — เฉพาะสถานะที่ "มีคนตัดสินใจอะไรบางอย่าง" เท่านั้น
+ * ข้อความอธิบายใต้ป้าย - เฉพาะสถานะที่ "มีคนตัดสินใจอะไรบางอย่าง" เท่านั้น
  * ป้ายบอกว่าเกิดอะไรขึ้น ส่วนบรรทัดนี้บอกว่าใครทำและเพราะอะไร ซึ่งเป็นสิ่งเดียวที่ทำให้
  * ผู้ใช้รู้ว่าต้องไปคุยกับใคร/แก้อะไรต่อ
  */
@@ -437,12 +461,12 @@ function slotNote(slot: RoundSlot): string {
   if (slot.status !== 'registered') return '';
   switch (slot.displayStatus) {
     case 'rejected': {
-      // ชื่อมาก่อน role — คนอ่านถามว่า "ใครตีกลับ" ก่อนเสมอ ส่วน role เป็นข้อมูลประกอบว่า
+      // ชื่อมาก่อน role - คนอ่านถามว่า "ใครตีกลับ" ก่อนเสมอ ส่วน role เป็นข้อมูลประกอบว่า
       // ตีกลับทั้งใบ (หัวหน้า) หรือรายชิ้น (บัญชี) ซึ่งต้องแก้คนละแบบ
-      // ลำดับต้องตรงกับแถบในกล่องกรอก (AppAssetFormDialog) ไม่งั้นคนอ่านสองที่แล้วสับสน
+      // ลำดับต้องตรงกับแถบในกล่องกรอก (AssetFormDialog) ไม่งั้นคนอ่านสองที่แล้วสับสน
       // ว่าเป็นคนละเหตุการณ์กัน
       //
-      // ใช้ label สั้น (หัวหน้า/บัญชี/แอดมิน) ไม่ใช่ detail แบบเต็ม — note นี้อยู่ในตารางที่
+      // ใช้ label สั้น (หัวหน้า/บัญชี/แอดมิน) ไม่ใช่ detail แบบเต็ม - note นี้อยู่ในตารางที่
       // พื้นที่จำกัด ส่วนคำอธิบายว่าต้องทำอะไรต่ออยู่ในกล่องกรอกซึ่งเป็นที่ที่ลงมือแก้จริง
       const who = [slot.rejectedByName, rejectRoleLabel(slot.rejectedRole)]
         .filter(Boolean)
@@ -452,15 +476,15 @@ function slotNote(slot: RoundSlot): string {
     }
     case 'cancelled': {
       const who = slot.cancelledByName ? `โดย ${slot.cancelledByName}` : '';
-      return `ปิดถาวร ${who} — ${slot.cancelReason?.trim() || 'ไม่ได้ระบุเหตุผล'}`.trim();
+      return `ปิดถาวร ${who} - ${slot.cancelReason?.trim() || 'ไม่ได้ระบุเหตุผล'}`.trim();
     }
     case 'approved':
       return slot.approvedByName ? `อนุมัติโดย ${slot.approvedByName}` : '';
     case 'registered': {
-      // ชิ้นที่จบแล้วต้องตอบได้ว่า "ใครอนุมัติ ใครออกเลข" — เลขสินทรัพย์เข้าทะเบียน SAP แล้ว
+      // ชิ้นที่จบแล้วต้องตอบได้ว่า "ใครอนุมัติ ใครออกเลข" - เลขสินทรัพย์เข้าทะเบียน SAP แล้ว
       // แก้ฝั่งเดียวไม่ได้ ถ้าเลขผิดต้องรู้ว่าไปถามใคร ไม่ใช่ไล่หาเองจาก log
       //
-      // ชิ้นเก่าก่อน 0019 ไม่ได้บันทึก registeredBy ไว้ — บรรทัดนั้นหายไปเฉย ๆ ไม่ขึ้น '—'
+      // ชิ้นเก่าก่อน 0019 ไม่ได้บันทึก registeredBy ไว้ - บรรทัดนั้นหายไปเฉย ๆ ไม่ขึ้น '-'
       // เพราะ "ไม่รู้" กับ "ไม่มีคนทำ" คนละความหมาย และช่องว่างเปล่าอ่านแล้วชวนสงสัยกว่า
       const lines = [
         slot.assetNumber ? `เลขสินทรัพย์ ${slot.assetNumber}` : '',
@@ -475,10 +499,10 @@ function slotNote(slot: RoundSlot): string {
 }
 
 /**
- * badge รายชิ้น — ไล่จากเจาะจงที่สุดไปหาทั่วไป
+ * badge รายชิ้น - ไล่จากเจาะจงที่สุดไปหาทั่วไป
  *
  * ★ ป้ายทั้งหมดคำนวณที่ backend (slotDisplayStatus ใน asset.service.ts) แล้วส่งมาเป็น
- *   slot.displayStatus — ที่นี่แค่หยิบไปเปิดตาราง STATUS_META ห้าม derive ใหม่
+ *   slot.displayStatus - ที่นี่แค่หยิบไปเปิดตาราง STATUS_META ห้าม derive ใหม่
  *
  *   เดิมหน้านี้คิดเองจาก lifecycle + สถานะของ "ใบที่กำลังเปิดดู" ซึ่งผิดเสมอเมื่อ PO เดียว
  *   มีหลายรอบ: findSlotsByRequest นับช่องข้ามใบ ชิ้นของใบก่อน (อนุมัติไปแล้ว) จึงติดมาด้วย
@@ -488,16 +512,16 @@ function badgeKey(slot: RoundSlot): SlotDisplayStatus {
   return slot.displayStatus;
 }
 
-/** ชิ้นที่ "จบแล้ว" — แก้ไม่ได้อีกไม่ว่าใบจะอยู่สถานะไหน (ตรงกับด่านใน asset.service.update) */
+/** ชิ้นที่ "จบแล้ว" - แก้ไม่ได้อีกไม่ว่าใบจะอยู่สถานะไหน (ตรงกับด่านใน asset.service.update) */
 function isSlotClosed(slot: RoundSlot): boolean {
   return slot.displayStatus === 'registered' || slot.displayStatus === 'cancelled';
 }
 
 /**
- * ชิ้นนี้กดแก้ได้ไหม — รวมทุกด่านไว้ที่เดียว (เดิมกระจายอยู่ใน :disabled ของปุ่ม)
+ * ชิ้นนี้กดแก้ได้ไหม - รวมทุกด่านไว้ที่เดียว (เดิมกระจายอยู่ใน :disabled ของปุ่ม)
  *
  * โหมด rejected (ใบอนุมัติแล้ว) เปิดเฉพาะชิ้นที่บัญชีตีกลับ ตรงกับที่ backend บังคับไว้
- * ใน asset.service.update() — หน้าจอกับ API ต้องตอบเหมือนกัน ไม่งั้นกดได้แล้วเจอ 400
+ * ใน asset.service.update() - หน้าจอกับ API ต้องตอบเหมือนกัน ไม่งั้นกดได้แล้วเจอ 400
  */
 function canEditSlot(slot: RoundSlot): boolean {
   if (!props.editable || isSlotClosed(slot) || isFromOtherRequest(slot)) return false;
@@ -506,7 +530,7 @@ function canEditSlot(slot: RoundSlot): boolean {
 }
 
 // ── ฟอร์มกรอกรายละเอียดสินทรัพย์รายชิ้น (popup) ────────────────────────────
-// เก็บ target เป็น object สำเร็จรูป ไม่ใช่ ref ไปยัง slot — slot ถูกสร้างใหม่ทุกครั้งที่
+// เก็บ target เป็น object สำเร็จรูป ไม่ใช่ ref ไปยัง slot - slot ถูกสร้างใหม่ทุกครั้งที่
 // grouped คำนวณใหม่ (หลัง load()) ถ้าถือ reference ไว้ modal จะชี้ของเก่าที่หลุดจาก tree แล้ว
 const assetFormOpen = ref(false);
 const assetFormTarget = ref<AssetFormTarget | null>(null);
@@ -514,7 +538,7 @@ const assetFormTarget = ref<AssetFormTarget | null>(null);
 function openAssetForm(item: AssetSlotItem, round: RoundGroup, slot: RoundSlot) {
   assetFormTarget.value = {
     assetId: slot.status === 'registered' ? slot.assetId : undefined,
-    // เลขชิ้นจริงจาก backend ไม่ใช่ลำดับบนจอ — ช่องว่างของ PO line ที่เคยลงในใบก่อน
+    // เลขชิ้นจริงจาก backend ไม่ใช่ลำดับบนจอ - ช่องว่างของ PO line ที่เคยลงในใบก่อน
     // ต้องได้เลขที่ยังไม่มีใครใช้ ไม่งั้น POST /assets จะชน unique แล้วได้ 409 ทุกครั้ง
     unitNo: slot.unitNo,
     poLine: item.poLine,
@@ -523,7 +547,7 @@ function openAssetForm(item: AssetSlotItem, round: RoundGroup, slot: RoundSlot) 
     itemDescription: item.itemDescription,
     serialNumber: slot.status === 'registered' ? slot.serialNumber : null,
     acquisitionCost: slot.price,
-    // ส่งเฉพาะตอนที่ยังถูกตีกลับอยู่จริง — ชิ้นที่แก้ไปแล้ว backend ล้าง rejectReason ให้
+    // ส่งเฉพาะตอนที่ยังถูกตีกลับอยู่จริง - ชิ้นที่แก้ไปแล้ว backend ล้าง rejectReason ให้
     // และ displayStatus เด้งกลับเป็น approved แถบเตือนในฟอร์มจึงหายเองตามสถานะ
     ...(slot.status === 'registered' && slot.displayStatus === 'rejected'
       ? {
@@ -541,11 +565,11 @@ async function onAssetSaved() {
   await load();
 }
 const departments = ref<DepartmentOption[]>([]);
-const locations = ref<MasterOption[]>([]);
+const locations = ref<LocationOption[]>([]);
 const subLocations = ref<SubLocationOption[]>([]);
 const masterError = ref('');
 
-// ยิงพร้อมกันทั้งสามเส้น — เรียงกันจะรอ 3 รอบ round-trip ทั้งที่ไม่มีตัวไหนต้องใช้ผลของตัวก่อน
+// ยิงพร้อมกันทั้งสามเส้น - เรียงกันจะรอ 3 รอบ round-trip ทั้งที่ไม่มีตัวไหนต้องใช้ผลของตัวก่อน
 //
 // ต้องจับ error ให้เห็น ไม่ใช่แค่ console.error: locations ว่าง = กดบันทึกไม่ได้เลย (locationId
 // เป็น FK NOT NULL) ถ้าเงียบ ผู้ใช้จะเจอปุ่มที่กดไม่ได้โดยไม่รู้ว่าเพราะอะไร
@@ -563,19 +587,19 @@ async function loadMasterData() {
   } catch (e) {
     console.error('โหลดข้อมูลอ้างอิงไม่สำเร็จ:', e);
     masterError.value =
-      e instanceof ApiError ? e.message : 'โหลดข้อมูลอ้างอิงไม่สำเร็จ — กรอกรายละเอียดสินทรัพย์ไม่ได้';
+      e instanceof ApiError ? e.message : 'โหลดข้อมูลอ้างอิงไม่สำเร็จ - กรอกรายละเอียดสินทรัพย์ไม่ได้';
   }
 }
 
 onMounted(loadMasterData);
 
-// ── โหลดใหม่เมื่อมีคนอื่นเปลี่ยนใบนี้ — DraftForm เรียกเข้ามาตอนได้ก้อนจากสาย presence ──
+// ── โหลดใหม่เมื่อมีคนอื่นเปลี่ยนใบนี้ - DraftForm เรียกเข้ามาตอนได้ก้อนจากสาย presence ──
 //
 // ที่พบจริงคือบัญชีตีกลับ/ปิดถาวรชิ้นหนึ่งระหว่างที่ผู้ขอเปิดหน้านี้ค้างอยู่ ป้ายรายชิ้นกับ
 // เหตุผลต้องขึ้นเอง ไม่ใช่รอให้เขาเดาว่าต้องกด F5
 //
 // ★ กล่องที่เปิดอยู่ต้องไม่ถูกโหลดทับ: assetFormTarget/noteTarget ถ่าย snapshot ไว้ตอนกดเปิด
-//   (slot ถูกสร้างใหม่ทุกครั้งที่ grouped คำนวณใหม่ — ดูคอมเมนต์ที่ openAssetForm) และ
+//   (slot ถูกสร้างใหม่ทุกครั้งที่ grouped คำนวณใหม่ - ดูคอมเมนต์ที่ openAssetForm) และ
 //   ที่แย่กว่าคือกล่องกรอกรายละเอียดสินทรัพย์จะถูกล้างทั้งที่ผู้ใช้กรอกค้างอยู่
 //   invoiceGrpoId ไม่ต้องกัน เพราะมันคำนวณรอบสดจาก grouped ให้อยู่แล้ว
 const modalOpen = computed(
@@ -619,7 +643,7 @@ defineExpose({ reloadFromRemote });
 
       <div class="w-full overflow-x-auto rounded-box border border-base-300">
         <table class="table table-sm">
-          <HeadtableCreateNewAsset />
+          <PoLineTableHead />
           <tbody>
             <!-- โหลดอยู่ / error / ว่าง -->
             <tr v-if="loading">
@@ -659,7 +683,7 @@ defineExpose({ reloadFromRemote });
                   <span
                     v-if="item.isDeclared && item.planned !== item.ordered"
                     class="text-secondary"
-                    :title="`PO สั่ง ${item.ordered} — แจ้งไว้ ${item.planned}`"
+                    :title="`PO สั่ง ${item.ordered} - แจ้งไว้ ${item.planned}`"
                   >
                     {{ item.planned }}
                   </span>
@@ -691,7 +715,7 @@ defineExpose({ reloadFromRemote });
                         <span class="text-xs font-normal text-base-content/50">{{ formatDate(round.grpoDate) }}</span>
                       </button>
 
-                      <!-- action: invoice — เปิด modal จัดการ (แนบ/ถอด/preview 1 รอบหลายใบ) -->
+                      <!-- action: invoice - เปิด modal จัดการ (แนบ/ถอด/preview 1 รอบหลายใบ) -->
                       <button
                         type="button"
                         class="btn btn-outline btn-xs ml-auto"
@@ -748,13 +772,13 @@ defineExpose({ reloadFromRemote });
                             slot.status === 'registered' ? 'bg-base-200' : 'bg-base-100 hover:bg-base-200',
                           ]"
                         >
-                          <!-- เลขชิ้นจริง (unitNo) ไม่ใช่ลำดับบนจอ — PO line ที่ลงมาแล้วหลายใบ
+                          <!-- เลขชิ้นจริง (unitNo) ไม่ใช่ลำดับบนจอ - PO line ที่ลงมาแล้วหลายใบ
                                จะเดินเลขต่อจากของเดิม ตรงกับที่เก็บในระบบ -->
                           <td class="w-[20px] text-right font-mono ">
                             {{ item.poLine }}.{{ slot.unitNo }}
                           </td>
 
-                          <!-- Image — รูปที่แนบไว้ ถ้ายังไม่มี/ยังโหลดไม่เสร็จใช้ไอคอนแทน -->
+                          <!-- Image - รูปที่แนบไว้ ถ้ายังไม่มี/ยังโหลดไม่เสร็จใช้ไอคอนแทน -->
                           <td class="text-center">
                             <img
                               v-if="slotThumb(slot)"
@@ -788,11 +812,11 @@ defineExpose({ reloadFromRemote });
                             </div>
                           </td>
 
-                          <!-- Status — ป้าย + บรรทัดบอกว่าใครทำอะไรเพราะอะไร
+                          <!-- Status - ป้าย + บรรทัดบอกว่าใครทำอะไรเพราะอะไร
                                (เหตุผลตีกลับ/ปิดถาวร, ผู้อนุมัติ, เลขสินทรัพย์) -->
 
                           
-                          <!-- ป้ายเป็นปุ่มในตัว — กดแล้วเปิดกล่องอธิบายสถานะ + เหตุผล
+                          <!-- ป้ายเป็นปุ่มในตัว - กดแล้วเปิดกล่องอธิบายสถานะ + เหตุผล
                                ไม่แยกเป็นปุ่ม "ดูหมายเหตุ" ข้าง ๆ: ป้ายคือสิ่งที่ผู้ใช้มองอยู่แล้ว
                                และช่องนี้แคบ สองปุ่มติดกันจะดันคอลัมน์จนตารางเบียด -->
                           <td class="text-right">
@@ -809,27 +833,42 @@ defineExpose({ reloadFromRemote });
                           </td>
                           
 
-                          <!-- Action — เปิดฟอร์มรายชิ้น (ช่องว่าง = กรอกใหม่ / ช่องที่กรอกแล้ว = แก้)
+                          <!-- Action - เปิดฟอร์มรายชิ้น (ช่องว่าง = กรอกใหม่ / ช่องที่กรอกแล้ว = แก้)
                                ปิดปุ่มเมื่อชิ้นนั้น "จบแล้ว" ไม่ว่าจะจบแบบไหน:
                                  registered  อยู่ใน SAP แล้ว ต้องแก้ที่ SAP
                                  cancelled   ปิดถาวร ต้องให้บัญชีปลดก่อน
-                               ★ rejected ไม่ปิด — นั่นคือชิ้นที่ผู้ใช้ "ต้องแก้" โดยเฉพาะ -->
+                               ★ rejected ไม่ปิด - นั่นคือชิ้นที่ผู้ใช้ "ต้องแก้" โดยเฉพาะ -->
                           <td class="text-center">
+                            <!-- ── ชิ้นของใบอื่น: ให้ "ทางไป" ไม่ใช่ปุ่มที่กดไม่ได้ ──────────
+                                 เดิมเป็นปุ่มแก้ไขที่ disabled ซึ่งเป็นทางตัน: คนที่ต้องแก้
+                                 (เช่นเพื่อนร่วมแผนกตอนเจ้าของใบไม่อยู่) เห็นแค่ว่ากดไม่ได้
+                                 โดยไม่รู้ว่าใบไหนและใครเปิด
+                                 ★ backend ไม่ได้ห้ามคนอื่นแก้ (assertEditableBy เช็คแค่สถานะ
+                                   กับ lock ไม่เช็คว่าใครสร้าง) พอกดเข้าไปถึงใบนั้นก็แก้ได้เลย -->
+                            <RouterLink
+                              v-if="isFromOtherRequest(slot)"
+                              :to="otherRequestPath(slot)"
+                              class="btn btn-ghost btn-sm btn-square"
+                              :disabled="!canEditSlot(slot)"
+                              :title="`${otherRequestLabel(slot)} — กดเพื่อไปแก้ที่ใบนั้น`"
+                            >
+                              <Icon icon="lucide:square-pen" class="text-lg" />
+                            </RouterLink>
+
                             <button
+                              v-else
                               type="button"
                               class="btn btn-ghost btn-sm btn-square"
                               :disabled="!canEditSlot(slot)"
                               :title="
-                                isFromOtherRequest(slot)
-                                  ? 'ชิ้นนี้ลงทะเบียนไว้ในใบคำขออื่นของ PO เดียวกัน แก้ไขที่ใบนั้น'
-                                  : props.editableScope === 'rejected' && badgeKey(slot) !== 'rejected'
-                                    ? 'คำขอนี้อนุมัติแล้ว — แก้ได้เฉพาะชิ้นที่บัญชีตีกลับ'
+                                props.editableScope === 'rejected' && badgeKey(slot) !== 'rejected'
+                                    ? 'คำขอนี้อนุมัติแล้ว - แก้ได้เฉพาะชิ้นที่บัญชีตีกลับ'
                                     : badgeKey(slot) === 'registered'
                                     ? 'ลงทะเบียนใน SAP แล้ว แก้ไขที่นี่ไม่ได้'
                                     : badgeKey(slot) === 'cancelled'
-                                      ? 'ชิ้นนี้ถูกปิดถาวร — ให้บัญชีปลดการปิดก่อนจึงจะแก้ได้'
+                                      ? 'ชิ้นนี้ถูกปิดถาวร - ให้บัญชีปลดการปิดก่อนจึงจะแก้ได้'
                                       : badgeKey(slot) === 'rejected'
-                                        ? 'ถูกตีกลับ — แก้ไขแล้วจะกลับเข้าคิวให้เอง'
+                                        ? 'ถูกตีกลับ - แก้ไขแล้วจะกลับเข้าคิวให้เอง'
                                         : slot.status === 'registered'
                                           ? 'แก้ไขรายละเอียดสินทรัพย์'
                                           : 'กรอกรายละเอียดสินทรัพย์'
@@ -848,7 +887,7 @@ defineExpose({ reloadFromRemote });
                     v-if="rounds.length === 0"
                     class="rounded-box bg-base-100 px-3 py-3 text-left text-sm text-base-content/50"
                   >
-                    ยังไม่มีรอบรับของ (GRPO) สำหรับรายการนี้ — ลงทะเบียนได้เมื่อคลังตรวจรับแล้ว
+                    ยังไม่มีรอบรับของ (GRPO) สำหรับรายการนี้ - ลงทะเบียนได้เมื่อรับของแล้ว
                   </p>
                 </td>
               </tr>
@@ -902,12 +941,12 @@ defineExpose({ reloadFromRemote });
       </div>
     </AppConfirmDialog>
 
-    <!-- จัดการ invoice ของรอบที่เลือก — เปิดเมื่อ invoiceGrpoId ถูกเซ็ต, ปิด = คืนเป็น null -->
+    <!-- จัดการ invoice ของรอบที่เลือก - เปิดเมื่อ invoiceGrpoId ถูกเซ็ต, ปิด = คืนเป็น null -->
     <InvoiceModal v-if="invoiceRound" :open="true" :grpo-id="invoiceRound.grpoId" :grpo-no="invoiceRound.grpoNo"
       :invoices="invoiceRound.invoices" :editable="canEditRound" @update:open="invoiceGrpoId = null"
       @changed="load" />
 
-    <AppAssetFormDialog
+    <AssetFormDialog
       v-model:open="assetFormOpen"
       :request-id="props.requestId"
       :target="assetFormTarget"
@@ -918,7 +957,7 @@ defineExpose({ reloadFromRemote });
       @saved="onAssetSaved"
     />
 
-    <!-- กล่องรายละเอียดสถานะ — กล่องเดียวใช้ร่วมทุกแถว (ดู noteTarget ใน script)
+    <!-- กล่องรายละเอียดสถานะ - กล่องเดียวใช้ร่วมทุกแถว (ดู noteTarget ใน script)
          modal-bottom บนมือถือ / กลางจอบนเดสก์ท็อป ตามแพตเทิร์นของ daisyUI -->
     <dialog class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': noteTarget !== null }">
       <div v-if="noteTarget" class="modal-box text-left">
@@ -933,7 +972,7 @@ defineExpose({ reloadFromRemote });
 
         <p class="mt-3 text-sm">{{ STATUS_META[badgeKey(noteTarget.slot)].desc }}</p>
 
-        <!-- เหตุผล/ผู้ตัดสินใจ — มีเฉพาะสถานะที่มีคนไปกดอะไรมา (ตีกลับ/ปิดถาวร/อนุมัติ/ออกเลข)
+        <!-- เหตุผล/ผู้ตัดสินใจ - มีเฉพาะสถานะที่มีคนไปกดอะไรมา (ตีกลับ/ปิดถาวร/อนุมัติ/ออกเลข)
              whitespace-pre-wrap: เหตุผลที่บัญชีพิมพ์มาอาจขึ้นบรรทัดใหม่เอง -->
         <div
           v-if="slotNote(noteTarget.slot)"
@@ -941,6 +980,27 @@ defineExpose({ reloadFromRemote });
           :class="{ 'text-error': badgeKey(noteTarget.slot) === 'rejected' }"
         >
           {{ slotNote(noteTarget.slot) }}
+        </div>
+
+        <!-- ── ชิ้นของใบอื่น: บอกว่าใบไหน ใครเปิด แล้วพาไป ────────────────────
+             ต้องอยู่ในกล่องนี้ ไม่ใช่แค่ tooltip ของปุ่ม — คนที่เจอชิ้นถูกตีกลับแล้วแก้ไม่ได้
+             จะกดที่ป้ายสถานะเพื่อหาคำอธิบายก่อนเสมอ ถ้าคำตอบอยู่แต่ใน tooltip เขาจะไม่เจอ -->
+        <div
+          v-if="isFromOtherRequest(noteTarget.slot)"
+          class="mt-3 flex flex-wrap flex-col items-left gap-2 rounded-box border border-base-300 bg-base-200/60 p-3 text-sm"
+        >
+          <span class="flex items-center gap-1.5">
+            <Icon icon="lucide:file-input" class="size-4 shrink-0 opacity-60" />
+            {{ otherRequestLabel(noteTarget.slot) }}
+          </span>
+<RouterLink
+  :to="otherRequestPath(noteTarget.slot)"
+  class="inline-flex items-center gap-1 text-sm hover:text-primary hover:underline"
+  @click="noteTarget = null"
+>
+  ไปแก้ที่ใบนั้น
+  <Icon icon="lucide:arrow-right" class="size-4" />
+</RouterLink>
         </div>
 
         <div class="modal-action">

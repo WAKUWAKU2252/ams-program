@@ -1,28 +1,28 @@
 <script setup lang="ts">
-// ตารางรายการสินทรัพย์ — ใช้ร่วมกันระหว่างหน้า Asset Inventory (ทั้งบริษัท)
+// ตารางรายการสินทรัพย์ - ใช้ร่วมกันระหว่างหน้า Asset Inventory (ทั้งบริษัท)
 // กับตารางรายแผนกบน Dashboard
 //
 // ★ ก่อนหน้านี้สองที่นั้นเป็นไฟล์คนละใบที่ก็อปกันมา แล้วเริ่มเพี้ยนจากกันแล้วจริง ๆ
 //   (ป้ายสถานะคนละชุด, DepartmentTable มี prop ที่ถูก ref ชื่อซ้ำบังจนไม่เคยถูกใช้)
 //   ตารางสินทรัพย์ต้องหน้าตาเดียวกันทุกหน้า ไม่งั้นคนอ่านสถานะจากสองหน้าได้คำตอบคนละอย่าง
 //
-// component นี้ "แสดงอย่างเดียว" — ไม่ยิง API ไม่ถือ page ไม่รู้จักตัวกรอง
+// component นี้ "แสดงอย่างเดียว" - ไม่ยิง API ไม่ถือ page ไม่รู้จักตัวกรอง
 // คนเรียกเป็นคนโหลดข้อมูลแล้วส่ง items เข้ามา แล้วรับ @select ไปเปิดรายละเอียดเอง
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
-import type { InventoryItem } from '@/services/asset.service'
-import { fileBlobUrl } from '@/services/attachment.service'
-import { formatDate } from '@/utils/date'
-import { formatMoney } from '@/utils/money'
+import type { InventoryItem } from '@/shared/services/asset.service'
+import { fileBlobUrl } from '@/shared/services/attachment.service'
+import { formatDate } from '@/shared/utils/date'
+import { formatMoney, formatMonths } from '@/shared/utils/money'
 
 const props = withDefaults(
   defineProps<{
     items: InventoryItem[]
     loading?: boolean
-    /** ซ่อนคอลัมน์แผนกเมื่อทั้งตารางเป็นแผนกเดียวกันอยู่แล้ว — ค่าซ้ำทุกแถวไม่ได้บอกอะไร */
+    /** ซ่อนคอลัมน์แผนกเมื่อทั้งตารางเป็นแผนกเดียวกันอยู่แล้ว - ค่าซ้ำทุกแถวไม่ได้บอกอะไร */
     showDepartment?: boolean
     /**
-     * เปิดคอลัมน์มูลค่าคงเหลือ — ปิดไว้เป็นค่าตั้งต้นโดยตั้งใจ
+     * เปิดคอลัมน์มูลค่าคงเหลือ - ปิดไว้เป็นค่าตั้งต้นโดยตั้งใจ
      *
      * ตารางบน Dashboard ตอบคำถาม "ของอยู่ไหน ใครถือ" ซึ่งไม่ต้องใช้ตัวเลขเงิน
      * และหน้านั้นมีการ์ดยอดรวมอยู่เหนือตารางอยู่แล้ว เอามาใส่ซ้ำมีแต่ทำให้แถวแน่นขึ้น
@@ -52,28 +52,28 @@ const ROW_PX = 68.8
 const HEAD_PX = 45.8
 const minHeight = computed(() => `${(props.minRows * ROW_PX + HEAD_PX) / 16}rem`)
 
-/** 6 คอลัมน์คงที่ + สองคอลัมน์ที่เปิด/ปิดได้ — ใช้กับ colspan ของแถวว่าง */
-const colCount = computed(() => 6 + (props.showDepartment ? 1 : 0) + (props.showAccounting ? 1 : 0))
+/** 6 คอลัมน์คงที่ + สองคอลัมน์ที่เปิด/ปิดได้ - ใช้กับ colspan ของแถวว่าง */
+const colCount = computed(() => 7 + (props.showDepartment ? 1 : 0) + (props.showAccounting ? 1 : 0))
 
 const currentYear = new Date().getFullYear()
 
 /**
  * ยอดนี้เป็นตัวเลขของปีเก่าหรือเปล่า
  *
- * ★ ต้องติดป้ายปีคู่กับยอดเสมอ ห้ามตัดทิ้งเพราะ "ตารางแคบ" — ยอดที่ sync มาเป็นของ
+ * ★ ต้องติดป้ายปีคู่กับยอดเสมอ ห้ามตัดทิ้งเพราะ "ตารางแคบ" - ยอดที่ sync มาเป็นของ
  *   ปีบัญชีล่าสุดที่ SAP มีให้ชิ้นนั้น ซึ่งค้างที่ปีเก่าได้จริง (วัด 2026-08-20: 25%
  *   ของทะเบียน) ถ้าไม่บอก คนจะอ่านเลขปี 2022 เป็นมูลค่าของวันนี้
  */
 const isStale = (item: InventoryItem) =>
   item.accounting !== null && item.accounting.fiscalYear !== currentYear
 
-/** imageId -> blob URL — ไฟล์อยู่หลัง authGuard ใส่ src ตรง ๆ จะโดน 401 */
+/** imageId -> blob URL - ไฟล์อยู่หลัง authGuard ใส่ src ตรง ๆ จะโดน 401 */
 const imageUrls = ref<Record<string, string>>({})
 
 /**
  * โหลดรูปทีละใบแบบไม่ให้ใบที่พังลากใบอื่นตาย
  *
- * รูปโหลดไม่ได้ไม่ใช่เรื่องคอขาดบาดตาย — ขึ้นไอคอนแทนแล้วไปต่อ ดีกว่าทั้งตารางค้างเพราะ
+ * รูปโหลดไม่ได้ไม่ใช่เรื่องคอขาดบาดตาย - ขึ้นไอคอนแทนแล้วไปต่อ ดีกว่าทั้งตารางค้างเพราะ
  * ไฟล์เดียวหาย (ไฟล์ถูกลบจาก disk แต่ imageId ยังอยู่เป็นเคสที่เกิดได้จริง)
  */
 watch(
@@ -94,28 +94,22 @@ watch(
   { immediate: true },
 )
 
-// blob URL ค้างใน memory จนกว่าจะ revoke — ออกจากหน้าแล้วไม่มีใครใช้ต่อ
+// blob URL ค้างใน memory จนกว่าจะ revoke - ออกจากหน้าแล้วไม่มีใครใช้ต่อ
 // ถ้าไม่คืนจะรั่วสะสมทุกครั้งที่เข้า-ออกหน้านี้ (ยิ่งเปลี่ยนหน้าบ่อยยิ่งสะสมเร็ว)
 onUnmounted(() => {
   for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url)
 })
 
-// ป้ายสถานะ — คีย์ต้องตรงกับ enum asset_status ของ DB เป๊ะ
-// ('Under Maintenance' มีเว้นวรรค ไม่ใช่ขีดล่าง — เคยเขียนผิดมาแล้วจนป้ายไม่เคยเจอคู่)
+// ป้ายสถานะ - คีย์ต้องตรงกับ enum asset_status ของ DB เป๊ะ
+// มีสองค่าเท่านั้น SAP เป็นเจ้าของแกนนี้ (ดู shared/utils/asset-status.ts) - ห้ามเติมค่าอื่น
 const STATUS_LABEL: Record<string, string> = {
   Active: 'Active',
   Inactive: 'Inactive',
-  'Under Maintenance': 'Under Maintenance',
-  Lost: 'Missing',
-  Disposed: 'Disposed',
 }
 
 const STATUS_BADGE: Record<string, string> = {
   Active: 'badge-success',
   Inactive: 'badge-ghost',
-  'Under Maintenance': 'badge-warning',
-  Lost: 'badge-error',
-  Disposed: 'badge-neutral',
 }
 
 // สถานะที่ไม่รู้จัก (เพิ่มค่าใน enum แล้วลืมมาแก้ที่นี่) ต้องโชว์ค่าดิบ ไม่ใช่ช่องว่าง
@@ -128,16 +122,17 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
     class="overflow-x-auto rounded-box border border-base-300"
     :style="{ minHeight }"
   >
-    <table class="table table-pin-rows">
+    <table class="table table-pin-rows table-freeze-first">
       <thead>
         <tr>
-          <th class="w-16"></th>
-          <th>เลขสินทรัพย์</th>
+          <th class="hidden w-16 lg:table-cell"></th>
+          <th class="freeze-col">เลขสินทรัพย์</th>
           <th>รายละเอียด</th>
           <th v-if="showDepartment">แผนก</th>
           <th>ที่ตั้ง</th>
           <th>ผู้ครอบครอง</th>
-          <th v-if="showAccounting" class="text-right whitespace-nowrap">มูลค่าคงเหลือ</th>
+          <th class="text-right whitespace-nowrap">มูลค่าคงเหลือ</th>
+          <th v-if="showAccounting" class="text-right whitespace-nowrap">อายุคงเหลือ</th>
           <th class="text-center">สถานะ</th>
         </tr>
       </thead>
@@ -149,8 +144,13 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
           class="cursor-pointer hover:bg-base-200"
           @click="emit('select', item)"
         >
-          <td>
-            <div class="grid size-11 place-items-center overflow-hidden rounded bg-base-200">
+          <!-- ★ ซ่อนรูปย่อบนจอแคบ - 44px ที่ไม่ได้บอกว่าแถวนี้คือชิ้นไหน แต่กินที่ของ
+               คอลัมน์เลขสินทรัพย์ที่ตรึงไว้ (จอ 390px เหลือให้เลื่อนไม่ถึงครึ่ง)
+               ต้องซ่อนคู่กับ <th> ที่หัวตารางเสมอ ไม่งั้นคอลัมน์เหลื่อมกันทั้งตาราง -->
+          <td class="hidden lg:table-cell">
+            <!-- grid-rows-1: ไม่มีมันรูปที่สูงกว่ากล่องจะล้นแล้วโดนเฉือน เหลือแค่ส่วนบน
+                 (วัดแล้ว: กล่อง 44px แต่รูปสูง 79px) - เหตุผลเต็มอยู่ที่ AppAssetDetail.vue -->
+            <div class="grid grid-rows-1 size-11 place-items-center overflow-hidden rounded bg-base-200">
               <img
                 v-if="item.imageId && imageUrls[item.imageId]"
                 :src="imageUrls[item.imageId]"
@@ -161,7 +161,7 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
             </div>
           </td>
 
-          <td class="font-mono whitespace-nowrap">
+          <td class="freeze-col font-mono whitespace-nowrap">
             {{ item.assetNumber }}
             <div v-if="item.serialNumber" class="font-sans text-xs text-base-content/60">
               S/N {{ item.serialNumber }}
@@ -169,12 +169,17 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
           </td>
 
           <td class="max-w-xs">
-            <div class="truncate">{{ item.description ?? '—' }}</div>
+            <div class="truncate">{{ item.description ?? '-' }}</div>
             <div class="flex flex-wrap items-center gap-1 text-xs text-base-content/60">
-              <span v-if="item.categoryName">{{ item.categoryName }}</span>
-              <span v-if="item.categoryName && item.acquisitionDate">·</span>
-              <span v-if="item.acquisitionDate">
-                ลงทะเบียนเมื่อ {{ formatDate(item.acquisitionDate) }}
+              <span v-if="item.categoryName" class="badge badge-sm badge-white">
+                {{ item.categoryName }}
+              </span>
+              <!-- "ลงทะเบียนเมื่อ" = วันที่ SAP ออกเลขให้ (OITM.CreateDate) ไม่ใช่
+                   acquisitionDate ซึ่งเป็นวันตั้งหนี้ - เดิมใช้ตัวหลังแล้วป้ายกับข้อมูล
+                   เป็นคนละเรื่องกัน (COM-100-05-002 ตั้งหนี้ปี 2017 คนละวันกับวันออกเลข) -->
+              <span v-if="item.categoryName && item.sapCreatedDate">·</span>
+              <span v-if="item.sapCreatedDate">
+                ลงทะเบียนเมื่อ {{ formatDate(item.sapCreatedDate) }}
               </span>
             </div>
           </td>
@@ -199,8 +204,8 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
           </td>
 
           <!-- ยอดต้องมาคู่กับปีบัญชีเสมอ และปีเก่าต้องเห็นได้จากในแถวโดยไม่ต้องเปิดดูรายชิ้น
-               null ≠ 0: '—' = SAP ยังไม่มีตัวเลขให้ ส่วน 0.00 = ตัดค่าเสื่อมครบแล้วจริง -->
-          <td v-if="showAccounting" class="text-right whitespace-nowrap">
+               null ≠ 0: '-' = SAP ยังไม่มีตัวเลขให้ ส่วน 0.00 = ตัดค่าเสื่อมครบแล้วจริง -->
+          <td  class="text-right whitespace-nowrap">
             <template v-if="item.accounting">
               <div class="tabular-nums">{{ formatMoney(item.accounting.netBookValue) }}</div>
               <div
@@ -211,6 +216,19 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
               </div>
             </template>
             <span v-else class="text-base-content/40 italic">ไม่มีข้อมูล</span>
+          </td>
+
+          <!-- อายุคงเหลือ - แยกคอลัมน์ ไม่ยัดต่อท้ายมูลค่า เพราะเป็นแกนเรียงของตัวเอง
+               (เรียงตามค่าที่ตารางไม่แสดง = คนกดอ่านไม่ออกว่าทำไมลำดับออกมาแบบนั้น)
+               '-' จาก formatMonths = SAP ยังไม่มีพารามิเตอร์ค่าเสื่อม ส่วน '0 เดือน'
+               คือคิดค่าเสื่อมครบแล้วจริง - คนละเรื่องกัน เหมือนกติกาของยอดเงิน -->
+          <td v-if="showAccounting" class="text-right whitespace-nowrap">
+            <span
+              class="tabular-nums"
+              :class="item.accounting?.remainingLifeMonths === 0 ? 'text-base-content/60' : ''"
+            >
+              {{ formatMonths(item.accounting?.remainingLifeMonths) }}
+            </span>
           </td>
 
           <td class="text-center">
@@ -227,7 +245,7 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
           </td>
         </tr>
 
-        <!-- ข้อความตอนไม่มีของ คนเรียกเป็นคนกำหนดเอง — "ค้นไม่เจอ" แก้ด้วยการเปลี่ยนคำค้น
+        <!-- ข้อความตอนไม่มีของ คนเรียกเป็นคนกำหนดเอง - "ค้นไม่เจอ" แก้ด้วยการเปลี่ยนคำค้น
              ส่วน "แผนกนี้ยังไม่มีของ" แก้ด้วยการไปลงทะเบียน คนละทางแก้กันคนละเรื่อง -->
         <tr v-else-if="!items.length">
           <td :colspan="colCount" class="py-12 text-center text-base-content/50">

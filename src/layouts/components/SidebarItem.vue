@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import type { MenuItem } from '@/config/sidebar-menu'
+import type { MenuItem } from '@/layouts/sidebar-menu'
 import { Icon } from '@iconify/vue'
 
 const props = defineProps<{
@@ -10,7 +10,7 @@ const props = defineProps<{
 
 const route = useRoute()
 
-// active มาจาก route ปัจจุบัน ไม่ใช่ state ใน store — reload แล้วไฮไลต์ยังตรง URL
+// active มาจาก route ปัจจุบัน ไม่ใช่ state ใน store - reload แล้วไฮไลต์ยังตรง URL
 // startsWith(to + '/') ให้ route ลูก (เช่น /create/:requestId) ยังนับว่า Create active อยู่
 const isActive = computed(
   () => route.path === props.item.to || route.path.startsWith(props.item.to + '/'),

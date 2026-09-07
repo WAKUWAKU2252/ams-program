@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { PurchaseOrderSummary } from '@/services/purchaseOrder.service'
-import { formatDate } from '@/utils/date';
+import type { PurchaseOrderSummary } from '@/shared/services/purchaseOrder.service'
+import { formatDate } from '@/shared/utils/date';
 import { Icon } from '@iconify/vue'
 
-// clearable: false = การ์ดอ่านอย่างเดียว (หน้า DraftForm — PO ของ draft เปลี่ยนไม่ได้)
+// clearable: false = การ์ดอ่านอย่างเดียว (หน้า DraftForm - PO ของ draft เปลี่ยนไม่ได้)
 withDefaults(
   defineProps<{
     selectedPO: PurchaseOrderSummary | null

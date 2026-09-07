@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Pagination กลาง — คุมด้วย page/total/limit (ตรงกับ envelope Paginated<T> ของ backend)
+// Pagination กลาง - คุมด้วย page/total/limit (ตรงกับ envelope Paginated<T> ของ backend)
 // ไม่ถือ state เอง: parent เป็นเจ้าของ page แล้วฟัง @update:page ไปโหลดหน้าใหม่
 import { computed } from 'vue'
 import { Icon } from '@iconify/vue'

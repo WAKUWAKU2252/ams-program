@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// ช่องเลือกวันที่ — ปุ่มหน้าตาเหมือน input เปิด popover ที่มีปฏิทิน Cally ข้างใน
+// ช่องเลือกวันที่ - ปุ่มหน้าตาเหมือน input เปิด popover ที่มีปฏิทิน Cally ข้างใน
 //
 // ทำไมไม่ใช้ <input type="date"> ตรง ๆ: หน้าตาปฏิทินเป็นของ browser คุมธีมไม่ได้เลย
-// (ดำสนิทบนธีมสว่าง / ต่างกันทุก browser) — Cally + class .cally ของ daisyUI ใช้สีจากธีมเรา
+// (ดำสนิทบนธีมสว่าง / ต่างกันทุก browser) - Cally + class .cally ของ daisyUI ใช้สีจากธีมเรา
 //
 // ค่าที่รับ-ส่งเป็น 'YYYY-MM-DD' ตรงกับที่ Cally ใช้และตรงกับที่ backend รับ ไม่ต้องแปลงกลางทาง
 import { computed, useId } from 'vue'

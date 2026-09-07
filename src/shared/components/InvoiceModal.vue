@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// จัดการ invoice ของ "รอบรับของ" หนึ่งรอบ — 1 รอบแนบได้หลายใบ (grpo_invoice many-to-many)
-// รายการซ้าย + preview ขวา (รูปโชว์ inline / PDF ฝัง iframe) — อัปโหลดทันทีที่เลือกไฟล์
+// จัดการ invoice ของ "รอบรับของ" หนึ่งรอบ - 1 รอบแนบได้หลายใบ (grpo_invoice many-to-many)
+// รายการซ้าย + preview ขวา (รูปโชว์ inline / PDF ฝัง iframe) - อัปโหลดทันทีที่เลือกไฟล์
 import { ref, watch, onUnmounted, computed } from 'vue'
 import { Icon } from '@iconify/vue'
-import type { InvoiceFile } from '@/services/asset.service'
-import { uploadInvoice, linkGrpoInvoice, unlinkGrpoInvoice, invoiceBlobUrl, openInvoiceFile } from '@/services/invoice.service'
-import { ApiError } from '@/services/httpClient'
+import type { InvoiceFile } from '@/shared/services/asset.service'
+import { uploadInvoice, linkGrpoInvoice, unlinkGrpoInvoice, invoiceBlobUrl, openInvoiceFile } from '@/shared/services/invoice.service'
+import { ApiError } from '@/shared/services/httpClient'
 
 const props = withDefaults(
   defineProps<{
@@ -24,7 +24,7 @@ const emit = defineEmits<{
 }>()
 
 const fileInput = ref<HTMLInputElement | null>(null)
-const busy = ref(false) // อัปโหลด/ถอดอยู่ — กันกดซ้ำ
+const busy = ref(false) // อัปโหลด/ถอดอยู่ - กันกดซ้ำ
 const error = ref('')
 
 // ── preview ──
@@ -111,7 +111,7 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') close()
 }
 
-// ไม่ต้องล็อก scroll เอง — daisyUI ทำให้แล้วผ่าน :root:has(.modal.modal-open)
+// ไม่ต้องล็อก scroll เอง - daisyUI ทำให้แล้วผ่าน :root:has(.modal.modal-open)
 // (ล็อกที่ :root พร้อม scrollbar-gutter: stable ล็อกเองที่ body จะทำให้หน้าเลื่อนเพราะ scrollbar หาย)
 watch(
   () => props.open,
@@ -214,7 +214,7 @@ onUnmounted(() => {
             <input ref="fileInput" type="file" class="hidden" accept=".pdf,.jpg,.jpeg,.png" @change="onFile" />
           </div>
 
-          <!-- ขวา: preview — fix ความสูงไว้ 350px กัน UI ดิ้นตอนสลับไฟล์ -->
+          <!-- ขวา: preview - fix ความสูงไว้ 350px กัน UI ดิ้นตอนสลับไฟล์ -->
           <div
             class="flex h-[350px] items-center justify-center overflow-hidden rounded-box border border-base-300 bg-base-200"
           >
