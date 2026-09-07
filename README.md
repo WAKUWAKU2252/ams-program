@@ -78,26 +78,9 @@ Frontend ต้องรองรับหน้าจอและ workflow ห�
 หน้ารวมคำขอของระบบ เช่น
 
 * คำขอลงทะเบียน Asset
-* คำขอย้าย Asset
 
 
-### 2.4 Asset Movement
-
-หน้าสำหรับสร้างและติดตามคำขอย้ายสินทรัพย์
-
-ข้อมูลหลัก
-
-* Asset Number
-* Asset Name
-* Current Location
-* Destination Location
-* Request Date
-* Requester
-* Approver
-* Movement Status
-* Transfer History
-
-### 2.5 Audit
+### 2.4 Audit
 
 หน้าสำหรับฝ่ายบัญชีหรือ Auditor ตรวจสอบสินทรัพย์
 
@@ -110,7 +93,7 @@ Flow หลัก
 5. กด Confirm Audit
 6. ระบบอัปเดตวันที่ตรวจสอบล่าสุด
 
-### 2.6 My Asset
+### 2.5 My Asset
 
 หน้าสำหรับพนักงานดูสินทรัพย์ที่อยู่ในความรับผิดชอบของตนเอง
 
@@ -171,73 +154,67 @@ Flow หลัก
 ## 4. Repository Structure
 
 ```text
-ams-frontend/
-├── public/                         # Static files เช่น favicon และรูปภาพทั่วไป
+ams-program/
+├── public/                       # static files (favicon, public/floorplans/*.png)
 ├── src/
-│   ├── assets/                     # รูปภาพ, fonts และ static files ที่ import ใน Vue
-│   ├── components/
-│   │   ├── common/                 # Component ใช้งานร่วมกัน
-│   │   ├── layout/                 # Sidebar, Topbar และ layout components
-│   │   │   ├── Sidebar.vue
-│   │   │   ├── Topbar.vue
-│   │   ├── asset/                  # Components เกี่ยวกับ Asset
-│   │   └── purchase-order/         # Components เกี่ยวกับ PO
-│   ├── config/
-│   │   └── sidebar-menu.ts         # Sidebar menu configuration
-│   ├── layouts/
-│   │   └── MainLayout.vue
+│   ├── App.vue                   # เปลือกนอกสุด + แถบสถานะสาย SSE
+│   ├── main.ts                   # จุดเริ่ม — init token ก่อน install router เสมอ
+│   ├── assets/                   # รูป/CSS ที่ import เข้า Vue
+│   │
 │   ├── router/
-│   │   └── index.ts
-│   ├── services/
-│   │   ├── apiClient.ts             # HTTP client และ base URL
-│   │   ├── purchaseOrderApi.ts      # API สำหรับ PO และ PO Line
-│   │   ├── assetApi.ts              # API สำหรับ Asset
-│   │   ├── assetRequestApi.ts       # API สำหรับ Asset Request
-│   │   ├── movementApi.ts           # API สำหรับ Asset Movement
-│   │   └── auditApi.ts              # API สำหรับ Audit
-│   ├── stores/
-│   │   ├── ui.ts                    # Sidebar, profile menu และ UI state
-│   │   ├── asset.ts                 # Asset state
-│   │   ├── purchaseOrder.ts         # PO state
-│   │   └── auth.ts                  # Login user และ permission state
-│   ├── styles/
-│   │   ├── main.css
-│   │   └── variables.css
-│   ├── types/
-│   │   ├── asset.ts
-│   │   ├── purchaseOrder.ts
-│   │   ├── assetRequest.ts
-│   │   ├── movement.ts
-│   │   ├── audit.ts
-│   │   └── user.ts
-│   ├── views/
-│   │   ├── dashboard/
-│   │   │   └── DashboardView.vue
-│   │   ├── assets/
-│   │   │   ├── AssetListView.vue
-│   │   │   ├── AssetDetailView.vue
-│   │   │   └── CreateAssetView.vue
-│   │   ├── purchase-order/
-│   │   │   └── PurchaseOrderView.vue
-│   │   ├── requests/
-│   │   │   └── AssetRequestView.vue
-│   │   ├── movement/
-│   │   │   └── AssetMovementView.vue
-│   │   ├── audit/
-│   │   │   └── AuditView.vue
-│   │   ├── my-assets/
-│   │   │   └── MyAssetView.vue
-│   │   └── settings/
-│   │       └── SettingsView.vue
-│   ├── App.vue
-│   └── main.ts
+│   │   ├── index.ts              # createRouter + guard (token / meta.roles)
+│   │   └── routes.ts             # ตาราง route ทั้งหมด
+│   │
+│   ├── layouts/                  # โครงหน้าจอ — ตัวที่ route ชี้เป็น component ชั้นนอก
+│   │   ├── MainLayout.vue        # Sidebar + TopBar (หน้าที่ต้องล็อกอิน)
+│   │   ├── AuthLayout.vue        # หน้า login — ไม่มี chrome
+│   │   ├── BlankLayout.vue       # ปลายทาง QR — มีแค่แถบชื่อระบบ
+│   │   ├── sidebar-menu.ts       # เมนู Sidebar (to ต้องตรงกับ path ใน routes.ts)
+│   │   └── components/           # ชิ้นส่วนของ layout เท่านั้น
+│   │       ├── Sidebar.vue   SidebarItem.vue
+│   │       └── TopBar.vue    DateDisplay.vue
+│   │
+│   ├── shared/                   # ★ ของที่ใช้ "ข้ามหน้า" เท่านั้น
+│   │   ├── components/           # AssetDetailModal · AppAssetDetail · AssetTable
+│   │   │                         # InvoiceModal · FloorPlanMap · AppPagination
+│   │   │                         # AppConfirmDialog · AppDatePicker ฯลฯ
+│   │   ├── services/             # ชั้นคุย backend ทั้งหมด (httpClient + *.service)
+│   │   ├── stores/               # auth · connection · ui
+│   │   ├── types/                # ชนิดข้อมูลที่ใช้หลายหน้า
+│   │   └── utils/                # date · money · asset-status · polygon ฯลฯ
+│   │
+│   └── pages/                    # ★ 1 โฟลเดอร์ = 1 หน้า (XxxPage.vue + components/)
+│       ├── dashboard/
+│       ├── asset-inventory/
+│       ├── asset-request/
+│       ├── create-asset/
+│       ├── floor-plan/
+│       ├── audit/
+│       ├── my-assets/
+│       ├── asset-public/         # ปลายทาง QR บนสติกเกอร์ (ไม่ต้องล็อกอิน)
+│       ├── login/
+│       └── admin/
 ├── .env.example
 ├── index.html
 ├── package.json
-├── tsconfig.json
 ├── vite.config.ts
 └── README.md
 ```
+
+### ไฟล์ใหม่ควรไปอยู่ไหน
+
+| ของชิ้นนี้ | ไปที่ |
+|---|---|
+| component ที่ใช้ ≥ 2 หน้า | `shared/components/` |
+| primitive ที่ไม่ผูก domain (modal, ปฏิทิน, pagination) | `shared/components/` แม้ตอนนี้ใช้หน้าเดียว |
+| component ที่ผูกกับหน้าเดียว | `pages/<หน้า>/components/` |
+| ฟังก์ชันคุย backend | `shared/services/` เสมอ — ห้าม fetch ตรงใน component |
+| ชิ้นส่วนของ Sidebar / TopBar | `layouts/components/` |
+
+ตั้งชื่อไฟล์: `.vue` = PascalCase, `.ts` = kebab-case, component ที่เป็น "หน้า" ลงท้ายด้วย `Page.vue`
+
+**ห้ามสร้าง `src/components/` หรือ `src/views/` กลับมาอีก** — สองโฟลเดอร์นั้นถูกยุบเพราะเนื้อของหน้า
+ไปกองอยู่ใน `components/layout/` ส่วน `views/` เหลือแต่เปลือก 8 บรรทัดที่ไม่ทำอะไร
 
 ---
 
@@ -247,7 +224,7 @@ ams-frontend/
 VITE_API_BASE_URL=http://localhost:3000/api
 ```
 
-ห้าม hardcode URL ของ Backend ภายใน Vue component หรือ service อื่น ๆ ให้ใช้ `VITE_API_BASE_URL` ผ่าน `apiClient.ts` เท่านั้น
+ห้าม hardcode URL ของ Backend ภายใน Vue component หรือ service อื่น ๆ ให้ใช้ `VITE_API_BASE_URL` ผ่าน `shared/services/httpClient.ts` เท่านั้น
 
 ---
 
@@ -282,7 +259,6 @@ VITE_API_BASE_URL=http://localhost:3000/api
 * สร้าง Route Guard
 * สร้าง Role-Based UI
 * สร้าง Asset Request Page
-* สร้าง Asset Movement Page
 * สร้าง Audit Page และ QR Scanner
 * สร้าง My Asset Page
 * สร้าง Dashboard ตาม Permission
@@ -424,30 +400,30 @@ const emit = defineEmits<{
 
 ห้ามเรียก `fetch()` หรือ `axios` โดยตรงใน Vue component
 
-ให้เรียกผ่านไฟล์ใน `src/services/` เท่านั้น
+ให้เรียกผ่านไฟล์ใน `src/shared/services/` เท่านั้น
 
 ตัวอย่างโครงสร้าง
 
 ```ts
-// src/services/purchaseOrderApi.ts
+// src/shared/services/purchaseOrder.service.ts
+//
+// httpClient ให้ request<T>() ตัวเดียว (แนบ token + แปลง error เป็น ApiError ให้แล้ว)
+// ไฟล์ service เป็นตัวประกาศชนิดข้อมูลของ endpoint นั้นเอง ไม่มี types/ แยกต่างหาก
 
-import { apiClient } from '@/services/apiClient'
-import type { PurchaseOrder, PurchaseOrderLine } from '@/types/purchaseOrder'
+import { request } from './httpClient'
 
-export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
-  return apiClient.get<PurchaseOrder[]>('/purchase-orders')
+export interface PurchaseOrderSummary {
+  id: string
+  poNo: string
+  poDate: string
 }
 
-export async function getPurchaseOrderById(id: string): Promise<PurchaseOrder> {
-  return apiClient.get<PurchaseOrder>(`/purchase-orders/${id}`)
+export function listPurchaseOrders(): Promise<PurchaseOrderSummary[]> {
+  return request<PurchaseOrderSummary[]>('/purchase-orders')
 }
 
-export async function getPurchaseOrderLines(
-  purchaseOrderId: string,
-): Promise<PurchaseOrderLine[]> {
-  return apiClient.get<PurchaseOrderLine[]>(
-    `/purchase-orders/${purchaseOrderId}/lines`,
-  )
+export function getPurchaseOrderByNumber(poNo: string): Promise<PurchaseOrderSummary> {
+  return request<PurchaseOrderSummary>(`/purchase-orders/${encodeURIComponent(poNo)}`)
 }
 ```
 
@@ -516,13 +492,12 @@ const errorMessage = ref<string | null>(null)
 /assets/:id
 /purchase-orders
 /requests
-/movements
 /audit
 /my-assets
 /settings
 ```
 
-เมื่อเพิ่ม route ใหม่ ต้องเพิ่ม menu configuration ใน `src/config/sidebar-menu.ts` หากหน้านั้นควรแสดงใน Sidebar
+เมื่อเพิ่ม route ใหม่ ต้องเพิ่ม menu configuration ใน `src/layouts/sidebar-menu.ts` หากหน้านั้นควรแสดงใน Sidebar
 
 ---
 
@@ -541,7 +516,7 @@ Claude Code สามารถเสนอแนวทางปรับปร�
 * สามารถเสนอ reusable component ใหม่ได้ หากพบ UI หรือ logic ที่ถูกใช้งานซ้ำ
 * สามารถเสนอ Pinia Store ใหม่ได้ หาก state ถูกส่งผ่าน props หลายระดับ หรือถูกใช้งานหลายหน้า
 * สามารถเสนอ TypeScript type หรือ interface เพิ่มเติมได้ หากช่วยลด type error และทำให้ API contract ชัดเจนขึ้น
-* สามารถเสนอ composable ใน `src/composables/` ได้ สำหรับ logic ที่ใช้ซ้ำ เช่น pagination, debounce search, file upload หรือ API loading state
+* สามารถเสนอ composable ใน `src/shared/composables/` (ยังไม่มีโฟลเดอร์นี้ — สร้างเมื่อมีตัวแรก) ได้ สำหรับ logic ที่ใช้ซ้ำ เช่น pagination, debounce search, file upload หรือ API loading state
 * สามารถเสนอการปรับ UX เช่น loading state, empty state, error state, confirmation modal, validation message และ responsive layout ได้
 * สามารถเสนอการแยก component หาก component หนึ่งมีหน้าที่มากเกินไป หรือมีโค้ดยาวเกินความจำเป็น
 * สามารถเสนอการปรับ API service layer เพื่อให้จัดการ error, authorization header และ response format ได้มาตรฐานมากขึ้น
