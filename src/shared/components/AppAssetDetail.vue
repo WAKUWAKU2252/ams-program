@@ -24,14 +24,9 @@ import { Icon } from '@iconify/vue'
 import QRCode from 'qrcode'
 import AppAssetLocationMap from './AppAssetLocationMap.vue'
 import FloorPlanPickerModal from './FloorPlanPickerModal.vue'
-import AssetChangeRequestDialog from './AssetChangeRequestDialog.vue'
 import AssetImageDialog from './AssetImageDialog.vue'
 import AssetWarrantyDialog from './AssetWarrantyDialog.vue'
 import { getAssetByNumber, updateAssetLocation } from '@/shared/services/asset.service'
-import {
-  openChangeRequestsFor,
-  type ChangeKind,
-} from '@/shared/services/assetChangeRequest.service'
 import type { AssetByNumberDetail } from '@/shared/services/asset.service'
 import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service'
 import { fileBlobUrl } from '@/shared/services/attachment.service'
@@ -242,10 +237,6 @@ async function load() {
 
   // รูปโหลดแยกและพังได้โดยไม่ลากทั้งหน้าตาย - ไฟล์ถูกลบจาก disk แต่ imageId ยังอยู่
   // เป็นเคสที่เกิดจริง (กติกาเดียวกับ thumbnail ใน AssetTable)
-  // ★ ต้องโหลดคู่กับรายละเอียดเสมอ ไม่ใช่ตอนกดปุ่ม - ปุ่มต้องขึ้นสถานะ "รอบัญชี"
-  //   ตั้งแต่เปิดกล่อง ไม่ใช่หลังจากผู้ใช้กดแล้วเจอ 409
-  void loadOpenRequests()
-
   const imageId = detail.value?.imageId ?? item.imageId
   if (imageId) {
     try {
@@ -327,34 +318,14 @@ const canEditImage = computed(() => props.editableImage && !!detail.value)
 // ★ ต้องมี detail ก่อน - กล่องต้องใช้ detail.id ยิง PATCH และ employeeId ไปเติมตัวเลือก
 // ★ ไม่เช็ค lifecycle ที่นี่: backend ปฏิเสธชิ้นที่ยังไม่ลงทะเบียนพร้อมข้อความที่บอกว่า
 //   ให้ไปแก้ที่ไหนแทน ซึ่งอ่านแล้วทำต่อได้มากกว่าปุ่มที่หายไปเฉย ๆ
-// ── ★★ ปุ่มนี้เปลี่ยนจาก "แก้เอง" เป็น "ส่งคำขอ" แล้ว
+// ── ★★ กล่องนี้ไม่มีปุ่ม "ขอเปลี่ยน/ขอย้าย" แล้ว
 //
-// เดิมกดแล้วเขียนทะเบียนทันที ซึ่งทำให้ค่าใน AMS วิ่งหนีค่าใน SAP ไปเรื่อย ๆ โดยไม่มีใคร
-// ตาม key ให้ตรง (OITM.Employee มีค่าจริงแค่ 161 จาก 2,325 ชิ้น) - ตอนนี้ต้องผ่านบัญชี
-// ที่ไป key ที่ SAP แล้วกดยืนยัน ดู asset-change-request.service.ts
-const requestDialogOpen = ref(false)
-const requestKind = ref<ChangeKind>('HOLDER')
-
-/** ใบที่ยังค้างของชิ้นนี้ - ใช้ปิดปุ่มไม่ให้กดซ้ำแล้วไปเจอ 409 */
-const openRequests = ref<{ id: number; kind: ChangeKind }[]>([])
-const hasOpen = (kind: ChangeKind) => openRequests.value.some((r) => r.kind === kind)
-
-async function loadOpenRequests() {
-  const id = detail.value?.id
-  if (!id) return
-  try {
-    openRequests.value = await openChangeRequestsFor(id)
-  } catch {
-    // ★ ล้มแล้วเงียบ ปล่อยให้ปุ่มกดได้ตามปกติ - อย่างแย่สุดคือกดแล้วเจอ 409 พร้อมข้อความ
-    //   ที่อธิบายเหตุผล ซึ่งดีกว่าปุ่มที่หายไปโดยไม่มีใครรู้ว่าทำไม
-    openRequests.value = []
-  }
-}
-
-function askChange(kind: ChangeKind) {
-  requestKind.value = kind
-  requestDialogOpen.value = true
-}
+// จุดเริ่มของคำขอทุกใบอยู่ที่ปุ่ม "สร้างคำขอ" ในหน้า Create Requests ที่เดียว (ค้นหาชิ้น
+// ในกล่องนั้นแทน) - ทางเข้าสองทางแปลว่าต้องดูแลกติกา "ชิ้นนี้มีใบค้างอยู่แล้วหรือยัง"
+// สองที่ และผู้ใช้จะเจอสองหน้าตาสำหรับงานเดียวกัน
+//
+// ★ ผู้ครอบครองกับสถานที่ทางบัญชีจึงเป็น **อ่านอย่างเดียว** ในกล่องนี้ ต่างจากห้องย่อย/
+//   หมุดบนผัง (canEditLocation) ที่ AMS เป็นเจ้าของและยังแก้ได้ทันทีเหมือนเดิม
 
 const canEditHolder = computed(() => props.editableHolder && !!detail.value)
 
@@ -684,15 +655,9 @@ defineExpose({ reload: load })
             </p>
           </div>
 
-          <!-- ★ ปุ่มอยู่ในกล่องเดียวกับชื่อ ไม่ใช่ลอยอยู่ข้างนอก - คนที่อ่านชื่อแล้วเห็นว่า
-               ไม่ตรงกับความจริงคือคนเดียวกับที่จะกดแก้ ระยะทางระหว่างสองอย่างนี้ควรสั้นที่สุด -->
-          <button v-if="canEditHolder" type="button" class="btn btn-ghost btn-xs shrink-0 gap-1"
-            :disabled="hasOpen('HOLDER')"
-            :title="hasOpen('HOLDER') ? 'มีคำขอเปลี่ยนผู้ครอบครองของชิ้นนี้รออยู่แล้ว' : ''"
-            @click="askChange('HOLDER')">
-            <Icon icon="lucide:user-round-cog" class="size-3.5" />
-            {{ hasOpen('HOLDER') ? 'รอบัญชี' : 'ขอเปลี่ยน' }}
-          </button>
+          <!-- ── ไม่มีปุ่ม "ขอเปลี่ยนผู้ครอบครอง" ที่นี่แล้ว
+               จุดเริ่มของคำขอทุกใบอยู่ที่ปุ่ม "สร้างคำขอ" ในหน้า Create Requests ที่เดียว
+               (ค้นหาชิ้นในกล่องแทน) - กล่องนี้อ่านอย่างเดียวในเรื่องผู้ครอบครอง/สถานที่บัญชี -->
         </div>
 
         <!-- ผังใน modal อยู่ที่เดิม: ในคอลัมน์ขวา กินที่ที่เหลือจนจบเส้นเดียวกับรูป
@@ -790,14 +755,7 @@ defineExpose({ reload: load })
               <dt class="text-base-content/60">ผู้ครอบครอง</dt>
               <!-- ★ ปุ่มอยู่ในแถวเดียวกับค่า ไม่ใช่รวมไว้ท้ายกล่อง - รายการนี้ยาวสิบกว่าแถว
                    ปุ่มที่อยู่ไกลจากค่าที่มันแก้ทำให้ต้องกวาดสายตาหาว่ามันแก้บรรทัดไหน -->
-              <dd class="flex min-w-0 items-center gap-1">
-                <span class="truncate">{{ detail.holderName ?? '-' }}</span>
-                <button v-if="canEditHolder" type="button"
-                  class="btn btn-ghost btn-xs shrink-0 px-1" aria-label="ขอเปลี่ยนผู้ครอบครอง"
-                  :disabled="hasOpen('HOLDER')" @click="askChange('HOLDER')">
-                  <Icon icon="lucide:user-round-cog" class="size-3.5" />
-                </button>
-              </dd>
+              <dd class="min-w-0 truncate">{{ detail.holderName ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">Asset class</dt>
@@ -820,18 +778,10 @@ defineExpose({ reload: load })
                  มูลค่าทางบัญชีข้างล่าง (ครอบ 99.4% ของทะเบียน) -->
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">สถานที่จาก SAP</dt>
-              <!-- ★ คนละปุ่มกับ "แก้ที่ตั้งบนผัง" ข้างบน - อันนั้นคือห้อง+หมุดซึ่ง AMS
-                   เป็นเจ้าของและแก้เองได้ ส่วนอันนี้คือสถานที่ทางบัญชีที่ต้องผ่าน SAP -->
-              <dd class="flex min-w-0 items-center gap-1">
-                <span class="truncate">{{ detail.locationName ?? '-' }}</span>
-                <button v-if="canEditHolder" type="button"
-                  class="btn btn-ghost btn-xs shrink-0 px-1" aria-label="ขอย้ายสถานที่"
-                  :disabled="hasOpen('LOCATION')"
-                  :title="hasOpen('LOCATION') ? 'มีคำขอย้ายของชิ้นนี้รออยู่แล้ว' : 'ขอย้ายสถานที่'"
-                  @click="askChange('LOCATION')">
-                  <Icon icon="lucide:map-pin" class="size-3.5" />
-                </button>
-              </dd>
+              <!-- ★ อ่านอย่างเดียว - สถานที่ทางบัญชีแก้ได้ทางเดียวคือใบคำขอ (หน้า Create
+                   Requests) ต่างจาก "แก้ที่ตั้งบนผัง" ข้างบนซึ่งเป็นห้อง+หมุดที่ AMS
+                   เป็นเจ้าของและแก้เองได้ทันที -->
+              <dd class="min-w-0 truncate">{{ detail.locationName ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-1 ">
               <dt class="text-base-content/60">ระยะประกัน</dt>
@@ -1023,15 +973,6 @@ defineExpose({ reload: load })
 
     <!-- กล่องแนบ/เปลี่ยนรูป - ทางเข้าสองทางมาจบที่ตัวนี้ตัวเดียว
          ส่ง imageUrl เดิมเข้าไปด้วย กล่องจึง preview ของเดิมไว้ให้ตั้งแต่เปิด (ตามที่ขอ) -->
-    <!-- กล่องส่งคำขอ - ตัวเดียวครอบทั้งย้ายสถานที่และเปลี่ยนผู้ครอบครอง (ดูเหตุผลในกล่อง)
-         ★ ไม่ emit 'updated' ตอนส่งสำเร็จ: ทะเบียนยังไม่เปลี่ยน ตารางข้างหลังจึงไม่มีอะไร
-           ให้โหลดใหม่ - โหลดแค่ "ใบค้างของชิ้นนี้" เพื่อปิดปุ่ม -->
-    <AssetChangeRequestDialog v-if="canEditHolder && detail" v-model:open="requestDialogOpen"
-      :kind="requestKind" :asset-id="detail.id" :current-employee-id="detail.employeeId"
-      :current-holder-name="detail.holderName" :current-location-name="detail.locationName"
-      :company-code="detail.companyCode"
-      @submitted="loadOpenRequests" />
-
     <AssetImageDialog v-if="canEditImage && detail" v-model:open="imageDialogOpen" :asset-id="detail.id"
       :current-image-url="imageUrl || null" @saved="onImageSaved" />
 

@@ -101,13 +101,7 @@ onMounted(load)
 
 <template>
   <div class="mt-4">
-    <div role="alert" class="alert alert-info alert-soft items-start text-sm">
-      <Icon icon="lucide:info" class="size-5 shrink-0" />
-      <span>
-        บันทึกค่าใหม่ลง SAP ก่อน แล้วค่อยกด "บันทึกแล้ว" ระบบจะอัปเดตทะเบียนให้ทันที
-        และรอบ sync ถัดไปจะยืนยันกับค่าใน SAP อีกครั้ง
-      </span>
-    </div>
+
 
     <div v-if="loadError" role="alert" class="alert alert-error alert-soft mt-4">
       {{ loadError }}
@@ -127,13 +121,6 @@ onMounted(load)
         <thead>
           <tr>
             <th>สินทรัพย์</th>
-            <th>{{ isMove ? 'ย้ายไป' : 'ผู้ครอบครองใหม่' }}</th>
-            <th class="whitespace-nowrap">
-              รหัสที่ต้องคีย์ใน SAP
-              <span class="block text-xs font-normal text-base-content/50">
-                {{ isMove ? 'ช่อง Location ของ OITM' : 'ช่อง Employee ของ OITM' }}
-              </span>
-            </th>
             <th>เหตุผล</th>
             <th>ส่งเมื่อ</th>
             <th class="text-right">ดำเนินการ</th>
@@ -153,16 +140,9 @@ onMounted(load)
                   {{ row.toEmployeeName ?? 'ไม่มีผู้ถือครอง' }}
                 </span>
               </td>
-              <td>
-                <code v-if="isMove ? row.toLocationSapId !== null : row.toEmployeeOwnerCode !== null"
-                  class="rounded bg-base-200 px-2 py-0.5 font-mono text-sm">
-                  {{ isMove ? row.toLocationSapId : row.toEmployeeOwnerCode }}
-                </code>
-                <!-- ไม่ควรเกิด: ด่านตอนส่งคำขอกันไว้แล้ว ถ้าเห็นแปลว่าข้อมูลหลักถูกแก้ทีหลัง -->
-                <span v-else class="text-xs text-warning">ไม่มีรหัสใน SAP</span>
-              </td>
+
               <td class="max-w-[14rem] truncate" :title="row.reason">{{ row.reason }}</td>
-              <td class="whitespace-nowrap">{{ formatDateTime(row.submittedAt) }}</td>
+              <td class="whitespace-nowrap text-right">{{ formatDateTime(row.submittedAt) }}</td>
               <td class="whitespace-nowrap text-right">
                 <button type="button" class="btn btn-primary btn-xs"
                   :disabled="busyId === row.id" @click="onApply(row)">

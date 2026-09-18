@@ -13,6 +13,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import AppPagination from '@/shared/components/AppPagination.vue'
 import TopicCard from '@/shared/components/TopicCard.vue'
+import CreateChangeRequestModal from './components/CreateChangeRequestModal.vue'
 import { ApiError } from '@/shared/services/httpClient'
 import { formatDateTime } from '@/shared/utils/date'
 import {
@@ -79,6 +80,14 @@ watch([kind, status], () => {
 watch(page, () => void load())
 onMounted(load)
 
+const modalOpen = ref(false)
+
+/** ส่งคำขอสำเร็จ - โหลดลิสต์ใหม่ให้เห็นใบที่เพิ่งส่งทันที */
+function onCreated() {
+  page.value = 1
+  void load()
+}
+
 const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.length === 0)
 </script>
 
@@ -86,7 +95,7 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
   <section class="space-y-4">
     
     <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
-      <TopicCard value="my-change-requests" />
+      <TopicCard value="create-request" />
       <div class="mt-5 flex flex-wrap items-center gap-2 ">
         <div role="tablist" class="tabs tabs-box tabs-sm">
           <button type="button" role="tab" class="tab" :class="kind === '' ? 'tab-active' : ''"
@@ -95,6 +104,7 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
             @click="kind = 'LOCATION'">ย้ายสถานที่</button>
           <button type="button" role="tab" class="tab" :class="kind === 'HOLDER' ? 'tab-active' : ''"
             @click="kind = 'HOLDER'">เปลี่ยนผู้ครอบครอง</button>
+            
         </div>
 
         <select v-model="status" class="select select-bordered select-sm w-48">
@@ -105,8 +115,16 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
         </select>
 
         <span class="ml-auto text-sm text-base-content/60">{{ total.toLocaleString('th-TH') }} ใบ</span>
-      </div>
 
+        <!-- ★ จุดเริ่มของคำขอทุกใบอยู่ที่ปุ่มนี้ที่เดียว - กล่องรายละเอียดสินทรัพย์ไม่มีปุ่มขอ
+             (ค้นหาชิ้นในกล่องแทน เพื่อให้มีทางเข้าเดียว) -->
+        <button type="button" class="btn btn-primary btn-sm gap-1" @click="modalOpen = true">
+          <Icon icon="lucide:plus" class="size-4" />
+          สร้างคำขอ
+        </button>
+      <button class="btn btn-info btn-md">สร้าง</button>
+      </div>
+      
       <div v-if="loadError" role="alert" class="alert alert-error alert-soft">{{ loadError }}</div>
 
       <div v-else-if="loading" class="py-10 text-center">
@@ -120,7 +138,7 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
           เปิดคำขอได้จากกล่องรายละเอียดสินทรัพย์ในหน้าทะเบียนหรือผังชั้น
         </p>
       </div>
-
+      
       <div v-else class="mt-2 overflow-x-auto rounded-box border border-base-300">
         <table class=" table table-sm">
           <thead>
@@ -160,6 +178,8 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
     </div>
     <AppPagination v-if="total > limit" :page="page" :total="total" :limit="limit"
       @update:page="(p: number) => (page = p)" />
+
+    <CreateChangeRequestModal v-model:open="modalOpen" @created="onCreated" />
   </section>
 
 </template>

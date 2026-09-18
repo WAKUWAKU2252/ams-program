@@ -100,7 +100,7 @@ function go(item: NotificationItem) {
       class="dropdown-content z-[60] mt-2 max-h-[70vh] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-box border border-base-300 bg-base-100 shadow-lg"
     >
       <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
-        <span class="text-sm font-semibold">การแจ้งเตือน</span>
+        <span class="text-sm font-semibold"><Icon icon="lucide:bell" class="text-xl" />การแจ้งเตือน</span>
         <button
           v-if="store.unread > 0"
           type="button"

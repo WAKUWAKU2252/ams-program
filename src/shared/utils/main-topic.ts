@@ -25,8 +25,8 @@ export const MAIN_TOPIC_OPTIONS: TopicType[] = [
     icon: 'lucide:clipboard-list',
   },
   {
-    value: 'my-change-requests',
-    header: 'My Change Requests',
+    value: 'create-request',
+    header: 'Create request',
     label: 'คำขอย้ายสถานที่/เปลี่ยนผู้ครอบครองของคุณ',
     icon: 'lucide:file-pen-line',
   },

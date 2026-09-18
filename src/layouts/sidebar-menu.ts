@@ -75,8 +75,8 @@ export const menuItems: MenuItem[] = [
     //   ส่วน registry คือ "ตามหาตัวของ" ใบคำขอแก้ทะเบียนเป็นเอกสาร ไม่ใช่ของ
     // ★ วางต่อจาก Create New Asset - สองอันนี้คือ "ใบคำขอของฉัน" เหมือนกัน ต่างกันแค่
     //   ขอขึ้นทะเบียนใหม่ กับ ขอแก้ของที่อยู่ในทะเบียนแล้ว
-    name: "My Change Requests",
-    label: "My Change Requests",
+    name: "Create Requests",
+    label: "Create Requests",
     icon: "lucide:file-pen-line",
     to: "/my-change-requests",
     group: "work",
