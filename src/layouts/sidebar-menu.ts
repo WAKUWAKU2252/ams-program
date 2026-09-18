@@ -11,10 +11,12 @@
 //
 //   Sidebar กรองเมนูตาม role ก่อนเสมอ (ดู isPathInRoleScope + item.roles) จำนวนเมนูที่
 //   เหลือจริงต่อกลุ่มจึงต่างกันมาก — วัดจากของจริง:
-//     ADMIN              3 / 4 / 2   → 2 เส้น
-//     FINANCE            3 / 4 / 1   → 2 เส้น
-//     MANAGER · EMPLOYEE 2 / 3 / 0   → 1 เส้น (กลุ่ม restricted หายทั้งกลุ่ม)
+//     ADMIN              4 / 4 / 2   → 2 เส้น
+//     FINANCE            4 / 4 / 1   → 2 เส้น
+//     MANAGER · EMPLOYEE 3 / 3 / 0   → 1 เส้น (กลุ่ม restricted หายทั้งกลุ่ม)
 //     AUDIT              0 / 1 / 0   → ไม่มีเส้นเลย
+//
+//   (กลุ่ม work +1 ทุก role ตั้งแต่เพิ่ม My Change Requests เข้ามา)
 //
 //   ถ้าเผลอแทรก divider เป็นไอเทมใน `menuItems` ตัวกรองจะตัดเมนูออกแล้วเส้นค้าง —
 //   AUDIT จะเจอเส้นลอยคร่อมเมนูเดียว การประกอบกลุ่มจึงต้องทำ**หลัง**กรอง (ดู Sidebar.vue)
@@ -69,6 +71,17 @@ export const menuItems: MenuItem[] = [
     group: "work",
   },
   {
+    // ★ อยู่กลุ่ม work ไม่ใช่ registry - ตามนิยามที่หัวไฟล์: work คือ "ทำงานกับเอกสาร"
+    //   ส่วน registry คือ "ตามหาตัวของ" ใบคำขอแก้ทะเบียนเป็นเอกสาร ไม่ใช่ของ
+    // ★ วางต่อจาก Create New Asset - สองอันนี้คือ "ใบคำขอของฉัน" เหมือนกัน ต่างกันแค่
+    //   ขอขึ้นทะเบียนใหม่ กับ ขอแก้ของที่อยู่ในทะเบียนแล้ว
+    name: "My Change Requests",
+    label: "My Change Requests",
+    icon: "lucide:file-pen-line",
+    to: "/my-change-requests",
+    group: "work",
+  },
+  {
     name: "Asset Request",
     label: "Asset Requests",
     icon: "lucide:clipboard-list",
@@ -83,13 +96,6 @@ export const menuItems: MenuItem[] = [
     label: "My Assets",
     icon: "lucide:boxes",
     to: "/my-assets",
-    group: "registry",
-  },
-  {
-    name: "My Change Requests",
-    label: "My Change Requests",
-    icon: "lucide:file-pen-line",
-    to: "/my-change-requests",
     group: "registry",
   },
   {
