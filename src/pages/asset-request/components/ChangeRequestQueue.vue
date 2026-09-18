@@ -104,7 +104,7 @@ onMounted(load)
     <div role="alert" class="alert alert-info alert-soft items-start text-sm">
       <Icon icon="lucide:info" class="size-5 shrink-0" />
       <span>
-        บันทึกค่าใหม่ลง SAP ก่อน แล้วค่อยกด "บันทึกแล้ว" — ระบบจะอัปเดตทะเบียนให้ทันที
+        บันทึกค่าใหม่ลง SAP ก่อน แล้วค่อยกด "บันทึกแล้ว" ระบบจะอัปเดตทะเบียนให้ทันที
         และรอบ sync ถัดไปจะยืนยันกับค่าใน SAP อีกครั้ง
       </span>
     </div>
@@ -128,7 +128,6 @@ onMounted(load)
           <tr>
             <th>สินทรัพย์</th>
             <th>{{ isMove ? 'ย้ายไป' : 'ผู้ครอบครองใหม่' }}</th>
-            <!-- ★ คอลัมน์นี้คือหัวใจของคิว - ดูเหตุผลที่หัวไฟล์ -->
             <th class="whitespace-nowrap">
               รหัสที่ต้องคีย์ใน SAP
               <span class="block text-xs font-normal text-base-content/50">

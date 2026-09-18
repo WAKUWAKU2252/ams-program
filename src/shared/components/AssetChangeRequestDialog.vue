@@ -27,6 +27,13 @@ const props = defineProps<{
   currentLocationName?: string | null
   currentHolderName?: string | null
   currentEmployeeId?: number | null
+  /**
+   * บริษัทของชิ้น - ส่งต่อให้ตัวเลือกพนักงานปิดคนที่ไม่มีรหัสใน SAP ของบริษัทนั้น
+   *
+   * ★ ไม่ส่ง = ตัวเลือกไม่ตรวจอะไรเลย แล้วผู้ใช้จะเลือกคนที่ backend ปฏิเสธได้
+   *   (ปลายทางต้องมี ownerCode ของบริษัทนั้น ไม่งั้นบัญชีคีย์ที่ SAP ไม่ได้)
+   */
+  companyCode?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -155,7 +162,8 @@ async function save() {
             <option v-for="loc in locations" :key="loc.id" :value="loc.id">{{ loc.name }}</option>
           </select>
 
-          <AppEmployeeSelect v-else v-model="pickedEmployee" :disabled="saving" />
+          <AppEmployeeSelect v-else v-model="pickedEmployee" :disabled="saving"
+            :company-code="companyCode ?? undefined" />
 
           <span v-if="!isMove" class="mt-1 text-xs text-base-content/60">
             เว้นว่างไว้ = ขอให้ไม่มีผู้ถือครอง

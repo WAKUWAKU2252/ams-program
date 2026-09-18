@@ -1029,6 +1029,7 @@ defineExpose({ reload: load })
     <AssetChangeRequestDialog v-if="canEditHolder && detail" v-model:open="requestDialogOpen"
       :kind="requestKind" :asset-id="detail.id" :current-employee-id="detail.employeeId"
       :current-holder-name="detail.holderName" :current-location-name="detail.locationName"
+      :company-code="detail.companyCode"
       @submitted="loadOpenRequests" />
 
     <AssetImageDialog v-if="canEditImage && detail" v-model:open="imageDialogOpen" :asset-id="detail.id"

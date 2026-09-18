@@ -50,6 +50,15 @@ export interface CompanyOption {
 }
 
 export interface EmployeeOption extends MasterOption {
+  /**
+   * รหัสของคนนี้ใน OHEM ของบริษัทที่ถามมา - มีเฉพาะตอนส่ง companyCode ไปด้วย
+   *
+   * ★★ สามค่า สามความหมาย ห้ามยุบ:
+   *     undefined  ไม่ได้ถามถึงบริษัทไหน -> ห้ามเอาไปตัดสินอะไร
+   *     null       ถามแล้ว **ไม่มีรหัสในบริษัทนั้น** -> เลือกไม่ได้ บัญชีคีย์ที่ SAP ไม่ได้
+   *     number     รหัสที่ใช้ได้จริง
+   */
+  sapOwnerCode?: number | null
   departmentId: number;
   empId: string | null;
 }

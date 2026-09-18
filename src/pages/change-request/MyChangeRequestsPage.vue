@@ -121,8 +121,8 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
         </p>
       </div>
 
-      <div v-else class="overflow-x-auto rounded-box border border-base-300">
-        <table class="table table-sm">
+      <div v-else class="mt-2 overflow-x-auto rounded-box border border-base-300">
+        <table class=" table table-sm">
           <thead>
             <tr>
               <th>สินทรัพย์</th>

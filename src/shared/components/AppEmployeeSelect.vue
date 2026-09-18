@@ -14,8 +14,23 @@ const props = withDefaults(
     disabled?: boolean
     placeholder?: string
     departmentId?: number
+    /**
+     * บริษัทที่คนคนนั้นต้อง "มีรหัสใน SAP" ถึงจะเลือกได้
+     *
+     * ★ ไม่ส่งมา = ไม่ตรวจอะไรเลย เลือกได้ทุกคนเหมือนเดิม - ฟอร์มส่วนใหญ่ในระบบไม่ได้
+     *   มีปลายทางที่ SAP จึงไม่ต้องสนใจเรื่องนี้ ส่งมาเฉพาะฟอร์มที่บัญชีต้องเอาไปคีย์ต่อ
+     * ★ ส่งมาแล้ว **ไม่กรองคนออกจากลิสต์** แต่ปิดปุ่มพร้อมบอกเหตุผล - คนหายไปเงียบ ๆ
+     *   จะกลายเป็น "ระบบหาคนไม่เจอ" ที่ไล่สาเหตุไม่ได้ (วัดของจริง 2026-09-18: เลือก
+     *   ไม่ได้ UBA 141 · UBP 139 · MIG 377 จากพนักงานที่ใช้งานอยู่ 397 คน)
+     */
+    companyCode?: string
   }>(),
-  { disabled: false, placeholder: 'เลือกผู้ถือครอง', departmentId: undefined },
+  {
+    disabled: false,
+    placeholder: 'เลือกผู้ถือครอง',
+    departmentId: undefined,
+    companyCode: undefined,
+  },
 )
 
 const emit = defineEmits<{ (e: 'update:modelValue', value: number): void }>()
@@ -50,6 +65,7 @@ async function load() {
     const res = await listEmployees({
       search: query.value.trim() || undefined,
       departmentId: props.departmentId,
+      companyCode: props.companyCode,
       page: 1,
       limit: LIMIT,
     })
@@ -75,7 +91,19 @@ watch(query, () => {
 // เปลี่ยนแผนกที่กรองอยู่ → ผลชุดเดิมใช้ไม่ได้แล้ว
 watch(() => props.departmentId, load)
 
+/**
+ * เลือกคนนี้ไม่ได้ เพราะไม่มีรหัสใน SAP ของบริษัทที่ถาม
+ *
+ * ★ เช็ค === null ไม่ใช่ falsy - undefined แปลว่า "ไม่ได้ถามถึงบริษัทไหน" ซึ่งต้องเลือกได้
+ *   ตามปกติ ส่วน null คือ "ถามแล้วไม่มี" (ดู EmployeeOption.sapOwnerCode ฝั่ง backend)
+ *   ใช้ falsy เมื่อไหร่ ทุกฟอร์มที่ไม่ส่ง companyCode จะเลือกใครไม่ได้เลยทั้งระบบ
+ */
+function blocked(emp: EmployeeOption): boolean {
+  return emp.sapOwnerCode === null
+}
+
 function select(emp: EmployeeOption) {
+  if (blocked(emp)) return
   selectedName.value = emp.name
   emit('update:modelValue', emp.id)
   popoverRef.value?.hidePopover()
@@ -177,10 +205,22 @@ onUnmounted(() => {
 
       <ul class="menu menu-sm w-full flex-nowrap px-0">
         <li v-for="emp in rows" :key="emp.id">
-          <a :class="{ 'menu-active': emp.id === modelValue }" @click="select(emp)">
+          <a
+            :class="{
+              'menu-active': emp.id === modelValue,
+              'cursor-not-allowed opacity-50': blocked(emp),
+            }"
+            :title="blocked(emp) ? 'ยังไม่มีรหัสใน SAP ของบริษัทนี้ - แจ้งบัญชีให้ผูกรหัสก่อน' : ''"
+            @click="select(emp)"
+          >
             <!-- empId ว่างได้ (HR ยังไม่ให้รหัสบางคน) - ไม่งั้นจะขึ้นเป็น " - ชื่อ" ห้อยไว้ -->
             <span class="font-mono text-xs opacity-60">{{ emp.empId || '-------' }}</span>
             <span class="truncate">{{ emp.name }}</span>
+            <!-- ★ ต้องบอกเหตุผลตรงแถว ไม่ใช่แค่ทำให้จาง - คนอ่านต้องรู้ว่าต้องทำอะไรต่อ
+                 (title อย่างเดียวไม่พอ มือถือไม่มี hover) -->
+            <span v-if="blocked(emp)" class="ml-auto shrink-0 text-xs text-warning">
+              ไม่มีรหัสใน SAP
+            </span>
           </a>
         </li>
       </ul>
