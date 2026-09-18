@@ -24,10 +24,14 @@ import { Icon } from '@iconify/vue'
 import QRCode from 'qrcode'
 import AppAssetLocationMap from './AppAssetLocationMap.vue'
 import FloorPlanPickerModal from './FloorPlanPickerModal.vue'
-import AssetHolderDialog from './AssetHolderDialog.vue'
+import AssetChangeRequestDialog from './AssetChangeRequestDialog.vue'
 import AssetImageDialog from './AssetImageDialog.vue'
 import AssetWarrantyDialog from './AssetWarrantyDialog.vue'
 import { getAssetByNumber, updateAssetLocation } from '@/shared/services/asset.service'
+import {
+  openChangeRequestsFor,
+  type ChangeKind,
+} from '@/shared/services/assetChangeRequest.service'
 import type { AssetByNumberDetail } from '@/shared/services/asset.service'
 import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service'
 import { fileBlobUrl } from '@/shared/services/attachment.service'
@@ -238,6 +242,10 @@ async function load() {
 
   // รูปโหลดแยกและพังได้โดยไม่ลากทั้งหน้าตาย - ไฟล์ถูกลบจาก disk แต่ imageId ยังอยู่
   // เป็นเคสที่เกิดจริง (กติกาเดียวกับ thumbnail ใน AssetTable)
+  // ★ ต้องโหลดคู่กับรายละเอียดเสมอ ไม่ใช่ตอนกดปุ่ม - ปุ่มต้องขึ้นสถานะ "รอบัญชี"
+  //   ตั้งแต่เปิดกล่อง ไม่ใช่หลังจากผู้ใช้กดแล้วเจอ 409
+  void loadOpenRequests()
+
   const imageId = detail.value?.imageId ?? item.imageId
   if (imageId) {
     try {
@@ -319,15 +327,36 @@ const canEditImage = computed(() => props.editableImage && !!detail.value)
 // ★ ต้องมี detail ก่อน - กล่องต้องใช้ detail.id ยิง PATCH และ employeeId ไปเติมตัวเลือก
 // ★ ไม่เช็ค lifecycle ที่นี่: backend ปฏิเสธชิ้นที่ยังไม่ลงทะเบียนพร้อมข้อความที่บอกว่า
 //   ให้ไปแก้ที่ไหนแทน ซึ่งอ่านแล้วทำต่อได้มากกว่าปุ่มที่หายไปเฉย ๆ
-const holderDialogOpen = ref(false)
-const canEditHolder = computed(() => props.editableHolder && !!detail.value)
+// ── ★★ ปุ่มนี้เปลี่ยนจาก "แก้เอง" เป็น "ส่งคำขอ" แล้ว
+//
+// เดิมกดแล้วเขียนทะเบียนทันที ซึ่งทำให้ค่าใน AMS วิ่งหนีค่าใน SAP ไปเรื่อย ๆ โดยไม่มีใคร
+// ตาม key ให้ตรง (OITM.Employee มีค่าจริงแค่ 161 จาก 2,325 ชิ้น) - ตอนนี้ต้องผ่านบัญชี
+// ที่ไป key ที่ SAP แล้วกดยืนยัน ดู asset-change-request.service.ts
+const requestDialogOpen = ref(false)
+const requestKind = ref<ChangeKind>('HOLDER')
 
-/** เปลี่ยนผู้ครอบครองแล้ว - โหลดใหม่ทั้งก้อนเพื่อให้ชื่อบนจอตรงกับของจริง */
-async function onHolderSaved() {
-  await load()
-  // ตาราง/ผังที่โชว์คอลัมน์ผู้ครอบครองอยู่ข้างหลังต้องรู้ด้วย ไม่งั้นยังขึ้นชื่อเดิม
-  emit('updated')
+/** ใบที่ยังค้างของชิ้นนี้ - ใช้ปิดปุ่มไม่ให้กดซ้ำแล้วไปเจอ 409 */
+const openRequests = ref<{ id: number; kind: ChangeKind }[]>([])
+const hasOpen = (kind: ChangeKind) => openRequests.value.some((r) => r.kind === kind)
+
+async function loadOpenRequests() {
+  const id = detail.value?.id
+  if (!id) return
+  try {
+    openRequests.value = await openChangeRequestsFor(id)
+  } catch {
+    // ★ ล้มแล้วเงียบ ปล่อยให้ปุ่มกดได้ตามปกติ - อย่างแย่สุดคือกดแล้วเจอ 409 พร้อมข้อความ
+    //   ที่อธิบายเหตุผล ซึ่งดีกว่าปุ่มที่หายไปโดยไม่มีใครรู้ว่าทำไม
+    openRequests.value = []
+  }
 }
+
+function askChange(kind: ChangeKind) {
+  requestKind.value = kind
+  requestDialogOpen.value = true
+}
+
+const canEditHolder = computed(() => props.editableHolder && !!detail.value)
 
 /**
  * เปิดกล่องแก้รูปจากในรูปเต็มจอ - ต้องปิดรูปเต็มจอก่อน
@@ -658,9 +687,11 @@ defineExpose({ reload: load })
           <!-- ★ ปุ่มอยู่ในกล่องเดียวกับชื่อ ไม่ใช่ลอยอยู่ข้างนอก - คนที่อ่านชื่อแล้วเห็นว่า
                ไม่ตรงกับความจริงคือคนเดียวกับที่จะกดแก้ ระยะทางระหว่างสองอย่างนี้ควรสั้นที่สุด -->
           <button v-if="canEditHolder" type="button" class="btn btn-ghost btn-xs shrink-0 gap-1"
-            @click="holderDialogOpen = true">
+            :disabled="hasOpen('HOLDER')"
+            :title="hasOpen('HOLDER') ? 'มีคำขอเปลี่ยนผู้ครอบครองของชิ้นนี้รออยู่แล้ว' : ''"
+            @click="askChange('HOLDER')">
             <Icon icon="lucide:user-round-cog" class="size-3.5" />
-            เปลี่ยน
+            {{ hasOpen('HOLDER') ? 'รอบัญชี' : 'ขอเปลี่ยน' }}
           </button>
         </div>
 
@@ -762,8 +793,8 @@ defineExpose({ reload: load })
               <dd class="flex min-w-0 items-center gap-1">
                 <span class="truncate">{{ detail.holderName ?? '-' }}</span>
                 <button v-if="canEditHolder" type="button"
-                  class="btn btn-ghost btn-xs shrink-0 px-1" aria-label="เปลี่ยนผู้ครอบครอง"
-                  @click="holderDialogOpen = true">
+                  class="btn btn-ghost btn-xs shrink-0 px-1" aria-label="ขอเปลี่ยนผู้ครอบครอง"
+                  :disabled="hasOpen('HOLDER')" @click="askChange('HOLDER')">
                   <Icon icon="lucide:user-round-cog" class="size-3.5" />
                 </button>
               </dd>
@@ -789,7 +820,18 @@ defineExpose({ reload: load })
                  มูลค่าทางบัญชีข้างล่าง (ครอบ 99.4% ของทะเบียน) -->
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">สถานที่จาก SAP</dt>
-              <dd>{{ detail.locationName ?? '-' }}</dd>
+              <!-- ★ คนละปุ่มกับ "แก้ที่ตั้งบนผัง" ข้างบน - อันนั้นคือห้อง+หมุดซึ่ง AMS
+                   เป็นเจ้าของและแก้เองได้ ส่วนอันนี้คือสถานที่ทางบัญชีที่ต้องผ่าน SAP -->
+              <dd class="flex min-w-0 items-center gap-1">
+                <span class="truncate">{{ detail.locationName ?? '-' }}</span>
+                <button v-if="canEditHolder" type="button"
+                  class="btn btn-ghost btn-xs shrink-0 px-1" aria-label="ขอย้ายสถานที่"
+                  :disabled="hasOpen('LOCATION')"
+                  :title="hasOpen('LOCATION') ? 'มีคำขอย้ายของชิ้นนี้รออยู่แล้ว' : 'ขอย้ายสถานที่'"
+                  @click="askChange('LOCATION')">
+                  <Icon icon="lucide:map-pin" class="size-3.5" />
+                </button>
+              </dd>
             </div>
             <div class="flex justify-between gap-1 ">
               <dt class="text-base-content/60">ระยะประกัน</dt>
@@ -981,9 +1023,13 @@ defineExpose({ reload: load })
 
     <!-- กล่องแนบ/เปลี่ยนรูป - ทางเข้าสองทางมาจบที่ตัวนี้ตัวเดียว
          ส่ง imageUrl เดิมเข้าไปด้วย กล่องจึง preview ของเดิมไว้ให้ตั้งแต่เปิด (ตามที่ขอ) -->
-    <AssetHolderDialog v-if="canEditHolder && detail" v-model:open="holderDialogOpen"
-      :asset-id="detail.id" :employee-id="detail.employeeId" :holder-name="detail.holderName"
-      @saved="onHolderSaved" />
+    <!-- กล่องส่งคำขอ - ตัวเดียวครอบทั้งย้ายสถานที่และเปลี่ยนผู้ครอบครอง (ดูเหตุผลในกล่อง)
+         ★ ไม่ emit 'updated' ตอนส่งสำเร็จ: ทะเบียนยังไม่เปลี่ยน ตารางข้างหลังจึงไม่มีอะไร
+           ให้โหลดใหม่ - โหลดแค่ "ใบค้างของชิ้นนี้" เพื่อปิดปุ่ม -->
+    <AssetChangeRequestDialog v-if="canEditHolder && detail" v-model:open="requestDialogOpen"
+      :kind="requestKind" :asset-id="detail.id" :current-employee-id="detail.employeeId"
+      :current-holder-name="detail.holderName" :current-location-name="detail.locationName"
+      @submitted="loadOpenRequests" />
 
     <AssetImageDialog v-if="canEditImage && detail" v-model:open="imageDialogOpen" :asset-id="detail.id"
       :current-image-url="imageUrl || null" @saved="onImageSaved" />

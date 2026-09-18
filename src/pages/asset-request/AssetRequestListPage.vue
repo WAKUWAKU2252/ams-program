@@ -31,6 +31,27 @@ import { formatDateTime } from '@/shared/utils/date'
 import { REQUEST_SORT_OPTIONS } from '@/shared/utils/request-sort'
 import { Icon } from '@iconify/vue'
 import TopicCard from '@/shared/components/TopicCard.vue'
+import ChangeRequestQueue from './components/ChangeRequestQueue.vue'
+import { useRoute } from 'vue-router'
+
+/**
+ * ── แท็บของหน้านี้ ──────────────────────────────────────────────────────────
+ *
+ *   register  ใบที่อนุมัติแล้ว รอออกเลขสินทรัพย์ (ของเดิมทั้งหน้า)
+ *   move      คำขอย้ายสถานที่
+ *   holder    คำขอเปลี่ยนผู้ครอบครอง
+ *
+ * ★ สามอย่างนี้เป็นคิวของคนกลุ่มเดียวกัน (บัญชี) แต่คนละงาน - รวมเป็นตารางเดียวไม่ได้
+ *   เพราะคอลัมน์ไม่เหมือนกันเลย และ "เหลืออะไรให้ทำ" ของแต่ละอันนับแยกกัน
+ *
+ * ★ อ่านค่าตั้งต้นจาก ?tab= - กระดิ่งแจ้งเตือนลิงก์มาที่แท็บที่ถูกต้องได้เลย
+ *   (ดู queuePath ใน asset-change-request.service.ts)
+ */
+type QueueTab = 'register' | 'move' | 'holder'
+const route = useRoute()
+const tab = ref<QueueTab>(
+  route.query.tab === 'move' || route.query.tab === 'holder' ? route.query.tab : 'register',
+)
 
 const router = useRouter()
 const rows = ref<PendingRegistrationRow[]>([])
@@ -417,6 +438,19 @@ onUnmounted(() => {
     <TopicCard
       value="asset-request"/>
 
+    <div role="tablist" class="tabs tabs-box tabs-sm mt-5 w-fit">
+      <button type="button" role="tab" class="tab" :class="tab === 'register' ? 'tab-active' : ''"
+        @click="tab = 'register'">ออกเลขสินทรัพย์</button>
+      <button type="button" role="tab" class="tab" :class="tab === 'move' ? 'tab-active' : ''"
+        @click="tab = 'move'">คำขอย้ายสถานที่</button>
+      <button type="button" role="tab" class="tab" :class="tab === 'holder' ? 'tab-active' : ''"
+        @click="tab = 'holder'">คำขอเปลี่ยนผู้ครอบครอง</button>
+    </div>
+
+    <ChangeRequestQueue v-if="tab !== 'register'" :kind="tab === 'move' ? 'LOCATION' : 'HOLDER'" />
+
+    <template v-else>
+
     <!-- ── แถบกรอง/เรียง ──────────────────────────────────────────────────
          โครงเดียวกับหน้า Asset Inventory เป๊ะ - ช่องค้นซ้ายสุด ตามด้วยแผงตัวกรองกับปุ่มเรียง
          แล้วช่วงที่แสดงอยู่ชิดขวา -->
@@ -764,5 +798,6 @@ onUnmounted(() => {
 
     <AppPagination v-if="total > limit" class="mt-4" :page="page" :total="total" :limit="limit"
       @update:page="onPageChange" />
+    </template>
   </div>
 </template>

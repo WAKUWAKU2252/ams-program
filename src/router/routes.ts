@@ -115,6 +115,17 @@ export const routes: RouteRecordRaw[] = [
         ],
       },
       {
+        // ติดตามคำขอแก้ทะเบียนของตัวเอง (ย้ายสถานที่/เปลี่ยนผู้ครอบครอง)
+        //
+        // ★ ไม่มี meta.roles - ทุกคนส่งคำขอได้ จึงทุกคนต้องตามดูใบของตัวเองได้
+        //   "ของตัวเอง" มาจาก token ฝั่ง backend ไม่ได้มาจาก query
+        // ★ คนละหน้ากับคิวของบัญชีใน /assetrequest โดยตั้งใจ - ดูเหตุผลในหน้านั้น
+        path: "my-change-requests",
+        name: "my-change-requests",
+        component: () => import("@/pages/change-request/MyChangeRequestsPage.vue"),
+        meta: { requiresAuth: true, title: "My Change Requests" },
+      },
+      {
         // แผนผังโรงงาน - ไม่มี meta.roles เหมือน asset-inventory: คนที่ตามหาเครื่องมัก
         // ไม่ใช่คนแผนกเดียวกับที่ของสังกัดอยู่ และ GET /master/floor-plans ฝั่ง backend
         // ก็เป็น authGuard เฉย ๆ ไม่ล็อก role เหมือนกัน

@@ -86,6 +86,13 @@ export const menuItems: MenuItem[] = [
     group: "registry",
   },
   {
+    name: "My Change Requests",
+    label: "My Change Requests",
+    icon: "lucide:file-pen-line",
+    to: "/my-change-requests",
+    group: "registry",
+  },
+  {
     name: "Asset Inventory",
     label: "Asset Inventory",
     icon: "lsicon:inventory-filled",

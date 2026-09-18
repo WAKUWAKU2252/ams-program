@@ -810,21 +810,9 @@ export function getAssetInventory(params: InventoryParams = {}): Promise<Paginat
 }
 
 /**
- * PATCH /assets/:id/holder - เปลี่ยนผู้ครอบครองของชิ้นที่ "ลงทะเบียนแล้ว"
+ * ── ถอด updateAssetHolder() ออกแล้ว (งาน v2: คำขอแก้ทะเบียน)
  *
- * ★ ห้ามใช้ updateAsset() แทน - เหตุผลเดียวกับ updateAssetLocation/Image/Warranty
- *   (เส้นนั้นปฏิเสธ REGISTERED ทั้งก้อน ซึ่งคือของแทบทั้งทะเบียน)
- *
- * ★ ส่ง null = "ไม่มีใครถืออยู่" ซึ่งเป็นสถานะจริง ไม่ใช่การลบข้อมูล
- *   (ของกลางในห้องประชุม / คนลาออกแล้วยังไม่ส่งมอบ)
- *
- * ★ ทุกการเปลี่ยนถูกบันทึกลง asset_activity ฝั่ง backend พร้อมชื่อคนกดและชื่อคนถือ
- *   ณ ตอนนั้น - หน้าจอไม่ต้องทำอะไรเพิ่ม
+ * เดิมเป็นปุ่ม "แก้เอง" ที่ทุก role กดได้ ซึ่งทำให้ค่าใน AMS วิ่งหนีค่าใน SAP ไปเรื่อย ๆ
+ * โดยไม่มีใครตาม key ให้ตรง - ตอนนี้ต้องผ่านใบคำขอที่บัญชีเป็นคนกดหลัง key ที่ SAP แล้ว
+ * ดู assetChangeRequest.service.ts (เส้น PATCH /assets/:id/holder ฝั่ง backend ก็ถอดด้วย)
  */
-export function updateAssetHolder(id: number, employeeId: number | null): Promise<{ id: number }> {
-  return request<{ id: number }>(`/assets/${id}/holder`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId }),
-  })
-}

@@ -69,8 +69,6 @@ async function onToggle(e: Event) {
   if (!open.value) return
 
   await store.loadList()
-  // ★ มาร์คหลังโหลด ไม่ใช่ก่อน - ต้องรู้ก่อนว่ามีใบไหนบ้างถึงจะบอกได้ว่ามาร์คอะไร
-  //   และผู้ใช้ได้เห็นจุดสีของ "ยังไม่อ่าน" อย่างน้อยหนึ่งเฟรมก่อนมันจะจางไป
   await store.markSeen()
 }
 
