@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authService } from '@/shared/services/auth.service'
 import { getToken, setToken as persistToken, clearToken, isTokenValid } from '@/shared/services/auth.token'
+import { useNotificationStore } from './notification'
 import type { AuthUser } from '@/shared/types/user'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -36,6 +37,9 @@ export const useAuthStore = defineStore('auth', () => {
     clearToken()
     token.value = null
     user.value = null
+    // ★ ต้องล้างกระดิ่งด้วย - store อยู่ในหน่วยความจำของแท็บ ไม่ได้ผูกกับ token
+    //   คนถัดไปที่ล็อกอินบนแท็บเดิมจะเห็นข้อความของคนก่อนค้างอยู่จนกว่าจะโหลดรอบใหม่
+    useNotificationStore().reset()
   }
 
   return { user, token, isAuthenticated, login, getCurrentUser, hasRole, logout }

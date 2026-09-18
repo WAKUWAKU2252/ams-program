@@ -207,7 +207,7 @@ export function openStream(
  *   ด้วย assetRequestOpener ก่อน แล้วค่อยส่งลงมา
  */
 export function openAppChanges(
-  handlers: StreamHandlers & { onChanged?: () => void },
+  handlers: StreamHandlers & { onChanged?: () => void; onNotification?: () => void },
 ): StreamConnection {
   return openStream(
     '/asset-requests/changes',
@@ -215,6 +215,17 @@ export function openAppChanges(
       // ไม่แกะ data เลย - ในก้อนมีแค่ action ซึ่งเป็นบริบทที่ยังไม่มีใครใช้ และการโหลดใหม่
       // ไม่ได้ขึ้นอยู่กับมัน (connected / ping ไม่สนใจ ตัวออนไลน์ดูจาก onConnection)
       if (event === 'changed') handlers.onChanged?.();
+
+      // ── กระดิ่งเกาะสายนี้ ไม่มีสายของตัวเอง ────────────────────────────────
+      //
+      // ★★ กระดิ่งเป็นฟีเจอร์ที่ "ควรมีสายของตัวเอง" ที่สุดในระบบ แต่เปิดเมื่อไหร่คือ
+      //    สายที่สาม ซึ่งเป็นสิ่งที่หัวไฟล์นี้เขียนห้ามไว้พร้อมเหตุการณ์จริงที่เคยเกิด -
+      //    ฝั่ง backend จึงให้มันไปลงชื่อกับสายเดียวกันนี้แทน (ดู openMyRequestsChanges)
+      //
+      // ★ ไม่แกะ data เหมือนกัน แม้ backend จะส่งเนื้อข้อความมาด้วย - ถ้าสายหลุดตอนที่มี
+      //   ข้อความเข้ามา ผู้ใช้จะพลาดไปเลย ให้ถือเป็นแค่สัญญาณ "ไปโหลดใหม่" แล้วดึงผ่าน
+      //   API ที่กรองรายคนให้อยู่แล้ว จะได้ครบเสมอไม่ว่าสายจะหลุดไปกี่รอบ
+      if (event === 'notification') handlers.onNotification?.();
     },
     handlers,
   );

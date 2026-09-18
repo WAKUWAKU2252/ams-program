@@ -2,6 +2,7 @@
 import DateDisplay from './DateDisplay.vue'
 import SyncButton from './SyncButton.vue'
 import { Icon } from '@iconify/vue'
+import NotificationBell from './NotificationBell.vue'
 import { useRoute } from 'vue-router'
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -94,6 +95,8 @@ const title = computed(
           <DateDisplay locale="en" variant="short" :show-time="true" :live-time="true"
             class="text-sm text-base-content/70" />
         </div>
+
+        <NotificationBell />
 
         <!-- ★ ปุ่มสลับธีมอยู่ "ใน" กลุ่มขวา ไม่ใช่ลูกลอยของ navbar - ตอนเป็นลูกตัวที่สาม
              มันไปกินความกว้างนอกโควตาของสองก้อนแรก ซึ่งเป็นครึ่งหนึ่งของอาการบีบ -->

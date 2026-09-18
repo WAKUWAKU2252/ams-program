@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { openAppChanges, type SseStatus, type StreamConnection } from '@/shared/services/sse.service';
+import { useNotificationStore } from './notification';
 
 /**
  * สาย SSE เดียวของทั้งแอป - เปิดตั้งแต่ล็อกอินจนออกจากระบบ (App.vue คุมจังหวะ)
@@ -47,12 +48,20 @@ export const useConnectionStore = defineStore('connection', {
         // ให้หน้าที่ watch changeTick โหลดใหม่เอง ไม่ต้องมีทางพิเศษของตัวเอง
         onResume: () => {
           this.changeTick += 1;
+          // ช่วงที่แท็บถูกซ่อน สายถูกปิดไป ข้อความที่เข้ามาระหว่างนั้นไม่มี event มาถึง -
+          // ต้องซิงก์ตัวเลขหนึ่งรอบ ไม่งั้นป้ายค้างเลขเก่าจนกว่าจะมีข้อความถัดไป
+          void useNotificationStore().refreshUnread();
         },
         onConnection: (s) => {
           this.status = s;
         },
         onChanged: () => {
           this.changeTick += 1;
+        },
+        // ★ สัญญาณกระดิ่งเกาะสายเดียวกันนี้ (ดู openAppChanges) - โหลดแค่ตัวเลข
+        //   ส่วนรายการรอจนกว่าคนจะกดเปิดกล่อง
+        onNotification: () => {
+          void useNotificationStore().refreshUnread();
         },
         // สายหลุดไม่ใช่เรื่องคอขาดบาดตาย - openStream ต่อใหม่ให้เองแบบ backoff
         onError: (e) => console.error('app stream error:', e),
