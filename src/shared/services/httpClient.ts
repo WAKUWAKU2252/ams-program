@@ -33,13 +33,28 @@ function handleUnauthorized() {
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  /**
+   * ── ★★ ใส่ Content-Type ให้เองเมื่อ body เป็นสตริง (คือ JSON.stringify มาแล้ว)
+   *
+   * เดิมผู้เรียกต้องใส่เองทุกครั้ง ซึ่งลืมได้ง่ายมากและ **อาการที่ได้ไม่บอกอะไรเลย**:
+   * Elysia แกะ body ไม่ออก → ทุกฟิลด์ที่บังคับกลายเป็นขาด → ตกด่าน schema → ผู้ใช้เห็น
+   * "ข้อมูลที่กรอกไม่ถูกต้อง กรุณาตรวจสอบแล้วลองใหม่" ทั้งที่กรอกครบถูกทุกช่อง
+   * (เจอจริงตอนต่อเส้นคำขอย้าย/เปลี่ยนผู้ครอบครอง - ไล่หาที่ฟอร์มอยู่นานเพราะข้อความ
+   *  ชี้ไปที่ช่องกรอก ไม่ได้ชี้ว่า request ส่งออกไปผิดรูป)
+   *
+   * ★ เช็ค typeof body === 'string' ไม่ใช่ "มี body ไหม" - แนบไฟล์ส่ง FormData ซึ่ง
+   *   **ห้ามตั้ง Content-Type เอง** เบราว์เซอร์ต้องเป็นคนใส่พร้อม boundary ของ multipart
+   *   ตั้งเองเมื่อไหร่ฝั่ง server จะแยกส่วนของไฟล์ไม่ออก (ดู attachment/invoice service)
+   *
+   * ★ ...options.headers อยู่ทีหลัง - ผู้เรียกที่ใส่เองอยู่แล้วยังชนะเหมือนเดิม ไม่มีอะไรพัง
+   */
+  const headers = new Headers(options.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (typeof options.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
   let data: T | ApiErrorBody | null = null;
   try {

@@ -174,7 +174,7 @@ async function save() {
           ></textarea>
         </label>
 
-        <div v-if="error" role="alert" class="alert alert-error alert-soft text-sm">
+        <div v-if="error" role="alert" class="mt-2 alert alert-error alert-soft text-sm">
           {{ error }}
         </div>
       </div>

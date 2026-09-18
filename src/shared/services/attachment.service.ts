@@ -30,7 +30,10 @@ export interface UploadResult {
  * อัปโหลดไฟล์แนบ 1 ชนิด (INVOICE หรือ ASSET_IMG) ทันทีที่ผู้ใช้เลือก
  * - field ต้องชื่อ 'entityKind' และ 'files' ตรงกับ uploadBody ฝั่ง backend เป๊ะ
  * - append 'files' ซ้ำได้หลายรอบ = ส่งหลายไฟล์ใน field เดียว (ตรงกับ t.Files)
- * - "ห้าม" ตั้ง Content-Type เอง - browser ต้องเป็นคนแปะ multipart boundary (httpClient ไม่ยัด header นี้)
+ * - "ห้าม" ตั้ง Content-Type เอง - browser ต้องเป็นคนแปะ multipart boundary
+ *   ★ httpClient ใส่ application/json ให้อัตโนมัติ **เฉพาะตอน body เป็นสตริง** เท่านั้น
+ *     FormData จึงรอด แต่ถ้าวันไหนมีคนเปลี่ยนเงื่อนไขนั้นเป็น "มี body ไหม" การอัปโหลด
+ *     จะพังทั้งระบบทันที (ดูคอมเมนต์ที่ httpClient.request)
  */
 export function uploadModuleFiles(entityKind: DocType, files: File[]): Promise<UploadResult> {
   const formData = new FormData();

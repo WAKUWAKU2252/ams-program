@@ -84,80 +84,82 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
 
 <template>
   <section class="space-y-4">
-    <TopicCard value="my-change-requests" />
+    
+    <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
+      <TopicCard value="my-change-requests" />
+      <div class="mt-5 flex flex-wrap items-center gap-2 ">
+        <div role="tablist" class="tabs tabs-box tabs-sm">
+          <button type="button" role="tab" class="tab" :class="kind === '' ? 'tab-active' : ''"
+            @click="kind = ''">ทั้งหมด</button>
+          <button type="button" role="tab" class="tab" :class="kind === 'LOCATION' ? 'tab-active' : ''"
+            @click="kind = 'LOCATION'">ย้ายสถานที่</button>
+          <button type="button" role="tab" class="tab" :class="kind === 'HOLDER' ? 'tab-active' : ''"
+            @click="kind = 'HOLDER'">เปลี่ยนผู้ครอบครอง</button>
+        </div>
 
-    <div class="flex flex-wrap items-center gap-2">
-      <div role="tablist" class="tabs tabs-box tabs-sm">
-        <button type="button" role="tab" class="tab" :class="kind === '' ? 'tab-active' : ''"
-          @click="kind = ''">ทั้งหมด</button>
-        <button type="button" role="tab" class="tab" :class="kind === 'LOCATION' ? 'tab-active' : ''"
-          @click="kind = 'LOCATION'">ย้ายสถานที่</button>
-        <button type="button" role="tab" class="tab" :class="kind === 'HOLDER' ? 'tab-active' : ''"
-          @click="kind = 'HOLDER'">เปลี่ยนผู้ครอบครอง</button>
+        <select v-model="status" class="select select-bordered select-sm w-48">
+          <option value="">ทุกสถานะ</option>
+          <option value="SUBMITTED">รอบัญชีดำเนินการ</option>
+          <option value="DONE">ดำเนินการแล้ว</option>
+          <option value="REJECTED">ถูกตีกลับ</option>
+        </select>
+
+        <span class="ml-auto text-sm text-base-content/60">{{ total.toLocaleString('th-TH') }} ใบ</span>
       </div>
 
-      <select v-model="status" class="select select-bordered select-sm w-48">
-        <option value="">ทุกสถานะ</option>
-        <option value="SUBMITTED">รอบัญชีดำเนินการ</option>
-        <option value="DONE">ดำเนินการแล้ว</option>
-        <option value="REJECTED">ถูกตีกลับ</option>
-      </select>
+      <div v-if="loadError" role="alert" class="alert alert-error alert-soft">{{ loadError }}</div>
 
-      <span class="ml-auto text-sm text-base-content/60">{{ total.toLocaleString('th-TH') }} ใบ</span>
-    </div>
+      <div v-else-if="loading" class="py-10 text-center">
+        <span class="loading loading-spinner"></span>
+      </div>
 
-    <div v-if="loadError" role="alert" class="alert alert-error alert-soft">{{ loadError }}</div>
+      <div v-else-if="isEmpty" class="mt-2 rounded-box border border-base-300 py-12 text-center">
+        <Icon icon="lucide:inbox" class="mx-auto text-3xl text-base-content/30" />
+        <p class="mt-2 text-sm text-base-content/60">ยังไม่มีคำขอ</p>
+        <p class="mt-1 text-xs text-base-content/50">
+          เปิดคำขอได้จากกล่องรายละเอียดสินทรัพย์ในหน้าทะเบียนหรือผังชั้น
+        </p>
+      </div>
 
-    <div v-else-if="loading" class="py-10 text-center">
-      <span class="loading loading-spinner"></span>
-    </div>
-
-    <div v-else-if="isEmpty" class="rounded-box border border-base-300 py-12 text-center">
-      <Icon icon="lucide:inbox" class="mx-auto text-3xl text-base-content/30" />
-      <p class="mt-2 text-sm text-base-content/60">ยังไม่มีคำขอ</p>
-      <p class="mt-1 text-xs text-base-content/50">
-        เปิดคำขอได้จากกล่องรายละเอียดสินทรัพย์ในหน้าทะเบียนหรือผังชั้น
-      </p>
-    </div>
-
-    <div v-else class="overflow-x-auto rounded-box border border-base-300">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>สินทรัพย์</th>
-            <th>ชนิด</th>
-            <th>ขอเปลี่ยนเป็น</th>
-            <th>เหตุผล</th>
-            <th>ส่งเมื่อ</th>
-            <th>สถานะ</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.id">
-            <td>
-              <div class="font-medium">{{ row.assetNumber ?? '-' }}</div>
-              <div class="text-xs text-base-content/60">{{ row.assetDescription ?? '' }}</div>
-            </td>
-            <td>{{ kindLabel(row.kind) }}</td>
-            <td>{{ destOf(row) }}</td>
-            <td class="max-w-[16rem] truncate" :title="row.reason">{{ row.reason }}</td>
-            <td class="whitespace-nowrap">{{ formatDateTime(row.submittedAt) }}</td>
-            <td>
-              <span class="badge badge-sm" :class="STATUS_META[row.status].cls">
-                {{ STATUS_META[row.status].label }}
-              </span>
-              <!-- เหตุผลที่ถูกตีกลับต้องอ่านได้จากแถวเลย ไม่ใช่ต้องกดเข้าไปดู -
+      <div v-else class="overflow-x-auto rounded-box border border-base-300">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>สินทรัพย์</th>
+              <th>ชนิด</th>
+              <th>ขอเปลี่ยนเป็น</th>
+              <th>เหตุผล</th>
+              <th>ส่งเมื่อ</th>
+              <th>สถานะ</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in rows" :key="row.id">
+              <td>
+                <div class="font-medium">{{ row.assetNumber ?? '-' }}</div>
+                <div class="text-xs text-base-content/60">{{ row.assetDescription ?? '' }}</div>
+              </td>
+              <td>{{ kindLabel(row.kind) }}</td>
+              <td>{{ destOf(row) }}</td>
+              <td class="max-w-[16rem] truncate" :title="row.reason">{{ row.reason }}</td>
+              <td class="whitespace-nowrap">{{ formatDateTime(row.submittedAt) }}</td>
+              <td>
+                <span class="badge badge-sm" :class="STATUS_META[row.status].cls">
+                  {{ STATUS_META[row.status].label }}
+                </span>
+                <!-- เหตุผลที่ถูกตีกลับต้องอ่านได้จากแถวเลย ไม่ใช่ต้องกดเข้าไปดู -
                    มันคือสิ่งเดียวที่บอกว่าต้องแก้อะไรก่อนขอใหม่ -->
-              <div v-if="row.rejectReason" class="mt-1 text-xs text-error">
-                {{ row.rejectReason }}
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                <div v-if="row.rejectReason" class="mt-1 text-xs text-error">
+                  {{ row.rejectReason }}
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
-
     <AppPagination v-if="total > limit" :page="page" :total="total" :limit="limit"
       @update:page="(p: number) => (page = p)" />
   </section>
+
 </template>
