@@ -294,6 +294,13 @@ export interface AssetSummaryRow {
   assets: number
   /** ชิ้นที่ SAP ยังไม่ส่งตัวเลขมา - ยอดเงินในแถวไม่ได้ครอบคลุมชิ้นพวกนี้ */
   assetsWithoutValue: number
+  /**
+   * ชิ้นที่ยังไม่ได้ซื้อ ณ งวดที่เลือก - นับใน `assets` แต่ใส่ 0 เข้ายอดเงิน
+   *
+   * คนละกลุ่มกับ `assetsWithoutValue` (ไม่ทับกัน) บวกกันได้ = ชิ้นที่ไม่ได้อยู่ในยอดเงินทั้งหมด
+   * มีค่าเฉพาะตอนดูงวดย้อนหลังของปีที่มีการซื้อเข้ามา
+   */
+  assetsNotYetAcquired: number
   // ── ยอดคงเหลือ: ณ สิ้นงวด toPeriod (สะสมจากงวด 1 เสมอ) ──
   openingCost: number | null
   openingDepreciation: number | null

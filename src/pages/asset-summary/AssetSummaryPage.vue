@@ -693,12 +693,13 @@ const assetTotals = computed(() => {
   for (const col of ASSET_COLUMNS) {
     if (col.money) money[col.key] = sumOf(rows, col.key as keyof AssetSummaryRow)
   }
-  // สองช่องนับชิ้นอยู่นอก record เพื่อให้ชนิดยังเป็น number แท้ ๆ (ไม่ใช่ number | null)
+  // สามช่องนับชิ้นอยู่นอก record เพื่อให้ชนิดยังเป็น number แท้ ๆ (ไม่ใช่ number | null)
   // — ป้ายเตือน "มี n ชิ้นที่ยังไม่มีตัวเลขบัญชี" เทียบ > 0 ตรง ๆ ได้โดยไม่ต้องกัน null
   return {
     ...money,
     assets: rows.reduce((sum, r) => sum + r.assets, 0),
     assetsWithoutValue: rows.reduce((sum, r) => sum + r.assetsWithoutValue, 0),
+    assetsNotYetAcquired: rows.reduce((sum, r) => sum + r.assetsNotYetAcquired, 0),
   }
 })
 
@@ -1015,6 +1016,13 @@ const oddJournalRows = computed(
         <p v-if="assetTotals.assetsWithoutValue > 0" class="text-xs text-warning">
           มี {{ assetTotals.assetsWithoutValue }} ชิ้นที่ SAP ยังไม่ส่งตัวเลขบัญชีมา -
           ยอดเงินในตารางไม่ได้รวมชิ้นเหล่านี้
+        </p>
+        <!-- ★ คนละสาเหตุกับป้ายข้างบน ต้องแยกบรรทัด - อันบนคือ "ข้อมูลยังไม่มา" ส่วนอันนี้คือ
+             "ของยังไม่ได้ซื้อ ณ งวดที่เลือก" ซึ่งไม่ใช่ปัญหาของข้อมูล เป็นเรื่องของจุดตัดเวลา
+             และแก้ได้ด้วยการเลื่อนงวดไปข้างหน้า ไม่ใช่รอ sync -->
+        <p v-if="assetTotals.assetsNotYetAcquired > 0" class="text-xs text-warning">
+          มี {{ assetTotals.assetsNotYetAcquired }} ชิ้นที่ยังไม่ได้ซื้อ ณ สิ้นงวด
+          {{ data?.toPeriod }} - นับอยู่ในคอลัมน์ "ชิ้น" แต่ยอดเงินยังเป็น 0
         </p>
         <!-- ★ ข้อความต้องแยกสองสาเหตุ - เดิมเขียนเดาไว้ว่า "ใบกลับรายการ" ทั้งที่สาเหตุจริง
              ที่เจอคือกำลังดูทุกบริษัทอยู่ แล้วรหัสบัญชีที่ UBA กับ UBP ใช้ร่วมกันถูกยุบ

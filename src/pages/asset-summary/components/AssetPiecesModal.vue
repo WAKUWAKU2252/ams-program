@@ -157,6 +157,10 @@ function goPiecesPage(next: number) {
         <span v-if="pieces.totals.assetsWithoutValue" class="text-warning">
           ({{ pieces.totals.assetsWithoutValue }} ชิ้นยังไม่มีตัวเลขบัญชี)
         </span>
+        <!-- แยกจากป้ายข้างบน - "ยังไม่ได้ซื้อ ณ งวดนี้" ไม่ใช่ข้อมูลขาด ดูงวดถัดไปก็มีค่า -->
+        <span v-if="pieces.totals.assetsNotYetAcquired" class="text-warning">
+          ({{ pieces.totals.assetsNotYetAcquired }} ชิ้นยังไม่ได้ซื้อ ณ งวดนี้)
+        </span>
       </p>
 
       <div v-if="piecesError" role="alert" class="alert alert-error alert-soft mt-4">
