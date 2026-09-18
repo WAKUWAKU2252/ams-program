@@ -15,6 +15,10 @@
 // ★ ResizeObserver ไม่ใช่ของแถม - Apex ฟังแค่ resize ของ window (เช็คแล้วใน v7:
 //   ไม่มีคำว่า ResizeObserver ในตัวไลบรารีเลยสักที่) เวลาผู้ใช้พับ Sidebar ความกว้างของ
 //   การ์ดเปลี่ยนแต่ window ไม่เปลี่ยน กราฟจะค้างความกว้างเดิมจนกว่าจะย่อ-ขยายหน้าต่าง
+//
+// ★ ตัวที่ทำให้ observer ข้างล่างมีผลจริงคือ "เรียก update() ไม่ใช่ updateOptions()" ไม่ใช่
+//   ตัว observer เอง — Apex v7 memoize updateOptions ไว้ เหตุผลเต็มอยู่ที่ callback ของ observer
+//   (ส่วน min-w-0 ที่การ์ดฝั่ง Dashboard เป็นแค่กันเหนียว วัดแล้วไม่ใช่สาเหตุของบั๊กนั้น)
 import { onBeforeUnmount, onMounted, ref, watch, type PropType } from 'vue'
 import ApexCharts from 'apexcharts'
 
@@ -114,9 +118,35 @@ onMounted(() => {
     // ยังไม่มีกราฟ = start() ยังทำงานอยู่ ปล่อยให้มันเป็นคนสร้าง จะได้ไม่สร้างซ้อนกันสองตัว
     if (width === 0 || !chart || width === lastWidth) return
     lastWidth = width
-    // updateOptions ด้วยของว่าง = สั่งให้ Apex วัดกล่องใหม่แล้ววาดใหม่โดยไม่แตะ config
-    // (redraw=true, animate=false - ขยับความกว้างแล้วยังเล่นอนิเมชันจะดูเหมือนกราฟค้าง)
-    void chart.updateOptions({}, true, false)
+    /**
+     * ★ **ต้องเป็น update() ห้ามเป็น updateOptions() ไม่ว่าจะส่งอะไรเข้าไป**
+     *
+     * สองเมธอดนี้ต่างกันตรงที่ updateOptions มี memo คั่นอยู่ ส่วน update() ไม่มี
+     * (ดูซอร์ส: update ตรวจ memo เฉพาะเมื่อ `options` truthy - เรียกเปล่าจึงข้ามไปเลย)
+     *
+     * ★ ทำไมไม่ใช่ `updateOptions({})` — Apex v7 memoize ไว้: options ที่ shallowEqual
+     *   กับรอบก่อนจะ `return Promise.resolve(this)` ทิ้งไปเฉย ๆ ไม่วาด ไม่ error
+     *   และ `{}` เท่ากับ `{}` เสมอ = รอบแรกวาด รอบต่อ ๆ ไปเงียบสนิท
+     *   (ตัวไลบรารีเองเขียนไว้ที่ refreshTokens() ว่า "updateOptions({}) is memoized away")
+     *
+     * ★ ทำไมไม่ใช่ `updateOptions({ chart: { width } })` — มันหนีจาก memo ได้ก็จริง
+     *   แต่ **ฝัง width เป็นตัวเลข px ลง config ถาวร** (`chart.width` เปลี่ยนจาก "100%"
+     *   เป็น 500) กราฟจึงหมดความเป็น responsive ของตัวเองทันที ผลคือรอบถัดไปที่ Apex
+     *   วาดเองจาก window resize มันจะวาดที่ px ที่ค้างไว้ ไม่ใช่ขนาดกล่องจริง แล้วค่อยโดน
+     *   observer ตัวนี้ตามมาแก้ = เห็นกราฟกระโดดสองจังหวะ (อาการ "กราฟแท่งวาร์ป")
+     *
+     * วัดจริงกับ apexcharts ที่ลงไว้ (กล่อง 800→500→300→650→300):
+     *   updateOptions({})              500 แล้วค้างที่ 500
+     *   updateOptions({chart:{width}}) ขนาดถูก แต่ cfg.chart.width กลายเป็น 500 (px)
+     *                                  พอ window resize → วาดที่ 500 ทั้งที่กล่อง 300
+     *   update()                       ขนาดถูกทุกรอบ และ cfg.chart.width ยังเป็น "100%"
+     *
+     * ★ ที่ต้อง cast เพราะ apexcharts.d.ts ที่มากับแพ็กเกจประกาศไว้แต่ updateOptions
+     *   ไม่ได้ประกาศ update() ทั้งที่เมธอดมีอยู่จริง (ตรวจในซอร์ส + ทดสอบกับของจริงแล้ว
+     *   ทั้งการวัดขนาดและค่า cfg.chart.width) ถ้าวันหลังอัปเกรดแล้วเมธอดหาย จะไม่มี
+     *   TypeScript คอยเตือน - อาการที่จะเจอคือกราฟกลับไปค้างขนาดเดิมตอนพับเมนู
+     */
+    void (chart as unknown as { update: () => Promise<unknown> }).update()
   })
   observer.observe(el)
 })

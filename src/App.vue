@@ -16,7 +16,7 @@ const statusAlertClass = computed(() => {
     case 'connecting':
       return 'alert-warning'
     default:
-      return 'alert-error'
+      return 'alert-error alert-soft'
   }
 })
 

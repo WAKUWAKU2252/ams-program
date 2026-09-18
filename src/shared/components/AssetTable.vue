@@ -198,7 +198,8 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
           </td>
 
           <td>
-            <span :class="item.holderName ? '' : 'text-base-content/40 italic'">
+            <span class="whitespace-nowrap"
+            :class="item.holderName ? '' : 'text-base-content/40 italic'">
               {{ item.holderName ?? 'ไม่ระบุ' }}
             </span>
           </td>

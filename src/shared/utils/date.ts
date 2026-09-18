@@ -37,6 +37,22 @@ export function formatDate(value: string | null | undefined): string {
 }
 
 /**
+ * เดือน/ปีของงวดบัญชี เช่น '2026-08-31' → 'ส.ค. 69'
+ *
+ * ใช้ติดป้ายตัวเลขที่เป็นของ "งวดเดียว" - ค่าเสื่อมของงวดสุดท้ายห้ามโชว์ลอย ๆ เพราะ
+ * SAP คิดค่าเสื่อมรายวัน เดือน 28 วันกับ 31 วันจึงได้ไม่เท่ากัน คนที่เห็นเลขโดยไม่รู้ว่า
+ * เป็นเดือนไหนจะอ่านเป็นอัตราคงที่แล้วคูณ 12
+ *
+ * รับค่าจากคอลัมน์ date() เหมือน formatDate จึงไม่ต้องผ่าน parseServerTime
+ */
+export function formatMonthYear(value: string | null | undefined): string {
+  if (!value) return NO_VALUE
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return NO_VALUE
+  return d.toLocaleDateString('th-TH', { month: 'short', year: '2-digit' })
+}
+
+/**
  * วันที่ + เวลา - ต้องผ่าน parseServerTime เสมอ
  *
  * ★ ห้ามใช้ new Date(value) ตรง ๆ: backend เก็บเวลาแบบ "wall clock แปะ Z" ซึ่งไม่ใช่ UTC

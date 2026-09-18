@@ -26,6 +26,9 @@ export interface SlotGrpoLine {
   // ใช้กับ PO งานเหมาที่ 1 หน่วยของ SAP = ของหลายชิ้น
   declaredQty: number | null;
   declaredReason: string | null;
+  // ชื่อคนที่แจ้ง (null = ไม่มีการแจ้ง) - มาคู่กับสองช่องบนเสมอ
+  // หน้าบัญชี/การ์ดหัวหน้าต้องบอกได้ว่า "ใครเพิ่มตัวเลขนี้เข้ามา เพราะอะไร" ไม่ใช่แค่ว่าต่างจาก SAP
+  declaredByName: string | null;
   registered: number;
   invoices: InvoiceFile[];
 }
@@ -100,6 +103,13 @@ export type AssetSlot =
 
       grpoLineId: string;
       grpoNo: string; // ← ชิ้นนี้มาจากรอบไหน (asset.grpoLine.grpo.grpoNo) - committed
+      /**
+       * ชิ้นนี้เกินจากจำนวนที่ SAP รับมา = ของที่ผู้ขอเพิ่มเข้ามาเอง (แถวที่ถูกระบายสี)
+       *
+       * ระดับชิ้น ไม่ใช่ระดับบรรทัด - บรรทัดที่ SAP รับ 1 แต่แจ้ง 3 จะมีชิ้นแรกเป็น false
+       * backend เป็นคนตัดสิน ห้ามคำนวณเองฝั่งนี้ ไม่งั้นจอกับอีเมลของหัวหน้าจะระบายคนละชิ้น
+       */
+      declaredExtra: boolean;
       /** ผู้ถือครอง (null = ของกลาง ไม่มีคนถือ) - สูตรชื่อเดียวกับ dropdown ในฟอร์ม */
       employeeName: string | null;
       /** แผนกที่สังกัด - คนละแกนกับผู้ถือครอง ของกลางไม่มีคนถือแต่มีแผนกได้ */
@@ -137,6 +147,15 @@ export type AssetSlot =
        * ไม่ใช่สถานะใหม่ - ชิ้นนี้อยู่ในคิวออกเลขเหมือนชิ้นปกติทุกอย่าง เป็นแค่ป้ายบอกบัญชี
        * ว่า "ตัวนี้เคยสั่งให้แก้ไป ตรวจซ้ำก่อนออกเลข" (backend ล้างให้เองเมื่อออกเลข/ปิดถาวร/ตีกลับซ้ำ)
        */
+      /**
+       * ถูกตีกลับที่ "ตัวชิ้น" (บัญชีตีกลับรายชิ้น) ไม่ใช่เพราะทั้งใบโดนหัวหน้าตีกลับ
+       *
+       * ★ จำเป็นเพราะ displayStatus ยุบสองเคสนี้เป็น 'rejected' เหมือนกัน แต่สั่งงานคนละอย่าง:
+       *     บัญชีตีกลับรายชิ้น  → แก้ได้เฉพาะชิ้นนั้น
+       *     หัวหน้าตีกลับทั้งใบ → กลับไปแก้ได้ทั้งใบ
+       *   rejectedRole ใช้แทนไม่ได้ - FINANCE โผล่ได้ทั้งสองเคส (บัญชีอยู่ใน APPROVER_ROLES ด้วย)
+       */
+      rejectedOnPiece: boolean;
       rejectFixed: boolean;
       cancelReason: string | null;
       cancelledByName: string | null;
@@ -175,6 +194,14 @@ export interface AssetSlotsResponse {
   requestId: number;
   poNumber: string;
   status: AssetRequestStatus;
+  /**
+   * บริษัทเจ้าของใบ (จาก PO) - ไม่ใช่บริษัทของผู้ใช้ที่กำลังกรอก
+   *
+   * ★ ADMIN เปิดใบของบริษัทไหนก็ได้ บริษัทของคนกรอกจึงตอบไม่ได้ว่าแผนกไหนเลือกได้
+   *   ต้องใช้ตัวนี้กรอง dropdown แผนก ไม่งั้นได้แผนกทั้งเครือ (151 แผนก ชื่อซ้ำ 55 ชื่อ)
+   *   แล้วเลือกผิดบริษัทจะไปล้มที่ FK ตอนกดบันทึก
+   */
+  companyCode: string;
   /**
    * เหตุผลที่หัวหน้าตีกลับ - backend ส่งมาเฉพาะตอน status = 'REJECTED' เท่านั้น
    * (ใบที่ส่งใหม่แล้วจะได้ null คืนมา แม้คอลัมน์ใน DB ยังเก็บเหตุผลรอบก่อนไว้เป็นประวัติ)
@@ -421,6 +448,29 @@ export function updateAssetImage(id: number, imageId: string): Promise<{ id: num
   });
 }
 
+/**
+ * PATCH /assets/:id/warranty - แก้ระยะประกันของชิ้นที่ "ลงทะเบียนแล้ว"
+ *
+ * ★ ห้ามใช้ updateAsset() แทน - เหตุผลเดียวกับ updateAssetLocation/Image ข้างบน
+ *   (เส้นนั้นปฏิเสธ REGISTERED ทั้งก้อน ซึ่งคือของแทบทั้งทะเบียน)
+ *
+ * ★ ส่ง null = ล้างวันนั้นทิ้ง / ไม่ส่ง key = ไม่แตะคอลัมน์ - สองอย่างนี้คนละเจตนา
+ *   ฟอร์มที่ล้างช่องแล้วส่ง '' จะกลายเป็น "ไม่ได้แก้" ถ้าไม่แปลงเป็น null ก่อน
+ *
+ * รับเป็น 'YYYY-MM-DD' (ค่าจาก AppDatePicker) - backend เก็บเป็น timestamp แต่ตีความ
+ * สตริงรูปนี้เป็นเที่ยงคืนของวันนั้นได้เอง เหมือนตอนกรอกในใบคำขอ
+ */
+export function updateAssetWarranty(
+  id: number,
+  body: { warrantyStartDate?: string | null; warrantyEndDate?: string | null },
+): Promise<{ id: number }> {
+  return request<{ id: number }>(`/assets/${id}/warranty`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 // ── หน้า My asset ───────────────────────────────────────────────────────────
 
 /**
@@ -433,7 +483,38 @@ export function updateAssetImage(id: number, imageId: string): Promise<{ id: num
 export interface MyAssetAccounting {
   fiscalYear: number;
   bookedCost: number | null;
+  /** ยอดสะสม ณ งวดล่าสุดที่บัญชีปิด - ไม่ใช่ยอดต้นปีดิบ ๆ ที่ SAP ส่งมา */
   accumulatedDepreciation: number | null;
+  /**
+   * ตัวเลขบัญชีก้อนนี้เป็นของ ณ วันไหน - สิ้นงวดล่าสุดที่ SAP โพสต์ค่าเสื่อมแล้ว
+   *
+   * **ห้ามแสดงยอดโดยไม่แสดงวันนี้กำกับ** บัญชีปิดงวดช้ากว่าปฏิทินหลายสัปดาห์เสมอ
+   * (14 ก.ย. 2569 ปิดถึงแค่ 31 ส.ค.) - ก่อนมีช่องนี้ ทั้งระบบแสดงยอด ณ ต้นปีบัญชี
+   * โดยไม่มีอะไรบอก แล้วมูลค่าคงเหลือของ UBA สูงเกินจริง 8,859,171.59 บาท
+   *
+   * null = ยังไม่เคย sync ค่าเสื่อมรายงวดของชิ้นนี้ (คนละเรื่องกับ "ไม่มีค่าเสื่อม")
+   */
+  asOfDate: string | null;
+  /**
+   * ค่าเสื่อมสะสมตั้งแต่ต้นปีบัญชีถึง `asOfDate` - backend รวมงวดให้แล้ว ห้ามบวกเองที่นี่
+   *
+   * null = ยังไม่มีข้อมูลงวดของชิ้นนี้ **ห้ามวาดเป็น 0** (0 แปลว่า "งวดนี้ไม่มีค่าเสื่อม"
+   * ซึ่งคนละเรื่อง) - 2,133 จาก 3,496 แถวยังเป็น null อยู่ตอนนี้
+   */
+  depreciationInPeriod: number | null;
+  /**
+   * ค่าเสื่อมของ**งวดสุดท้ายงวดเดียว** ไม่ใช่อัตราต่อเดือน
+   *
+   * ⚠️ ห้ามติดป้ายว่า "ค่าเสื่อมรายเดือน" เฉย ๆ - SAP คิดรายวัน เดือน 28 วันกับ 31 วัน
+   * ได้ไม่เท่ากัน (ปี 2569: ไม่มีสักชิ้นใน 1,315 ชิ้นที่ทุกเดือนเท่ากัน) คนอ่านจะคูณ 12
+   * แล้วได้เลขผิด - ต้องมีเดือนจาก `lastPeriodEndDate` กำกับบนป้ายเสมอ
+   */
+  lastPeriodDepreciation: number | null;
+  /**
+   * วันสิ้นงวดของ `lastPeriodDepreciation` - ใช้เขียนป้าย ห้ามใช้ `asOfDate` แทน
+   * (ตรงกันแค่ 1,303 จาก 3,496 แถว - ของที่หยุดเสื่อมกลางปีจะไม่ตรง)
+   */
+  lastPeriodEndDate: string | null;
   /** backend คำนวณให้ (bookedCost − accumulatedDepreciation) - ห้ามลบเองที่นี่ */
   netBookValue: number | null;
   salvageValue: number | null;
@@ -518,6 +599,8 @@ export interface AssetByNumberDetail {
   posY: number | null;
 
   departmentName: string | null;
+  /** id ของผู้ถือครอง - กล่องเปลี่ยนผู้ครอบครองใช้เติมค่าตั้งต้น (null = ยังไม่ระบุ) */
+  employeeId: number | null;
   /** null = ทะเบียนยังไม่ระบุผู้ถือครอง (ของเก่าส่วนใหญ่เป็นแบบนี้) */
   holderName: string | null;
   /** วันที่บัญชีคีย์รหัสสินทรัพย์เข้า SAP (OITM.CreateDate) = "วันที่ลงทะเบียน" บนจอ */
@@ -582,6 +665,8 @@ export interface InventoryAccounting {
    * ทุกที่ที่แสดง ไม่งั้นคนจะอ่านเลขปี 2022 เป็นมูลค่าของวันนี้ (กติกาเดียวกับหน้า My asset)
    */
   fiscalYear: number
+  /** มูลค่าคงเหลือเป็นยอด ณ วันไหน - สิ้นงวดล่าสุดที่บัญชีปิด (ดู MyAssetAccounting.asOfDate) */
+  asOfDate: string | null
   /** null = คำนวณไม่ได้ (SAP ให้ตัวเลขมาไม่ครบ) - ต่างจาก 0 ที่แปลว่าตัดค่าเสื่อมครบแล้ว */
   netBookValue: number | null
   /**
@@ -644,6 +729,11 @@ export interface InventoryParams {
   employeeId?: number
   status?: string
   /**
+   * ชั้นบัญชีเต็ม เช่น '1216301-1-220' - เทียบทั้งสตริง ไม่ใช่ prefix
+   * ★ คนที่จำได้แค่ต้นรหัสให้ใช้ช่อง search แทน ซึ่งค้นแบบ contains ให้
+   */
+  assetClass?: string
+  /**
    * ปีบัญชีของตัวเลขที่ sync มา - **ไม่ใช่ปีที่ซื้อ**
    * ★ กรองด้วยตัวนี้แล้ว ชิ้นที่ยังไม่มีตัวเลขบัญชีจะหายจากผลลัพธ์ (เทียบปีไม่ได้)
    */
@@ -694,6 +784,7 @@ export function getAssetInventory(params: InventoryParams = {}): Promise<Paginat
   // 0 = ยังไม่ได้เลือก (AppEmployeeSelect ใช้ 0 แทน "ล้างค่า") จึงตกไปโดยไม่ต้องเช็คเพิ่ม
   if (params.employeeId) query.set('employeeId', String(params.employeeId))
   if (params.status) query.set('status', params.status)
+  if (params.assetClass) query.set('assetClass', params.assetClass)
   // '' = ค่าตั้งต้น ไม่ต้องส่ง key ไป (backend เรียงตามเลขสินทรัพย์ให้อยู่แล้ว)
   if (params.sort) query.set('sort', params.sort)
   // ทิศทางไม่มีความหมายถ้าไม่ได้บอกว่าเรียงตามอะไร - ส่งไปก็ถูกเมินอยู่ดี
@@ -715,5 +806,25 @@ export function getAssetInventory(params: InventoryParams = {}): Promise<Paginat
   const qs = query.toString()
   return request<Paginated<InventoryItem>>(`/assets/inventory${qs ? `?${qs}` : ''}`, {
     method: 'GET',
+  })
+}
+
+/**
+ * PATCH /assets/:id/holder - เปลี่ยนผู้ครอบครองของชิ้นที่ "ลงทะเบียนแล้ว"
+ *
+ * ★ ห้ามใช้ updateAsset() แทน - เหตุผลเดียวกับ updateAssetLocation/Image/Warranty
+ *   (เส้นนั้นปฏิเสธ REGISTERED ทั้งก้อน ซึ่งคือของแทบทั้งทะเบียน)
+ *
+ * ★ ส่ง null = "ไม่มีใครถืออยู่" ซึ่งเป็นสถานะจริง ไม่ใช่การลบข้อมูล
+ *   (ของกลางในห้องประชุม / คนลาออกแล้วยังไม่ส่งมอบ)
+ *
+ * ★ ทุกการเปลี่ยนถูกบันทึกลง asset_activity ฝั่ง backend พร้อมชื่อคนกดและชื่อคนถือ
+ *   ณ ตอนนั้น - หน้าจอไม่ต้องทำอะไรเพิ่ม
+ */
+export function updateAssetHolder(id: number, employeeId: number | null): Promise<{ id: number }> {
+  return request<{ id: number }>(`/assets/${id}/holder`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employeeId }),
   })
 }

@@ -8,8 +8,12 @@ import {
   scheduleTokenExpiry,
   startTokenExpiryMonitor,
 } from './shared/services/auth.token'
-import './assets/main.css'   
+import { initTheme } from './shared/utils/theme'
+import './assets/main.css'
 
+
+// ★ ต้องมาก่อน mount - ตั้ง data-theme ทีหลังจะเห็นจอสว่างวาบแล้วค่อยมืดทุกครั้งที่โหลดหน้า
+initTheme()
 
 const app = createApp(App)
 const pinia = createPinia()

@@ -516,7 +516,38 @@ watch(
 
 const onResize = () => fit();
 window.addEventListener('resize', onResize);
+
+/**
+ * กรอบเปลี่ยนขนาดโดยที่ window ไม่เปลี่ยน — ต้องมี ResizeObserver ไม่ใช่ resize ของ window อย่างเดียว
+ *
+ * fit()/zoomTo() คำนวณจาก el.clientWidth/clientHeight ทั้งคู่ ถ้ากรอบแคบลงแล้วไม่มีใครสั่ง
+ * คำนวณใหม่ ผังจะค้าง scale เดิมไว้ = ภาพเลยขอบกรอบออกไปและหมุดไปโผล่ผิดที่ (พิกัดหมุดเป็น
+ * สัดส่วนของภาพ มันจึงถูก "เสมอ" เทียบกับ transform ที่ค้างอยู่ ไม่มีอะไรฟ้องว่าผิด)
+ *
+ * ★ เคสที่ทำให้จำเป็นคือปุ่มพับ Sidebar - พับ/กางแล้วคอลัมน์ที่ผังอยู่กว้างขึ้น/แคบลงทันที
+ *   โดย window ไม่ขยับสักพิกเซล (เหตุผลชุดเดียวกับที่ AppApexChart ต้องมี observer ของตัวเอง)
+ *
+ * ★ เรียก fit() ไม่ใช่คงมุมกล้องเดิมไว้ - กรอบเปลี่ยนขนาดแล้ว "ตรงกลางจอ" คือคนละจุดกับเดิม
+ *   การพากลับไปเห็นทั้งผังเป็นสถานะที่ผู้ใช้อ่านออกเสมอ ต่างจาก transform ที่เลื่อนไปครึ่งทาง
+ *
+ * ★ สร้างแบบ lazy ตอนมี element จริงแล้ว ไม่ใช่ตอน setup - jsdom ที่ชุดเทสต์ใช้ไม่มี
+ *   ResizeObserver ให้ (ไม่ได้ polyfill ไว้) การ new ตั้งแต่ setup จะโยนทันทีที่ mount
+ */
+let boxObserver: ResizeObserver | null = null;
+watch(
+  viewport,
+  (el, prev) => {
+    if (prev) boxObserver?.unobserve(prev);
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    boxObserver ??= new ResizeObserver(() => fit());
+    boxObserver.observe(el);
+  },
+  { immediate: true },
+);
+
 onBeforeUnmount(() => {
+  boxObserver?.disconnect();
+  boxObserver = null;
   window.removeEventListener('resize', onResize);
   // ถอด listener ของการลากด้วย - ถ้าผู้ใช้สลับหน้าไปทั้งที่ยังกดเมาส์ค้าง สองตัวนั้นจะค้างที่
   // window ตลอดอายุแท็บ แล้วขยับเมาส์ทีไรก็ไปเขียน tx/ty ของ component ที่ตายไปแล้ว

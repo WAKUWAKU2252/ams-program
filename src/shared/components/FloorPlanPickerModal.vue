@@ -188,7 +188,7 @@ function confirm() {
         <div v-if="loading" class="flex flex-1 items-center justify-center">
           <span class="loading loading-spinner loading-lg"></span>
         </div>
-        <div v-else-if="error" role="alert" class="alert alert-error"><span>{{ error }}</span></div>
+        <div v-else-if="error" role="alert" class="alert alert-error alert-soft"><span>{{ error }}</span></div>
 
         <div v-else class="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[16rem_1fr]">
           <FloorPlanRoomList

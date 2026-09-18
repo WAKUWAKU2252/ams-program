@@ -98,7 +98,9 @@ const formattedTime = computed<string>(() => {
 </script>
 
 <template>
-  <span class="inline-flex items-center gap-3 tabular-nums">
+  <!-- whitespace-nowrap: "Thursday 10/9/2569" ต้องอยู่บรรทัดเดียว ไม่ใช่ชื่อวันขึ้นบรรทัด
+       แล้วตัวเลขตกลงไปข้างล่าง (อาการบน navbar ที่ที่ไม่พอ) -->
+  <span class="inline-flex items-center gap-3 whitespace-nowrap tabular-nums">
     <span>{{ formattedDate }}</span>
     <span v-if="showTime" class="text-base-content/60">{{ formattedTime }}</span>
   </span>

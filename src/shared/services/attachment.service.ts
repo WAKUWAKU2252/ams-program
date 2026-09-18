@@ -26,14 +26,6 @@ export interface UploadResult {
   }[];
 }
 
-export interface AttachmentRecord {
-  id: string;
-  name: string;
-  url: string;
-  size: number;
-  uploadedAt: string;
-}
-
 /**
  * อัปโหลดไฟล์แนบ 1 ชนิด (INVOICE หรือ ASSET_IMG) ทันทีที่ผู้ใช้เลือก
  * - field ต้องชื่อ 'entityKind' และ 'files' ตรงกับ uploadBody ฝั่ง backend เป๊ะ
@@ -65,13 +57,3 @@ export async function fileBlobUrl(fileId: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-/**
- * ถามรายการไฟล์แนบของ record - ยังไม่มี endpoint ฝั่ง backend (attachment ไม่รู้จักเจ้าของ
- * ฝั่งเจ้าของถือ FK ชี้เข้ามา จึงต้องดึงผ่าน entity นั้น ๆ เช่น GET /assets, GET /grpo)
- * คง interface ไว้ แต่ยังต่อไม่ได้ - โยน error ชัด ๆ กันเผลอเรียกแล้วยิง path ที่ไม่มีจริง
- */
-export function getAttachments(_recordType: string, _recordId: string): Promise<AttachmentRecord[]> {
-  return Promise.reject(
-    new Error('getAttachments ยังไม่รองรับ: ดึงไฟล์แนบผ่าน entity เจ้าของแทน (เช่น GET /assets, GET /grpo)'),
-  );
-}

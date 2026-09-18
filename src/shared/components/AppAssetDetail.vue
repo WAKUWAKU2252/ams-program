@@ -24,13 +24,15 @@ import { Icon } from '@iconify/vue'
 import QRCode from 'qrcode'
 import AppAssetLocationMap from './AppAssetLocationMap.vue'
 import FloorPlanPickerModal from './FloorPlanPickerModal.vue'
+import AssetHolderDialog from './AssetHolderDialog.vue'
 import AssetImageDialog from './AssetImageDialog.vue'
+import AssetWarrantyDialog from './AssetWarrantyDialog.vue'
 import { getAssetByNumber, updateAssetLocation } from '@/shared/services/asset.service'
 import type { AssetByNumberDetail } from '@/shared/services/asset.service'
 import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service'
 import { fileBlobUrl } from '@/shared/services/attachment.service'
 import { ApiError } from '@/shared/services/httpClient'
-import { formatDate, formatDateTime } from '@/shared/utils/date'
+import { formatDate, formatDateTime, formatMonthYear } from '@/shared/utils/date'
 import { formatMoney, formatMonths, showRawMonths } from '@/shared/utils/money'
 
 /**
@@ -92,8 +94,9 @@ const props = withDefaults(
      * ของชิ้นนั้นได้ทันที - และ PATCH /assets/:id/location อยู่หลัง authGuard อยู่แล้ว
      * เขาจึงได้แค่ปุ่มที่กดแล้ว 401 เด้งไป /login ซึ่งเป็นอาการที่หน้านั้นตั้งใจกันไว้แต่แรก
      *
-     * ★ หน้า Audit ตั้งใจไม่เปิด - คนตรวจนับต้องบันทึกว่า "เจอของตรงไหน" ผ่านทางเดินของ
-     *   การตรวจนับ ไม่ใช่แก้ทะเบียนกลางคันจากในกล่องรายละเอียด
+     * ★ หน้า Audit ส่งค่าตาม role - ผู้ตรวจภายนอก (AUDIT) ไม่เปิด เพราะเขาต้องบันทึกว่า
+     *   "เจอของตรงไหน" ผ่านทางเดินของการตรวจนับ ไม่ใช่แก้ทะเบียนกลางคันจากในกล่องรายละเอียด
+     *   ส่วนผู้ตรวจภายใน (FINANCE/ADMIN) เป็นเจ้าของทะเบียนเอง จึงเปิดให้แก้
      */
     editableLocation?: boolean
     /**
@@ -104,13 +107,51 @@ const props = withDefaults(
      *   เปลี่ยนรูปของชิ้นนั้น
      *
      * ★ แยกตัวกับ editableLocation ไม่รวมเป็น prop เดียว - สองอย่างนี้เป็นคนละการตัดสินใจ
-     *   (หน้า Audit ปิดที่ตั้งไว้เพราะคนตรวจนับต้องบันทึกว่าเจอของตรงไหนผ่านทางเดินของ
-     *   การตรวจนับ ซึ่งเป็นเหตุผลที่ไม่เกี่ยวกับรูปเลย) รวมเมื่อไหร่คือมัดสองเรื่องที่
+     *   (หน้า Audit ปิดที่ตั้งกับผู้ตรวจภายนอกเพราะเขาต้องบันทึกว่าเจอของตรงไหนผ่านทางเดิน
+     *   ของการตรวจนับ ซึ่งเป็นเหตุผลที่ไม่เกี่ยวกับรูปเลย) รวมเมื่อไหร่คือมัดสองเรื่องที่
      *   เปลี่ยนคนละจังหวะไว้ด้วยกัน
      */
     editableImage?: boolean
+    /**
+     * เปิดให้แก้ระยะประกันจากกล่องนี้หรือไม่
+     *
+     * ★ ค่าตั้งต้นต้องเป็น false ด้วยเหตุผลเดียวกับสองตัวข้างบน - หน้า QR
+     *   (AssetByNumberPage) เปิดได้โดยไม่ต้องล็อกอิน คนที่สแกนสติกเกอร์ต้องไม่มีปุ่มแก้
+     *
+     * ★ **หน้า Audit เปิดเฉพาะผู้ตรวจภายใน (FINANCE/ADMIN)** - ผู้ตรวจภายนอก (AUDIT) ตอบว่า
+     *   "เจอของตรงไหน สภาพยังไง" ไม่ใช่คนที่ถือใบรับประกันจากผู้ขาย และ role AUDIT ก็ยิง
+     *   PATCH /assets/:id/warranty ไม่ได้อยู่แล้ว (auditScopeGuard allowlist มีแค่ location)
+     *   ปุ่มที่กดแล้ว 403 คือปุ่มที่ไม่ควรมี
+     *
+     * ★ แยกตัวกับ editableLocation/editableImage ไม่รวมเป็น prop เดียว - สามอย่างนี้เป็น
+     *   คนละการตัดสินใจและเปิด/ปิดคนละจังหวะ (Audit ปิดที่ตั้งกับผู้ตรวจภายนอกเพราะต้องบันทึก
+     *   ผ่านทางเดินของการตรวจนับ ซึ่งเป็นเหตุผลที่ไม่เกี่ยวกับประกันเลย)
+     */
+    editableWarranty?: boolean
+    /**
+     * เปิดให้เปลี่ยนผู้ครอบครองจากกล่องนี้หรือไม่
+     *
+     * ★ ค่าตั้งต้นต้องเป็น false ด้วยเหตุผลเดียวกับสามตัวข้างบน - หน้า QR เปิดได้โดยไม่ต้อง
+     *   ล็อกอิน คนที่สแกนสติกเกอร์ต้องไม่มีทางเปลี่ยนว่าของเป็นของใคร
+     *
+     * ★ **หน้า Audit ปิดสำหรับผู้ตรวจภายนอก (AUDIT)** ด้วยเหตุผลเดียวกับประกัน: role AUDIT
+     *   ยิง PATCH /assets/:id/holder ไม่ได้อยู่แล้ว (auditScopeGuard allowlist มีแค่ location)
+     *   ปุ่มที่กดแล้ว 403 คือปุ่มที่ไม่ควรมี
+     *
+     * ★ ช่องนี้ AMS เป็นเจ้าของขาดตั้งแต่ถอด employeeId ออกจาก set: ของ SAP connector
+     *   แก้แล้วอยู่ถาวร ไม่ถูก sync ทับเหมือนเมื่อก่อน (ดู updateAssetHolderBody ฝั่ง backend)
+     */
+    editableHolder?: boolean
   }>(),
-  { qrCode: null, active: true, layout: 'modal', editableLocation: false, editableImage: false },
+  {
+    qrCode: null,
+    active: true,
+    layout: 'modal',
+    editableLocation: false,
+    editableImage: false,
+    editableWarranty: false,
+    editableHolder: false,
+  },
 )
 
 const emit = defineEmits<{
@@ -249,7 +290,8 @@ const locationError = ref('')
 /**
  * โชว์ปุ่ม/ต่อกล่องเลือกสถานที่หรือไม่ - สามเงื่อนไข ไม่ใช่แค่ prop
  *
- *   editableLocation  หน้านั้นเปิดให้แก้ไหม (Audit กับหน้า QR ไม่เปิด)
+ *   editableLocation  หน้านั้นเปิดให้แก้ไหม (หน้า QR ไม่เปิดเลย ส่วนหน้า Audit เปิดตาม
+ *                     role - ผู้ตรวจภายใน FINANCE/ADMIN แก้ได้ ผู้ตรวจภายนอก AUDIT ไม่ได้)
  *   detail            ต้องมีก่อน - ปุ่มใช้ detail.id ยิง PATCH และใช้ค่าเดิมไปปักหมุดตั้งต้น
  *   !locationOutPlan  ★ ของที่สถานที่ทางบัญชีอยู่นอกผังไซต์นี้ (ต่างประเทศ/สาขาอื่น)
  *
@@ -271,6 +313,21 @@ const canEditLocation = computed(
 // ★ ต้องมี detail ก่อน - กล่องต้องใช้ detail.id ยิง PATCH
 const imageDialogOpen = ref(false)
 const canEditImage = computed(() => props.editableImage && !!detail.value)
+
+// ── เปลี่ยนผู้ครอบครอง (editableHolder) ─────────────────────────────────────
+//
+// ★ ต้องมี detail ก่อน - กล่องต้องใช้ detail.id ยิง PATCH และ employeeId ไปเติมตัวเลือก
+// ★ ไม่เช็ค lifecycle ที่นี่: backend ปฏิเสธชิ้นที่ยังไม่ลงทะเบียนพร้อมข้อความที่บอกว่า
+//   ให้ไปแก้ที่ไหนแทน ซึ่งอ่านแล้วทำต่อได้มากกว่าปุ่มที่หายไปเฉย ๆ
+const holderDialogOpen = ref(false)
+const canEditHolder = computed(() => props.editableHolder && !!detail.value)
+
+/** เปลี่ยนผู้ครอบครองแล้ว - โหลดใหม่ทั้งก้อนเพื่อให้ชื่อบนจอตรงกับของจริง */
+async function onHolderSaved() {
+  await load()
+  // ตาราง/ผังที่โชว์คอลัมน์ผู้ครอบครองอยู่ข้างหลังต้องรู้ด้วย ไม่งั้นยังขึ้นชื่อเดิม
+  emit('updated')
+}
 
 /**
  * เปิดกล่องแก้รูปจากในรูปเต็มจอ - ต้องปิดรูปเต็มจอก่อน
@@ -321,6 +378,31 @@ async function onPickLocation(value: { subLocationId: number; posX: number; posY
     savingLocation.value = false
   }
 }
+
+// ── แก้ระยะประกัน (เปิดด้วย prop editableWarranty) ───────────────────────────
+//
+// ★ ทำไมต้องมีตรงนี้: ก่อนออกเลข วันประกันกรอกได้ในกล่องรายละเอียดของใบคำขอ แต่หลัง
+//   ออกเลขแล้ว PATCH /assets/:id ปิดทุกช่อง — ของที่เพิ่งได้ใบรับประกันจากผู้ขายทีหลัง
+//   จึงไม่มีทางบันทึกเลย เส้น /warranty มีไว้เพื่อเคสนี้โดยเฉพาะ
+//
+// ★ ตัวฟอร์มกับการยิง PATCH อยู่ใน AssetWarrantyDialog ทั้งก้อน — ที่นี่เหลือแค่ "เปิดกล่อง"
+//   กับ "โหลดใหม่เมื่อบันทึกเสร็จ" (โครงเดียวกับ AssetImageDialog ที่อยู่ข้าง ๆ กัน)
+const warrantyDialogOpen = ref(false)
+
+async function onWarrantySaved() {
+  await load()
+  // หน้าที่โชว์ป้าย "อยู่ในประกัน/หมดประกัน" ในตารางอยู่ต้องรู้ด้วย
+  emit('updated')
+}
+
+/**
+ * ปิดกล่องเมื่อสลับไปดูชิ้นอื่น - ไม่งั้นกล่องที่เปิดค้างอยู่จะชี้ไปชิ้นเก่าแล้วกดบันทึก
+ * ทับได้โดยไม่มีอะไรเตือน (เคสจริงของหน้า QR ที่สแกนชิ้นถัดไปทั้งที่หน้ายังเปิดอยู่)
+ */
+watch(
+  () => detail.value?.id,
+  () => (warrantyDialogOpen.value = false),
+)
 
 // โหลดเมื่อ "เริ่มมองเห็น" หรือ "ของที่ชี้อยู่เปลี่ยน" - อย่างหลังคือเคสของหน้า QR
 // ที่คนสแกนชิ้นถัดไปทั้งที่ยังเปิดหน้าเดิมค้างอยู่ (เปลี่ยนแค่ route param component
@@ -457,10 +539,8 @@ defineExpose({ reload: load })
          page  = รูปวางบนเต็มความกว้างเมื่อจอแคบ ผังย้ายลงไปเป็น section ข้างล่าง
                  (หน้านี้เปิดจากการสแกนสติกเกอร์ = จอมือถือเสมอ บังคับรูป 16rem นั่งข้าง
                   ข้อความบนจอ 375px จะเหลือที่ให้ข้อความไม่ถึง 10rem แล้วบีบจนอ่านไม่ออก) -->
-    <div
-      class="flex gap-4 text-left"
-      :class="layout === 'page' ? 'flex-col sm:flex-row sm:items-start' : 'items-start'"
-    >
+    <div class="flex gap-4 text-left"
+      :class="layout === 'page' ? 'flex-col sm:flex-row sm:items-start' : 'items-start'">
       <!-- ★ grid-rows-1 ไม่ใช่ของประดับ - ไม่มีมันรูปที่ "สูงกว่ากล่อง" จะล้นออกไปแล้วโดน
            overflow-hidden เฉือน เหลือให้เห็นแค่ส่วนบนของรูป (อาการ "รูปมาไม่ครบครึ่งเดียว"
            บนมือถือ)
@@ -477,28 +557,25 @@ defineExpose({ reload: load })
            แล้ว object-cover ถึงจะทำงานตามที่ตั้งใจ - ไอคอนตอนไม่มีรูปยังกลางกล่องเหมือนเดิม
 
            ⚠️ กล่องรูปย่อที่ AssetTable.vue / FloorPlanAssetList.vue เขียนแพตเทิร์นเดียวกัน
-              (grid + place-items-center + img size-full) จึงเป็นอาการเดียวกัน วัดแล้วได้
-              44px -> 79px และ 48px -> 86px ถ้าจะแก้ต้องเติม grid-rows-1 แบบเดียวกัน -->
+              (grid + place-items-center + img size-full) จึงเคยเป็นอาการเดียวกัน วัดแล้วได้
+              44px -> 79px และ 48px -> 86px — **เติม grid-rows-1 ให้ทั้งสองที่แล้ว** ที่ไหน
+              เขียนแพตเทิร์นนี้เพิ่มต้องเติมด้วยเสมอ ไม่งั้นได้อาการเดิมกลับมา -->
       <!-- ★ ไม่มีรูป + จอแคบ = กล่องเตี้ยลง (h-48 -> h-24)
            หน้า QR เปิดบนมือถือเป็นหลัก กล่องเปล่าสูง 192px กินจอแรกไปเกือบ 1/4 เพื่อโชว์
            ไอคอน "ไม่มีรูป" อันเดียว ทั้งที่สิ่งที่คนสแกนมาต้องการเห็นก่อนคือเลขสินทรัพย์
            กับที่ตั้ง - ยังเหลือความสูงพอให้กดแนบรูปได้ (เป้ากดใหญ่กว่า 44px ตามเกณฑ์)
            ★ ไม่ซ่อนทั้งกล่อง: ปุ่มแนบรูปอยู่ในนี้ ซ่อนแล้วคนที่อยากเติมรูปจะไม่มีทางเข้า
            ★ sm: ขึ้นไปและโหมด modal ใช้ขนาดเดิมทุกอย่าง - desktop ไม่กระทบ -->
-      <div
-        class="grid grid-rows-1 shrink-0 place-items-center overflow-hidden rounded-lg bg-base-200"
-        :class="
-          layout === 'page'
-            ? imageUrl
-              ? 'h-48 w-full sm:size-56'
-              : 'h-24 w-full sm:size-56'
-            : 'size-64'
-        "
-      >
+      <div class="grid grid-rows-1 shrink-0 place-items-center overflow-hidden rounded-lg bg-base-200" :class="layout === 'page'
+        ? imageUrl
+          ? 'h-48 w-full sm:size-56'
+          : 'h-24 w-full sm:size-56'
+        : 'size-64'
+        ">
         <!-- กดที่รูปเพื่อดูเต็มจอ - ปุ่มเป็นลูกของ grid แทนรูป จึงยังได้ความสูงจาก
              grid-rows-1 เหมือนเดิม แล้วรูปข้างในเกาะความสูงของปุ่มต่ออีกชั้น -->
-        <button v-if="imageUrl" type="button" class="group relative size-full cursor-zoom-in"
-          title="กดเพื่อดูรูปเต็มจอ" @click="lightboxOpen = true">
+        <button v-if="imageUrl" type="button" class="group relative size-full cursor-zoom-in" title="กดเพื่อดูรูปเต็มจอ"
+          @click="lightboxOpen = true">
           <img :src="imageUrl" :alt="head.description ?? head.assetNumber"
             class="size-full object-cover transition-transform duration-200 group-hover:scale-105" />
           <span
@@ -516,13 +593,9 @@ defineExpose({ reload: load })
         <!-- ── ยังไม่มีรูป ────────────────────────────────────────────────────
              เปิดให้แก้ = กล่องเปล่ากลายเป็นปุ่มทั้งกล่อง (เป้าใหญ่ กดง่ายบนมือถือ)
              ไม่เปิด = ไอคอนเฉย ๆ เหมือนเดิม ไม่ใช่ปุ่มที่กดแล้วไม่มีอะไรเกิดขึ้น -->
-        <button
-          v-else-if="canEditImage"
-          type="button"
+        <button v-else-if="canEditImage" type="button"
           class="group grid size-full grid-rows-1 place-items-center gap-1 transition-colors hover:bg-base-300"
-          title="กดเพื่อแนบรูปสินทรัพย์"
-          @click="imageDialogOpen = true"
-        >
+          title="กดเพื่อแนบรูปสินทรัพย์" @click="imageDialogOpen = true">
           <span class="flex flex-col items-center gap-1.5 text-base-content/40 group-hover:text-base-content/70">
             <Icon icon="lucide:image-plus" class="size-8" />
             <span class="text-xs">แนบรูป</span>
@@ -561,35 +634,34 @@ defineExpose({ reload: load })
              จะกลายเป็นป้ายที่สี่ที่ตากวาดข้าม
              ★ ขึ้นแม้ตอนไม่มีข้อมูล - "ไม่มีใครถือ" เป็นคำตอบที่คนตรวจนับต้องรู้
                ไม่ใช่ช่องที่หายไปเฉย ๆ (ต่างจาก badge ใน modal ที่ซ่อนไปเมื่อไม่มีค่า) -->
-        <div
-          v-if="layout === 'page'"
-          class="mt-2 flex w-full items-center gap-2.5 rounded-box border border-base-300 bg-base-200/50 px-3 py-2"
-        >
-          <div
-            class="grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold"
-            :class="
-              detail?.holderName
-                ? 'bg-primary/10 text-primary'
-                : 'bg-base-300 text-base-content/40'
-            "
-          >
+        <div v-if="layout === 'page'"
+          class="mt-2 flex w-full items-center gap-2.5 rounded-box border border-base-300 bg-base-200/50 px-3 py-2">
+          <div class="grid size-9 shrink-0 place-items-center rounded-full text-sm font-semibold" :class="detail?.holderName
+            ? 'bg-primary/10 text-primary'
+            : 'bg-base-300 text-base-content/40'
+            ">
             <!-- ตัวอักษรแรกของชื่อ - ชื่อไทยขึ้นต้นด้วยพยัญชนะเสมอ ตัดด้วย code point
                  ไม่ใช่ [0] เพื่อไม่ให้ตัวที่เป็น surrogate pair แตกครึ่ง -->
-            <Icon  icon="lucide:user-round" class="size-4" />
+            <Icon icon="lucide:user-round" class="size-4" />
           </div>
 
-          <div class="min-w-0">
+          <div class="min-w-0 flex-1">
             <p class="text-[0.65rem] font-medium tracking-wide text-base-content/50 uppercase">
               ผู้ครอบครอง
             </p>
-            <p
-              class="truncate text-sm"
-              :class="detail?.holderName ? 'font-medium' : 'text-base-content/50'"
-              :title="detail?.holderName ?? ''"
-            >
+            <p class="truncate text-sm" :class="detail?.holderName ? 'font-medium' : 'text-base-content/50'"
+              :title="detail?.holderName ?? ''">
               {{ detail?.holderName || 'ทะเบียนยังไม่ระบุ' }}
             </p>
           </div>
+
+          <!-- ★ ปุ่มอยู่ในกล่องเดียวกับชื่อ ไม่ใช่ลอยอยู่ข้างนอก - คนที่อ่านชื่อแล้วเห็นว่า
+               ไม่ตรงกับความจริงคือคนเดียวกับที่จะกดแก้ ระยะทางระหว่างสองอย่างนี้ควรสั้นที่สุด -->
+          <button v-if="canEditHolder" type="button" class="btn btn-ghost btn-xs shrink-0 gap-1"
+            @click="holderDialogOpen = true">
+            <Icon icon="lucide:user-round-cog" class="size-3.5" />
+            เปลี่ยน
+          </button>
         </div>
 
         <!-- ผังใน modal อยู่ที่เดิม: ในคอลัมน์ขวา กินที่ที่เหลือจนจบเส้นเดียวกับรูป
@@ -606,24 +678,15 @@ defineExpose({ reload: load })
             <!-- ปุ่มอยู่ในแถวป้าย ไม่ใช่ทับบนผัง - มุมขวาบนของผังเป็นที่ของปุ่ม +/−/ดูทั้งผัง
                  ของ FloorPlanMap อยู่แล้ว (ทับเมื่อไหร่คือกดชนกันบนมือถือ)
                  ★ ต้องมี detail ก่อน - ปุ่มต้องใช้ detail.id ยิง PATCH และค่าเดิมไปปักหมุด -->
-            <button
-              v-if="canEditLocation && detail"
-              type="button"
-              class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1"
-              :disabled="savingLocation"
-              @click="pickerOpen = true"
-            >
+            <button v-if="canEditLocation && detail" type="button" class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1"
+              :disabled="savingLocation" @click="pickerOpen = true">
               <span v-if="savingLocation" class="loading loading-spinner loading-xs" />
               <Icon v-else icon="lucide:map-pin-plus" class="size-3.5" />
               {{ detail.subLocationId ? 'แก้ที่ตั้ง' : 'ระบุที่ตั้ง' }}
             </button>
           </div>
 
-          <AppAssetLocationMap
-            :detail="detail"
-            :plans="plans"
-            map-class="min-h-0 w-full flex-1"
-          />
+          <AppAssetLocationMap :detail="detail" :plans="plans" map-class="min-h-0 w-full flex-1" />
 
           <div v-if="locationError" role="alert" class="alert alert-error alert-soft shrink-0 py-1.5">
             <span class="text-xs">{{ locationError }}</span>
@@ -632,15 +695,11 @@ defineExpose({ reload: load })
       </div>
     </div>
 
-    <!-- ── เนื้อหา ─────────────────────────────────────────────────────
-         min-h กันกล่องกระโดดตอนสลับจากตัวหมุนเป็นเนื้อหาจริง -->
     <div class="min-h-[18rem] py-4 text-left">
       <div v-if="loading" class="flex h-72 items-center justify-center">
         <span class="loading loading-spinner loading-lg" />
       </div>
 
-      <!-- สแกนติดแต่ไม่มีในทะเบียน - ต้องบอกเลขที่สแกนได้ด้วย ไม่งั้นคนหน้างานรายงานต่อไม่ได้
-           และต้องแยกจาก error อื่นให้ชัด เพราะสองอย่างนี้แก้คนละทางกันสิ้นเชิง -->
       <div v-else-if="notFound" class="py-12 text-center">
         <Icon icon="mdi:tag-off-outline" class="mx-auto size-14 text-warning opacity-70" />
         <h1 class="mt-3 text-xl font-semibold">ไม่พบสินทรัพย์เลขนี้ในระบบ</h1>
@@ -655,30 +714,16 @@ defineExpose({ reload: load })
       </div>
 
       <div v-else-if="detail" class="space-y-5">
-        <!-- ── ผัง (เฉพาะโหมด page) ─────────────────────────────────────────
-             เต็มความกว้างข้างล่างหัว ไม่ใช่บีบอยู่ข้างรูป - บนมือถือผังกว้าง 10rem
-             ซูมยังไงก็อ่านไม่ออก และนี่คือคำถามหลักของคนที่เพิ่งสแกนสติกเกอร์
-             (ใน modal ผังยังอยู่ในหัวเหมือนเดิม จอกว้างพออยู่แล้ว) -->
         <section v-if="layout === 'page'">
-          <h4
-            class="mb-2 flex items-center gap-1.5 text-xs font-bold tracking-wide text-base-content uppercase"
-          >
+          <h4 class="mb-2 flex items-center gap-1.5 text-xs font-bold tracking-wide text-base-content uppercase">
             <Icon icon="lucide:map-pin" class="size-3.5" />
             ที่ตั้ง
             <span class="ml-1 normal-case opacity-60">
               {{ detail.subLocationName || detail.locationName }}
             </span>
 
-            <!-- โหมด page คือหน้าปลายทาง QR ซึ่งส่ง editableLocation มาเป็น false เสมอ
-                 (คนสแกนยังไม่ได้ล็อกอิน) ปุ่มจึงไม่เคยขึ้นจริงวันนี้ - เขียนไว้เพื่อให้
-                 สองโหมดมีความสามารถเท่ากัน ใครเปิด prop ให้หน้าเต็มวันหลังจะได้ไม่ต้องมาไล่เติม -->
-            <button
-              v-if="canEditLocation"
-              type="button"
-              class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1 normal-case"
-              :disabled="savingLocation"
-              @click="pickerOpen = true"
-            >
+            <button v-if="canEditLocation" type="button" class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1 normal-case"
+              :disabled="savingLocation" @click="pickerOpen = true">
               <span v-if="savingLocation" class="loading loading-spinner loading-xs" />
               <Icon v-else icon="lucide:map-pin-plus" class="size-3.5" />
               {{ detail.subLocationId ? 'แก้ที่ตั้ง' : 'ระบุที่ตั้ง' }}
@@ -712,7 +757,16 @@ defineExpose({ reload: load })
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">ผู้ครอบครอง</dt>
-              <dd>{{ detail.holderName ?? '-' }}</dd>
+              <!-- ★ ปุ่มอยู่ในแถวเดียวกับค่า ไม่ใช่รวมไว้ท้ายกล่อง - รายการนี้ยาวสิบกว่าแถว
+                   ปุ่มที่อยู่ไกลจากค่าที่มันแก้ทำให้ต้องกวาดสายตาหาว่ามันแก้บรรทัดไหน -->
+              <dd class="flex min-w-0 items-center gap-1">
+                <span class="truncate">{{ detail.holderName ?? '-' }}</span>
+                <button v-if="canEditHolder" type="button"
+                  class="btn btn-ghost btn-xs shrink-0 px-1" aria-label="เปลี่ยนผู้ครอบครอง"
+                  @click="holderDialogOpen = true">
+                  <Icon icon="lucide:user-round-cog" class="size-3.5" />
+                </button>
+              </dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">Asset class</dt>
@@ -733,9 +787,9 @@ defineExpose({ reload: load })
                  เมื่อรหัสเดียวอยู่หลายบรรทัด และวางอยู่เหนือ "ราคาทุน" ที่เป็นคนละเลข
                  ทำให้คนอ่านไม่รู้ว่าจะเชื่ออันไหน - ราคาที่ถูกคือ "ราคาทุน" ในส่วน
                  มูลค่าทางบัญชีข้างล่าง (ครอบ 99.4% ของทะเบียน) -->
-                             <div class="flex justify-between gap-3">
+            <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">สถานที่จาก SAP</dt>
-              <dd>{{ detail.locationName?? '-' }}</dd>
+              <dd>{{ detail.locationName ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-1 ">
               <dt class="text-base-content/60">ระยะประกัน</dt>
@@ -745,6 +799,13 @@ defineExpose({ reload: load })
                   :class="warrantyExpired ? 'badge-error' : 'badge-success'">
                   {{ warrantyExpired ? 'หมดประกันแล้ว' : 'อยู่ในประกัน' }}
                 </span>
+                <!-- ปุ่มแก้อยู่ในบรรทัดเดียวกับค่า ไม่ใช่ปุ่มลอยท้ายการ์ด - คนที่เห็นว่าวัน
+                     ประกันผิดกำลังมองบรรทัดนี้อยู่พอดี ★ โผล่เฉพาะหน้าที่เปิด editableWarranty
+                     (หน้า QR สาธารณะไม่เปิด ส่วนหน้า Audit เปิดตาม role ดูคอมเมนต์ที่ prop) -->
+                <button v-if="editableWarranty" type="button" class="btn btn-ghost btn-xs btn-square"
+                  title="แก้ระยะประกัน" @click="warrantyDialogOpen = true">
+                  <Icon icon="lucide:pencil" class="size-3.5" />
+                </button>
               </dd>
             </div>
           </dl>
@@ -758,12 +819,19 @@ defineExpose({ reload: load })
             <h4 class="text-xs font-semibold tracking-wide text-base-content uppercase">
               มูลค่าทางบัญชี
             </h4>
-            <span v-if="detail.accounting" class="badge badge-xs"
-              :class="isStale ? 'badge-warning ' : 'badge-ghost'">
+            <span v-if="detail.accounting" class="badge badge-xs" :class="isStale ? 'badge-warning ' : 'badge-ghost'">
               ปีบัญชี {{ detail.accounting.fiscalYear }}
             </span>
             <!-- ★ ป้ายนี้ห้ามตัดทิ้ง - 25% ของทะเบียนเป็นตัวเลขของปีเก่า (วัด 2026-08-20)
                  ถ้าไม่บอก คนจะอ่านยอดปี 2022 เป็นมูลค่าของวันนี้ -->
+
+            <span v-if="detail.accounting?.asOfDate" class="badge badge-ghost badge-xs">
+              ณ {{ formatDate(detail.accounting.asOfDate) }}
+            </span>
+            <!-- ★ ป้ายนี้ห้ามตัดทิ้งเช่นกัน - ค่าเสื่อมสะสม/มูลค่าคงเหลือเป็นยอด ณ งวดที่
+                 บัญชีปิดล่าสุด ซึ่งช้ากว่าปฏิทินเสมอ (14 ก.ย. 2569 ปิดถึงแค่ 31 ส.ค.)
+                 ก่อนมีป้ายนี้ ทั้งระบบแสดงยอด ณ ต้นปีบัญชีโดยไม่มีอะไรบอก แล้วมูลค่า
+                 คงเหลือของ UBA สูงเกินจริง 8,859,171.59 บาท -->
 
           </div>
 
@@ -789,6 +857,35 @@ defineExpose({ reload: load })
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">มูลค่าซาก</dt>
               <dd class="tabular-nums">{{ formatMoney(detail.accounting.salvageValue) }}</dd>
+            </div>
+            <!-- ── ค่าเสื่อมของงวด ────────────────────────────────────────
+                 ทั้งสองช่องเป็นยอดที่ SAP ลงบัญชีแล้ว (มีเลขใบสำคัญกำกับทุกงวด)
+                 backend รวมงวดให้แล้ว - ห้ามบวก/หาร/เฉลี่ยอะไรเพิ่มที่นี่ -->
+            <div class="flex justify-between gap-3">
+              <dt class="text-base-content/60">ค่าเสื่อมในงวด</dt>
+              <dd class="tabular-nums">
+                {{ formatMoney(detail.accounting.depreciationInPeriod) }}
+              </dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <!-- ★ ป้ายต้องพก "เดือนไหน" ไปด้วยเสมอ ห้ามเขียนแค่ "ค่าเสื่อมรายเดือน"
+                   SAP คิดค่าเสื่อมรายวัน ก.พ. 28 วันจึงน้อยกว่าเดือน 31 วันเสมอ (วัดปี
+                   2569: ไม่มีสักชิ้นใน 1,315 ชิ้นที่ทุกเดือนเท่ากัน ต่างกันสูงสุด 7,456 บาท)
+                   ถ้าเขียนว่า "รายเดือน" คนจะเอาไปคูณ 12 แล้วได้เลขที่ไม่ตรงกับบัญชี
+                   ★ และต้องใช้ lastPeriodEndDate ไม่ใช่ asOfDate - ของที่หยุดเสื่อมกลางปี
+                   มีงวดสุดท้ายเป็นเดือนก่อนหน้า (ตรงกันแค่ 1,303 จาก 3,496 แถว) -->
+              <!-- ไม่มีวันงวด = ยังไม่มีข้อมูลงวดของชิ้นนี้ ป้ายถอยไปเป็นคำกลาง ๆ
+                   ("ค่าเสื่อมงวด -" อ่านเหมือนข้อมูลเสีย ทั้งที่แค่ยังไม่ได้ดึง) -->
+              <dt class="text-base-content/60">
+                {{
+                  detail.accounting.lastPeriodEndDate
+                    ? `ค่าเสื่อมงวด ${formatMonthYear(detail.accounting.lastPeriodEndDate)}`
+                    : 'ค่าเสื่อมงวดล่าสุด'
+                }}
+              </dt>
+              <dd class="tabular-nums">
+                {{ formatMoney(detail.accounting.lastPeriodDepreciation) }}
+              </dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">อายุการใช้งาน</dt>
@@ -829,25 +926,17 @@ defineExpose({ reload: load })
         <!-- ── QR สำหรับติดตัวเครื่อง ────────────────────────────────────
              โผล่เฉพาะหน้าที่ส่ง qrCode เข้ามา และเฉพาะชิ้นที่มีค่านั้นจริง
              (ไม่มีเลข = ไม่มี QR = ไม่มีอะไรให้ชี้ถึง) -->
-        <section
-          v-if="qrCode"
-          class="flex flex-wrap items-center gap-4 rounded-box border border-base-300 bg-base-200/60 p-3"
-        >
-          <img
-            v-if="qrDataUrl"
-            :src="qrDataUrl"
-            :alt="`QR ของ ${detail.assetNumber}`"
-            class="size-28 shrink-0 rounded bg-white p-1"
-          />
+        <section v-if="qrCode"
+          class="flex flex-wrap items-center gap-4 rounded-box border border-base-300 bg-base-200/60 p-3">
+          <img v-if="qrDataUrl" :src="qrDataUrl" :alt="`QR ของ ${detail.assetNumber}`"
+            class="size-28 shrink-0 rounded bg-white p-1" />
           <!-- วาดไม่สำเร็จก็ยังต้องเห็นว่ามี QR อยู่ และ URL ข้างล่างยังก๊อปไปใช้ต่อได้ -->
           <div v-else class="grid size-28 shrink-0 place-items-center rounded bg-base-300">
             <Icon icon="mdi:qrcode-remove" class="size-6 opacity-40" />
           </div>
 
           <div class="min-w-0 flex-1">
-            <div
-              class="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase opacity-60"
-            >
+            <div class="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase opacity-60">
               <Icon icon="mdi:qrcode" class="size-4" />
               QR สำหรับติดตัวเครื่อง
             </div>
@@ -879,18 +968,11 @@ defineExpose({ reload: load })
              ★ .stop ที่ทั้งสองปุ่ม - พื้นหลังผูก click ให้ปิดรูปไว้ ถ้าไม่กัน event
                จะไหลขึ้นไปปิดรูปเต็มจอพร้อมกับเปิดกล่อง (เห็นกล่องกระพริบแล้วหาย) -->
         <div class="absolute top-4 right-4 flex items-center gap-2">
-          <button
-            v-if="canEditImage"
-            type="button"
-            class="btn btn-circle btn-sm"
-            aria-label="เปลี่ยนรูปสินทรัพย์"
-            title="เปลี่ยนรูป"
-            @click.stop="openImageDialogFromLightbox"
-          >
+          <button v-if="canEditImage" type="button" class="btn btn-circle btn-sm" aria-label="เปลี่ยนรูปสินทรัพย์"
+            title="เปลี่ยนรูป" @click.stop="openImageDialogFromLightbox">
             <Icon icon="lucide:pencil" class="size-4" />
           </button>
-          <button type="button" class="btn btn-circle btn-sm" aria-label="ปิดรูป"
-            @click.stop="lightboxOpen = false">
+          <button type="button" class="btn btn-circle btn-sm" aria-label="ปิดรูป" @click.stop="lightboxOpen = false">
             <Icon icon="mdi:close" class="size-5" />
           </button>
         </div>
@@ -899,13 +981,19 @@ defineExpose({ reload: load })
 
     <!-- กล่องแนบ/เปลี่ยนรูป - ทางเข้าสองทางมาจบที่ตัวนี้ตัวเดียว
          ส่ง imageUrl เดิมเข้าไปด้วย กล่องจึง preview ของเดิมไว้ให้ตั้งแต่เปิด (ตามที่ขอ) -->
-    <AssetImageDialog
-      v-if="canEditImage && detail"
-      v-model:open="imageDialogOpen"
-      :asset-id="detail.id"
-      :current-image-url="imageUrl || null"
-      @saved="onImageSaved"
-    />
+    <AssetHolderDialog v-if="canEditHolder && detail" v-model:open="holderDialogOpen"
+      :asset-id="detail.id" :employee-id="detail.employeeId" :holder-name="detail.holderName"
+      @saved="onHolderSaved" />
+
+    <AssetImageDialog v-if="canEditImage && detail" v-model:open="imageDialogOpen" :asset-id="detail.id"
+      :current-image-url="imageUrl || null" @saved="onImageSaved" />
+
+    <!-- ── กล่องแก้ระยะประกัน ────────────────────────────────────────────────
+         v-if ไม่ใช่แค่ v-model:open — ไม่มี detail แปลว่ายังไม่รู้ id ที่จะยิง PATCH
+         (แพทเทิร์นเดียวกับ AssetImageDialog ข้างบน) -->
+    <AssetWarrantyDialog v-if="editableWarranty && detail" v-model:open="warrantyDialogOpen" :asset-id="detail.id"
+      :warranty-start-date="detail.warrantyStartDate" :warranty-end-date="detail.warrantyEndDate"
+      @saved="onWarrantySaved" />
 
     <!-- ── กล่องเลือกสถานที่บนผัง ─────────────────────────────────────────────
          ตัวเดียวกับที่กล่องกรอกสินทรัพย์ใช้ ไม่ก๊อป - ตรรกะ "ต้องเลือกห้อง + ต้องปักหมุด
@@ -916,13 +1004,7 @@ defineExpose({ reload: load })
 
          ★ v-if ที่ detail ไม่ใช่แค่ที่ editableLocation - กล่องนี้ยิง /master/floor-plans
            ตอนเปิด และเราต้องมี detail.id ไว้ยิง PATCH อยู่แล้ว -->
-    <FloorPlanPickerModal
-      v-if="canEditLocation && detail"
-      v-model:open="pickerOpen"
-      :sub-location-id="detail.subLocationId"
-      :pos-x="detail.posX"
-      :pos-y="detail.posY"
-      @confirm="onPickLocation"
-    />
+    <FloorPlanPickerModal v-if="canEditLocation && detail" v-model:open="pickerOpen"
+      :sub-location-id="detail.subLocationId" :pos-x="detail.posX" :pos-y="detail.posY" @confirm="onPickLocation" />
   </div>
 </template>

@@ -38,7 +38,22 @@ const ranked = computed(() => [...props.rows].sort((a, b) => b.assets - a.assets
  *   NBV/ชิ้น     : UBA  96,760 > MIG 47,630 > UBP 44,950   ← MIG แซง
  * MIG แซง UBP เพราะของใหม่กว่า (ตัดค่าเสื่อมไป 2% เทียบ 46%) ไม่ใช่เพราะของแพงกว่า
  *
- * ส่วนแกน "ของเก่าแค่ไหน" มีที่อยู่แล้วที่ป้าย "ตัดแล้ว N%" ปลายแท่งในกราฟข้างบน
+ * ── แกน "ของเก่าแค่ไหน" ตอนนี้ไม่มีที่อยู่บนหน้าแล้ว
+ *
+ * เคยเป็นป้าย "ตัดครบแล้ว N%" ที่ปลายแท่งของ CompanyValueStackBar ซึ่งถูกถอดออกไป
+ * พร้อมกราฟนั้น (2026-09-16) — backend ยังส่ง `depreciable` / `fullyDepreciated` มาครบ
+ * อยากเอากลับมาโชว์ที่ไหนก็ทำได้เลยโดยไม่ต้องแตะ backend แต่ต้องรู้สองข้อนี้ก่อน:
+ *
+ *   ★★ N% คือ **สัดส่วนจำนวนชิ้น ไม่ใช่สัดส่วนเงิน** (UBA วัด 2026-09-10:
+ *      คิดจากเงิน 46% / นับชิ้น 57%) สูตรเก่าคือ `ค่าเสื่อมสะสม ÷ ราคาทุน` ซึ่งถ่วง
+ *      น้ำหนักด้วยมูลค่า — อาคารที่เพิ่งซื้อชิ้นเดียวกดตัวเลขของทั้งบริษัทลงได้ ทั้งที่
+ *      ของอีกสองพันชิ้นหมดอายุไปแล้ว ส่วนคำว่า "ตัดครบแล้ว" คนอ่านเข้าใจว่านับเป็นชิ้น
+ *
+ *   ★★ **ห้ามคิดเองจาก accumulated ÷ bookedCost ที่ฝั่งจอ** เพราะเห็นว่า "ก็แค่
+ *      เปอร์เซ็นต์" — การตัดครบต้องเทียบรายชิ้นกับมูลค่าซากของชิ้นนั้น ซึ่งทำได้ที่ SQL
+ *      เท่านั้น ยอดรวมที่ส่งมาให้จอย้อนกลับไปหาไม่ได้ (วัดกับ SAP จริง: ทุกชิ้นที่มี
+ *      ราคาทุนมีมูลค่าซากหมด ค่าเสื่อมจึงหยุดที่มูลค่าซาก ไม่มีชิ้นไหนลงถึง 0 —
+ *      เทียบกับ 0 เมื่อไหร่ได้ศูนย์ชิ้นตลอดกาล)
  *
  * ★ หารด้วย assets (ของทั้งหมด) ไม่ใช่เฉพาะชิ้นที่มีตัวเลขบัญชี - ตัวหารเป็นจำนวนที่
  *   คนเห็นอยู่ในคอลัมน์ "ชิ้น" ข้าง ๆ หารเองตรวจได้ แลกกับค่าที่ต่ำกว่าความจริงเล็กน้อย
@@ -52,25 +67,30 @@ const perAsset = (row: CompanySummary): number | null =>
 </script>
 
 <template>
-  <div class="card border border-base-300 bg-base-100 shadow-sm">
+  <div class="card min-w-0 border border-base-300 bg-base-100 shadow-sm">
     <div class="card-body gap-3 text-left">
       <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="card-title text-base">
+        <!-- ★ ปุ่มสลับ "แผนก / ชั้นบัญชี" ไม่ได้อยู่ที่นี่ - มันอยู่บนการ์ดที่มาแทนการ์ดนี้
+             ตอนเลือกบริษัทแล้ว (ดู DashboardPage: summaryAxis) ตารางนี้มีแถวเป็น "บริษัท"
+             การสลับแกนย่อยจึงไม่มีความหมาย: ตอนดูทั้งเครือ ชื่อแผนกซ้ำข้ามบริษัท 55 ชื่อ
+             และชั้นบัญชีก็ซ้ำ 10 รหัส แถวที่ได้จะหน้าตาเหมือนกันโดยแยกไม่ออกว่าของใคร
+             ซึ่งเป็นปัญหาเดิมที่การ์ดนี้ถูกสร้างขึ้นมาแก้ตั้งแต่แรก -->
+        <h2 id="ams-company-summary-title" class="card-title text-base">
           สรุปรายบริษัท
           <span class="badge badge-ghost badge-sm">{{ ranked.length }}</span>
         </h2>
       </div>
 
       <div class="overflow-x-auto">
-        <table class="table table-sm table-pin-rows table-freeze-first">
+        <table class="table table-sm table-pin-rows table-freeze-first" aria-labelledby="ams-company-summary-title">
           <thead>
             <tr>
-              <th class="freeze-col">บริษัท</th>
-              <th class="text-center">ชิ้น</th>
-              <th class="text-right">Active</th>
-              <th class="text-right">ราคาทุน</th>
-              <th class="text-right">ค่าเสื่อมสะสม</th>
-              <th class="text-right">มูลค่าคงเหลือ</th>
+              <th scope="col" class="freeze-col">บริษัท</th>
+              <th scope="col" class="text-center">ชิ้น</th>
+              <th scope="col" class="text-right">Active</th>
+              <th scope="col" class="text-right">ราคาทุน</th>
+              <th scope="col" class="text-right">ค่าเสื่อมสะสม</th>
+              <th scope="col" class="text-right">มูลค่าคงเหลือ</th>
             </tr>
           </thead>
           <tbody>
@@ -103,7 +123,7 @@ const perAsset = (row: CompanySummary): number | null =>
             </tr>
 
             <tr v-if="!ranked.length">
-              <td colspan="7" class="py-10 text-center text-base-content/50">
+              <td colspan="6" class="py-10 text-center text-base-content/50">
                 ยังไม่มีสินทรัพย์ในขอบเขตนี้
               </td>
             </tr>

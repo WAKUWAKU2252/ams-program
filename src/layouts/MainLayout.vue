@@ -8,11 +8,15 @@ import { useUiStore } from '@/shared/stores/ui'
 import { storeToRefs } from 'pinia'
 
 const uiStore = useUiStore()
-const { isSidebarOpen } = storeToRefs(uiStore)
+const { isSidebarOpen, isSidebarCollapsed } = storeToRefs(uiStore)
 </script>
 
 <template>
-  <div class="drawer lg:drawer-open">
+  <!-- ★ lg:drawer-open ผูกกับ isSidebarCollapsed - นี่คือสวิตช์เดียวที่พับ sidebar บนจอใหญ่ได้
+       ตราบใดที่คลาสนี้ติดอยู่ daisyUI จะตรึง sidebar ให้เปิดค้างด้วย CSS โดยไม่สนใจ checkbox
+       เลย (ปุ่ม hamburger เดิมจึงไม่มีผลอะไรบนจอ lg ขึ้นไป) - ถอดคลาสออกเมื่อไหร่ drawer
+       ก็กลับไปเป็นแบบ overlay ที่ซ่อนอยู่นอกจอตามค่า checkbox ซึ่ง store ปิดไว้ให้แล้ว -->
+  <div class="drawer" :class="{ 'lg:drawer-open': !isSidebarCollapsed }">
     <input id="ams-drawer" v-model="isSidebarOpen" type="checkbox" class="drawer-toggle" />
 
     <div class="drawer-content grid min-w-0 grid-rows-[auto_1fr] bg-base-200">

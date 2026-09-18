@@ -13,12 +13,21 @@ import { computed, type PropType } from 'vue'
 import { Icon } from '@iconify/vue'
 import AppApexChart from '@/pages/dashboard/components/AppApexChart.vue'
 import type { DashboardRemainingLife } from '@/shared/services/dashboard.service'
+import { formatDate } from '@/shared/utils/date'
+import { grid, ink } from './chart-theme'
 
 const props = defineProps({
   /** null = ยังไม่ได้เลือกแผนก - component จะไม่วาดอะไรเลย */
   data: { type: Object as PropType<DashboardRemainingLife | null>, default: null },
   /** ชื่อแผนกที่กำลังดู เอาไว้ขึ้นคำอธิบายใต้หัวข้อ */
   departmentName: { type: String, default: '' },
+  /**
+   * ตัวเลขอายุคงเหลือเป็นของ ณ วันไหน (asOfDate ของงวดล่าสุดที่บัญชีปิด)
+   *
+   * ★ ต้องขึ้นคู่กับกราฟเสมอ — ก่อนหน้านี้กราฟแสดงยอด ณ ต้นปีบัญชีโดยไม่มีอะไรบอก
+   *   ซึ่งสูงเกินจริงถึง 8 เดือน (UBA 917 จาก 1,061 ชิ้น)
+   */
+  asOfDate: { type: String as PropType<string | null>, default: null },
 })
 
 /** จำนวนชิ้นที่อยู่บนแกนเวลาจริง ๆ - ไม่รวมที่ดินกับชิ้นที่ไม่มีข้อมูล */
@@ -37,6 +46,9 @@ const chartOptions = computed(() => {
       height: 300,
       // ฟอนต์ของแอป - ไม่ตั้งชื่อฟอนต์เอง (กติกาเดียวกับกราฟอื่นบนหน้านี้)
       fontFamily: 'inherit',
+      // สีตัวหนังสือตั้งต้นของกราฟ - ป้ายแกนกับหัวแกนที่ไม่ได้ระบุสีไว้จะตกมาใช้ค่านี้
+      // ไม่ตั้ง = Apex ใช้เทาเข้มของมันเอง (#373d3f) ซึ่งจมหายไปกับพื้นการ์ดบนธีมมืด
+      foreColor: ink.value,
       toolbar: { show: false },
     },
     series: [{ name: 'จำนวนชิ้น', data: buckets.map((b) => b.count) }],
@@ -55,9 +67,9 @@ const chartOptions = computed(() => {
     // จะขึ้นป้ายสีครบทุกแท่งซ้ำกับชื่อบนแกน X ซึ่งกินที่ไปเปล่า ๆ
     legend: { show: false },
     dataLabels: { enabled: false },
-    // ★ แท่งแรกคือ "ตัดครบแล้ว" = ของที่ต้องเฝ้า ให้สีเตือน ที่เหลือไล่จากใกล้หมดไปยังไกล
+    // ★ แท่งแรกคือ "หมดอายุแล้ว" = ของที่ต้องเฝ้า ให้สีเตือน ที่เหลือไล่จากใกล้หมดไปยังไกล
     colors: ['#dc2626', '#ea9a0b', '#eab308', '#84cc16', '#22c55e', '#16a34a', '#0891b2'],
-    grid: { borderColor: 'oklch(0 0 0 / 0.08)' },
+    grid: { borderColor: grid.value },
     tooltip: { y: { formatter: (v: number) => `${v.toLocaleString('th-TH')} ชิ้น` } },
   }
 })
@@ -65,12 +77,16 @@ const chartOptions = computed(() => {
 
 <template>
   <!-- ไม่มีข้อมูล = ยังไม่ได้เลือกแผนก - ไม่วาดอะไรเลย ปล่อยให้ Dashboard คุมว่าจะโชว์ตอนไหน -->
-  <div v-if="data" class="card border border-base-300 bg-base-100 shadow-sm">
+  <div v-if="data" class="card min-w-0 border border-base-300 bg-base-100 shadow-sm">
     <div class="card-body gap-3 text-left">
       <div>
         <h2 class="font-semibold">อายุคงเหลือของสินทรัพย์</h2>
+        <!-- ★ ป้ายวันที่ห้ามตัดทิ้ง - ตัวเลขนี้เป็นอายุคงเหลือ ณ งวดล่าสุดที่บัญชีปิด
+             ไม่ใช่ ณ วันนี้ และไม่ใช่ยอดต้นปีแบบที่ SAP ส่งมาดิบ ๆ (เคยแสดงยอดต้นปี
+             ซึ่งสูงเกินจริงถึง 8 เดือน) กติกาเดียวกับการ์ดเงินด้านบนของหน้า -->
         <p class="text-sm text-base-content/60">
-         {{ departmentName || 'แผนกที่เลือก' }} นับจากอายุคงเหลือ
+          {{ departmentName || 'แผนกที่เลือก' }}
+          <template v-if="asOfDate"> · ณ {{ formatDate(asOfDate) }}</template>
         </p>
       </div>
 

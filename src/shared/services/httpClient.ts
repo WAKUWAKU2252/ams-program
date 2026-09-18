@@ -52,7 +52,19 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       handleUnauthorized();
     }
 
-    const message = (data as ApiErrorBody)?.message || `Request failed (${response.status})`;
+    /**
+     * ข้อความสำรองเมื่อ backend ไม่ได้ส่ง message มา
+     *
+     * ★ ของเดิมคือ `Request failed (500)` ซึ่งเป็นภาษาของ dev ล้วน ๆ — คนหน้าจออ่านแล้ว
+     *   ไม่รู้ว่าเกิดอะไรและต้องทำอะไรต่อ ตัวเลขสถานะก็ไม่ได้ช่วยเขา
+     * ★ ตัวเลขยังอยู่ใน ApiError.status ตามเดิม ฝั่งที่เรียกจึงยังแยกเคสได้ (401 เด้ง login)
+     *   และยังลง console ให้คนดูแลระบบเห็น — แค่ไม่เอาไปแสดงบนหน้าจอ
+     */
+    const fromServer = (data as ApiErrorBody)?.message;
+    if (!fromServer) {
+      console.error(`[api] ${options.method ?? 'GET'} ${path} → ${response.status}`);
+    }
+    const message = fromServer || 'ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง';
     throw new ApiError(message, response.status);
   }
 

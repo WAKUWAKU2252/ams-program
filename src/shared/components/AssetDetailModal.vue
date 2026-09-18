@@ -28,11 +28,26 @@ const props = defineProps<{
   /**
    * เปิดปุ่มแก้ที่ตั้งบนผังในกล่องนี้ - ส่งผ่านตรง ๆ ไป AppAssetDetail
    *
-   * ★ หน้า Audit ตั้งใจไม่ส่ง (ค่าตั้งต้น = ปิด) - เปิดกล่องดูได้แต่แก้ทะเบียนจากตรงนี้ไม่ได้
+   * ★ หน้า Audit ส่งค่าตาม role ไม่ใช่ส่งค่าคงที่ (canEditRegistry ใน AuditPage) - ผู้ตรวจ
+   *   ภายนอก AUDIT เปิดกล่องดูได้แต่แก้ไม่ได้ ส่วนผู้ตรวจภายใน FINANCE/ADMIN แก้ได้
    */
   editableLocation?: boolean
   /** เปิดให้แนบ/เปลี่ยนรูปจากในกล่องนี้ - ส่งผ่านตรง ๆ ไป AppAssetDetail */
   editableImage?: boolean
+  /**
+   * เปิดปุ่มแก้ระยะประกันในกล่องนี้ - ส่งผ่านตรง ๆ ไป AppAssetDetail
+   *
+   * ★ หน้า Audit ส่งค่าตาม role ด้วยเหตุผลเดียวกับ editableLocation — และ role AUDIT
+   *   ก็ยิงเส้น PATCH /assets/:id/warranty ไม่ได้อยู่แล้วฝั่ง backend
+   */
+  editableWarranty?: boolean
+  /**
+   * เปิดปุ่มเปลี่ยนผู้ครอบครองในกล่องนี้ - ส่งผ่านตรง ๆ ไป AppAssetDetail
+   *
+   * ★ เหตุผลเดียวกับ editableWarranty: role AUDIT ยิง PATCH /assets/:id/holder ไม่ได้
+   *   อยู่แล้วฝั่ง backend หน้า Audit จึงส่งค่าตาม role ไม่ใช่ค่าคงที่
+   */
+  editableHolder?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -110,7 +125,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             :active="modelValue"
             :layout="isWide ? 'modal' : 'page'"
             :editable-location="editableLocation"
+            :editable-holder="editableHolder"
             :editable-image="editableImage"
+            :editable-warranty="editableWarranty"
             @updated="emit('updated')"
           />
         </div>

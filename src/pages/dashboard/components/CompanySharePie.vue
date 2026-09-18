@@ -20,7 +20,7 @@
 import { computed } from 'vue'
 import AppApexChart from '@/pages/dashboard/components/AppApexChart.vue'
 import type { CompanySummary } from '@/shared/services/dashboard.service'
-import { SURFACE, categoryColor } from './chart-theme'
+import { ink, inkMuted, surface, categoryColor } from './chart-theme'
 
 // หมายเหตุ: backend กรอง byCompany ด้วย scope.departmentId ด้วย แต่กราฟนี้ถูกวาดเฉพาะ
 // ตอน 'ทุกบริษัท + ทุกแผนก' เท่านั้น (ดู DashboardPage) ยอดที่ได้จึงเป็นของทั้งบริษัทเสมอ
@@ -58,14 +58,18 @@ const chartOptions = computed(() => {
     chart: {
       type: 'donut' as const,
       height: 260,
-      // ฟอนต์ของแอป - ไม่ตั้งชื่อฟอนต์เอง (เหตุผลเต็มที่ DepartmentSharePie)
+      // ฟอนต์ของแอป - ไม่ตั้งชื่อฟอนต์เอง (index.html ไม่ได้โหลดฟอนต์ไหนเพิ่ม ถ้าเขียน
+      // ชื่อที่ไม่มีอยู่จริง จะตกไปใช้ฟอนต์ default ของเบราว์เซอร์ซึ่งหลุดจากทั้งหน้า)
       fontFamily: 'inherit',
+      // สีตัวหนังสือตั้งต้นของกราฟ - ป้ายแกนกับหัวแกนที่ไม่ได้ระบุสีไว้จะตกมาใช้ค่านี้
+      // ไม่ตั้ง = Apex ใช้เทาเข้มของมันเอง (#373d3f) ซึ่งจมหายไปกับพื้นการ์ดบนธีมมืด
+      foreColor: ink.value,
       toolbar: { show: false },
     },
     labels: data.map((s) => s.label),
     series: data.map((s) => s.value),
     colors: data.map((s) => s.color),
-    stroke: { width: 2, colors: [SURFACE] },
+    stroke: { width: 2, colors: [surface.value] },
     // ตัวเลขไปอยู่ที่ legend ข้างล่าง (อ่านได้เสมอ) และ tooltip - ไม่พิมพ์ทับบนก้อน
     dataLabels: { enabled: false },
     legend: { show: false },
@@ -76,17 +80,17 @@ const chartOptions = computed(() => {
           size: '72%',
           labels: {
             show: true,
-            name: { fontSize: '13px', color: '#64748b' },
+            name: { fontSize: '13px', color: inkMuted.value },
             value: {
               fontSize: '22px',
               fontWeight: 600,
-              color: '#334155',
+              color: ink.value,
               formatter: (val: string | number) => `${Number(val).toLocaleString('th-TH')} ชิ้น`,
             },
             total: {
               show: true,
               label: 'ทั้งหมด',
-              color: '#64748b',
+              color: inkMuted.value,
               formatter: () => `${grandTotal.toLocaleString('th-TH')} ชิ้น`,
             },
           },
@@ -105,7 +109,7 @@ const chartOptions = computed(() => {
 </script>
 
 <template>
-  <div class="card border border-base-300 bg-base-100 shadow-sm">
+  <div class="card min-w-0 border border-base-300 bg-base-100 shadow-sm">
     <div class="card-body gap-3 text-left">
       <div>
         <h2 class="card-title text-base">สัดส่วนสินทรัพย์ตามบริษัท</h2>

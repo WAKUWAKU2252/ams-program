@@ -25,6 +25,9 @@ import {
 } from '@/shared/services/purchaseOrder.service'
 import { listCompanies, type CompanyOption } from '@/shared/services/master.service'
 import { createDraft } from '@/shared/services/assetRequest.service'
+import { useAuthStore } from '@/shared/stores/auth'
+import { getTokenRole } from '@/shared/services/auth.token'
+import { canPickCompany } from '@/shared/utils/role-scope'
 
 const props = defineProps<{
   open: boolean
@@ -58,6 +61,36 @@ const search = ref('')
 const companyCode = ref('')
 const sort = ref<'date_desc' | 'date_asc'>('date_desc')
 const companies = ref<CompanyOption[]>([])
+
+// ── ล็อกบริษัท: คนทั่วไปสร้างคำขอได้เฉพาะ PO ของบริษัทตัวเอง ──────────────────
+//
+// ★ นี่เป็นแค่การซ่อนช่องที่กดไปก็ไม่มีผล ตัวบังคับจริงอยู่ฝั่ง backend สองด่าน:
+//     GET /purchase-orders  กรองลิสต์ให้เหลือบริษัทตัวเอง (resolvePoCompanyScope)
+//     POST /asset-requests  โยน 403 ถ้า PO เป็นของบริษัทอื่น (assertCanOpenPoCompany)
+//   ต่อให้แก้ตัวแปรในเบราว์เซอร์ก็ยังสร้างไม่ได้
+//
+// ★ role อ่านจาก token ไม่ใช่จาก store - ได้ค่าทันทีตั้งแต่เฟรมแรก ไม่ต้องรอ /auth/me
+//   (ถ้ารอ ช่องเลือกจะกะพริบจาก "เลือกได้" เป็น "ล็อก" ให้คนทั่วไปเห็นทุกครั้งที่เปิดกล่อง)
+const authStore = useAuthStore()
+const canPick = computed(() => canPickCompany(getTokenRole()))
+
+/**
+ * บริษัทของคนที่ล็อกอินอยู่ - มาจาก /auth/me (join employee) จึงเป็น null ได้สองแบบ:
+ * ยังโหลดไม่เสร็จ กับ บัญชีไม่มีสังกัดจริง ๆ
+ *
+ * ★ ทั้งสองแบบแสดงผลเหมือนกันไม่ได้ - แบบหลัง backend จะคืนลิสต์ว่างเสมอ ต้องบอกให้รู้ว่า
+ *   ทำไม ไม่ใช่ปล่อยให้เห็นตารางเปล่าแล้วเดาว่าไม่มี PO ค้างอยู่
+ */
+const ownCompanyCode = computed(() => authStore.user?.employee?.companyCode ?? null)
+
+const ownCompanyLabel = computed(() => {
+  const code = ownCompanyCode.value
+  if (!code) return ''
+  return companies.value.find((c) => c.code === code)?.name ?? code
+})
+
+/** บัญชีที่ถูกล็อกแต่ไม่มีสังกัด = ไม่มีใบไหนให้เลือกเลย (backend คืนลิสต์ว่าง) */
+const noOwnCompany = computed(() => !canPick.value && !!authStore.user && !ownCompanyCode.value)
 
 const lastPage = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
@@ -171,6 +204,9 @@ watch(
       return
     }
     document.addEventListener('keydown', onKeydown)
+    // ต้องรู้บริษัทของตัวเองก่อนวาดป้ายล็อก - ปกติ Sidebar โหลดให้แล้วตอนเข้าแอป
+    // แต่กล่องนี้เปิดได้จากหน้าที่ไม่มี Sidebar ในอนาคต จึงกันไว้ (โหลดซ้ำเมื่อยังไม่มีเท่านั้น)
+    if (!authStore.user) void authStore.getCurrentUser().catch(() => {})
     void load()
     if (companiesLoaded) return
     companiesLoaded = true
@@ -199,7 +235,11 @@ function formatDate(v: string | null): string {
 <template>
   <Teleport to="body">
     <div class="modal backdrop-blur-sm" :class="{ 'modal-open': open }" role="dialog" aria-modal="true">
-      <div class="modal-box" :class="maxWidth ?? 'max-w-3xl'">
+      <!-- max-h ต้องระบุเอง — daisyUI build นี้ตั้ง .modal-box ไว้ที่ max-height: 100dvh และ
+           .modal ไม่มี padding พอเนื้อหายาวกล่องจะสูงเท่าจอพอดี ชนขอบบน-ล่างของเบราว์เซอร์
+           ★ 4rem ให้ตรงกับ AssetDetailModal/AssetImageDialog/AssetSummary — อย่าตั้งค่าใหม่
+           ★ dvh ไม่ใช่ vh เพราะแถบ address bar ของมือถือยุบ/ขยายตอนเลื่อน -->
+      <div class="modal-box max-h-[calc(100dvh-4rem)]" :class="maxWidth ?? 'max-w-3xl'">
         <!-- header - วางโครงเดียวกับ AppConfirmDialog: ไอคอนวงกลม + หัวข้อ + คำอธิบาย -->
         <div class="flex items-start justify-between gap-4">
           <slot name="header">
@@ -239,15 +279,18 @@ function formatDate(v: string | null): string {
               <input v-model="search" type="search" placeholder="PO No. / Vendor Name" />
             </label>
 
-            <select v-model="companyCode" class="select select-sm w-[9rem]">
+            <!-- เลือกบริษัทได้เฉพาะ role ที่เปิดใบข้ามบริษัทได้จริง (ดู canPick)
+                 คนทั่วไปเห็นเป็นป้ายบอกบริษัทตัวเอง ไม่ใช่ dropdown ที่กดแล้วไม่มีอะไรเกิดขึ้น -->
+            <select v-if="canPick" v-model="companyCode" class="select select-sm w-[9rem]">
               <option value="">ทุกบริษัท</option>
               <option v-for="c in companies" :key="c.code" :value="c.code">{{ c.name }}</option>
             </select>
 
+
             <!-- ปุ่มเดียวสลับสองทิศ ไม่ใช่ dropdown — มีแค่สองค่า ทำเป็นตัวเลือกจะเปลืองคลิก -->
             <button
               type="button"
-              class="btn btn-sm"
+              class="btn btn-sm w-[100px]"
               :title="sort === 'date_desc' ? 'ตอนนี้: ใหม่สุดก่อน' : 'ตอนนี้: เก่าสุดก่อน'"
               @click="sort = sort === 'date_desc' ? 'date_asc' : 'date_desc'"
             >
@@ -288,6 +331,15 @@ function formatDate(v: string | null): string {
             </div>
             <p v-else-if="loadError" class="px-4 py-10 text-center text-sm text-error">
               {{ loadError }}
+            </p>
+            <!-- ★ บัญชีที่ไม่มีสังกัดได้ลิสต์ว่างเสมอ (backend คืนว่างตั้งแต่ต้นทาง) ต้องบอก
+                 สาเหตุจริง ไม่ใช่ปล่อยให้อ่านว่า "ไม่มี PO ค้างอยู่" แล้วรอเก้อ -->
+            <p
+              v-else-if="!rows.length && noOwnCompany"
+              class="px-4 py-10 text-center text-sm text-base-content/60"
+            >
+              บัญชีของคุณยังไม่ได้ระบุว่าสังกัดบริษัทไหน จึงยังสร้างคำขอไม่ได้
+              — แจ้งผู้ดูแลระบบให้ผูกข้อมูลพนักงานก่อน
             </p>
             <p v-else-if="!rows.length" class="px-4 py-10 text-center text-sm text-base-content/60">
               ไม่พบ PO ที่ตรงกับเงื่อนไข

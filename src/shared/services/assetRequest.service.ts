@@ -22,6 +22,17 @@ export interface AssetRequestRow {
   createdByName: string | null;   // คนเปิด draft ใน AMS
   ownerPrName: string | null;     // ผู้ขอซื้อจาก PO (OwnerPR) - คนละคนกับ createdByName
   updatedAt: string;
+  /**
+   * เหตุผลที่ "ทั้งใบ" ถูกตีกลับ - มีค่าเมื่อ status === 'REJECTED' เท่านั้น
+   *
+   * ★ คนละตัวกับเหตุผลรายชิ้น (AssetSlot.rejectReason) ซึ่งบัญชีเป็นคนใส่ให้ทีละชิ้น
+   *   ตัวนี้คือของหัวหน้าที่ตีกลับทั้งใบ เก็บบนแถว asset_request (ดู rejectRequest)
+   */
+  rejectReason?: string | null
+  /** role ของคนที่ตีกลับทั้งใบ (MANAGER/FINANCE/ADMIN) - APPROVER_ROLES ไม่ได้มีแต่หัวหน้า */
+  rejectedRole?: string | null
+  /** วันที่บน PO (จาก SAP) - null ได้: PO เก่าบางใบไม่มีวันที่ในต้นทาง */
+  poDate?: string | null;
   assetCount?: number;
   /**
    * ชิ้นที่บัญชีตีกลับและยังไม่ได้แก้ (0 = ไม่มีอะไรค้าง)
@@ -85,6 +96,15 @@ export interface ListDraftsParams {
   page?: number;
   limit?: number;
   status?: AssetRequestStatus | AssetRequestStatus[]; // หลายสถานะได้ (เช่น DRAFT + REJECTED)
+  /** คำค้น - เลขที่คำขอ / เลขที่ PO / ชื่อผู้ขาย (ค้นที่ backend ไม่ใช่กรองแถวที่โหลดมาแล้ว) */
+  search?: string;
+  /** แผนกของผู้ขอซื้อ - ตรงกับคอลัมน์ "ขอซื้อโดย" ที่ตารางแสดง ไม่ใช่แผนกของผู้สร้างใบ */
+  departmentId?: number;
+  /** ผู้ขอซื้อบน PO */
+  ownerPrId?: number;
+  /** ไม่ส่ง = ใบที่เพิ่งเปิดล่าสุดอยู่บน (ค่าตั้งต้นของ backend) */
+  sort?: 'requestNo' | 'updatedAt' | 'poDate';
+  sortDir?: 'asc' | 'desc';
 }
 
 export function listDrafts(params: ListDraftsParams = {}): Promise<Paginated<AssetRequestRow>> {
@@ -95,6 +115,16 @@ export function listDrafts(params: ListDraftsParams = {}): Promise<Paginated<Ass
     // ส่งเป็น repeated param: ?status=DRAFT&status=REJECTED (backend รับ array)
     const statuses = Array.isArray(params.status) ? params.status : [params.status];
     statuses.forEach((s) => query.append('status', s));
+  }
+  // trim ที่เดียวตรงนี้ - ช่องว่างล้วนไม่ใช่การค้น แต่ถ้าปล่อยไปจะกลายเป็น LIKE '%  %'
+  const search = params.search?.trim();
+  if (search) query.set('search', search);
+  if (params.departmentId) query.set('departmentId', String(params.departmentId));
+  if (params.ownerPrId) query.set('ownerPrId', String(params.ownerPrId));
+  // ส่งทิศไปด้วยก็ต่อเมื่อมีแกนให้เรียง - ทิศเปล่า ๆ ไม่มีความหมาย
+  if (params.sort) {
+    query.set('sort', params.sort);
+    if (params.sortDir) query.set('sortDir', params.sortDir);
   }
 
   const qs = query.toString();
@@ -171,13 +201,39 @@ export interface PendingRegistrationRow {
   fixedAssets: number
 }
 
-/** คิวใบที่รอออกเลข - เรียงตามวันอนุมัติ เก่าสุดอยู่บน */
+/** พารามิเตอร์ของคิวใบรอออกเลข - ต้องตรงกับ pendingRegistrationQuerySchema ฝั่ง backend */
+export interface PendingRegistrationParams {
+  page?: number
+  limit?: number
+  /** คำค้น - เลขที่คำขอ / เลขที่ PO / ชื่อผู้ขาย (ไม่รวมชื่อคน ดูหมายเหตุฝั่ง backend) */
+  search?: string
+  /** รหัสบริษัทของ PO เช่น 'UBA' - ไม่ส่ง = ทุกบริษัท (ค่าคือ code ไม่ใช่ id) */
+  companyCode?: string
+  /** แผนกของผู้ขอซื้อ - ตรงกับคอลัมน์ "แผนก" ที่ตารางแสดง ไม่ใช่แผนกของคนกดส่งคำขอ */
+  departmentId?: number
+  /** '' / ไม่ส่ง = ลำดับคิวเดิม (วันอนุมัติเก่าสุดอยู่บน) */
+  sort?: 'requestNo' | 'requestDate'
+  sortDir?: 'asc' | 'desc'
+}
+
+/** คิวใบที่รอออกเลข - ไม่ส่ง sort มา = เรียงตามวันอนุมัติ เก่าสุดอยู่บน */
 export function listPendingRegistration(
-  params: { page?: number; limit?: number } = {},
+  params: PendingRegistrationParams = {},
 ): Promise<Paginated<PendingRegistrationRow>> {
   const query = new URLSearchParams()
   if (params.page) query.set('page', String(params.page))
   if (params.limit) query.set('limit', String(params.limit))
+  // trim ที่นี่ที่เดียว - ช่องว่างล้วนไม่ใช่การค้น แต่ถ้าปล่อยไปจะกลายเป็น LIKE %  % ที่ไม่เจออะไรเลย
+  const search = params.search?.trim()
+  if (search) query.set('search', search)
+  if (params.companyCode) query.set('companyCode', params.companyCode)
+  if (params.departmentId) query.set('departmentId', String(params.departmentId))
+  // sortDir ส่งไปด้วยก็ต่อเมื่อมีแกนให้เรียง - ส่งทิศเปล่า ๆ ไม่มีความหมายและทำให้
+  // URL ของ "ค่าตั้งต้น" ต่างกันสองแบบโดยได้ผลลัพธ์เดียวกัน
+  if (params.sort) {
+    query.set('sort', params.sort)
+    if (params.sortDir) query.set('sortDir', params.sortDir)
+  }
   const qs = query.toString()
   return request<Paginated<PendingRegistrationRow>>(
     `/asset-requests/pending-registration${qs ? `?${qs}` : ''}`,

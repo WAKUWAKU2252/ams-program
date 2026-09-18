@@ -39,7 +39,10 @@ const props = withDefaults(
     editable?: boolean;
     /**
      * ขอบเขตที่แก้ได้
-     *   all      = ใบยังเป็น DRAFT/REJECTED แก้ได้ทุกอย่างตามปกติ
+     *   all      = ใบยังอยู่ในมือผู้ขอ (DRAFT/REJECTED) แก้ได้ทุกอย่างตามปกติ
+     *              ★ รวมใบที่หัวหน้าตีกลับด้วย — ตีกลับทั้งใบแปลว่าให้กลับไปแก้ทั้งใบ
+     *                ทั้งลงชิ้นใหม่ แจ้งจำนวน และแนบ invoice (backend ยอม DRAFT+REJECTED
+     *                ทั้ง create() และ declareLine อยู่แล้ว)
      *   rejected = ใบอนุมัติแล้ว เปิดให้แก้เฉพาะ "ชิ้นที่บัญชีตีกลับ" เท่านั้น
      *              ชิ้นอื่นผ่านการอนุมัติของหัวหน้าไปแล้ว ห้ามแก้ย้อนหลัง และงานระดับรอบ
      *              (invoice / แจ้งจำนวน) ก็ห้ามด้วย เพราะมันกระทบทั้งรอบ ไม่ใช่แค่ชิ้นที่ตีกลับ
@@ -51,14 +54,43 @@ const props = withDefaults(
     editableScope: 'all',
   },
 );
+/**
+ * เปลี่ยน "จำนวนชิ้นของรอบ" — เฉพาะตอนแก้ได้ทั้งใบเท่านั้น
+ *
+ * จำนวนชิ้นกระทบทุกชิ้นในรอบ รวมชิ้นที่หัวหน้าอนุมัติไปแล้ว/บัญชีกำลังออกเลขอยู่
+ * จึงห้ามแตะในใบที่เลยขั้นผู้ขอไปแล้ว
+ */
+const canDeclare = computed(() => props.editable && props.editableScope === 'all');
 
-/** งานระดับรอบ/ใบ (invoice, แจ้งจำนวน, ลบชิ้น) - ทำได้เฉพาะตอนแก้ได้ทั้งใบ */
-const canEditRound = computed(() => props.editable && props.editableScope === 'all');
+/**
+ * แนบ/ถอด invoice — ทำได้ทุกสถานะที่ยังแก้อะไรได้ ไม่ใช่เฉพาะ 'all'
+ *
+ * ★ แยกจาก canDeclare โดยตั้งใจ — สองอย่างนี้เคยรวมกันเป็น canEditRound ตัวเดียว ซึ่งทำให้
+ *   เคสที่เกิดบ่อยที่สุดของบัญชีตัน: บัญชีตีกลับชิ้นด้วยเหตุผล "ขอ invoice ด้วย" → ใบเป็น
+ *   APPROVED → scope กลายเป็น 'rejected' → ปุ่ม invoice จางกดไม่ได้เลย → ผู้ขอทำตามที่บัญชี
+ *   สั่งไม่ได้
+ *
+ * ★ เหตุผลที่ปลอดภัยกว่า canDeclare: invoice เป็น "หลักฐานที่แนบเพิ่ม" ไม่ได้แก้ข้อมูลชิ้นไหน
+ *   ที่ผ่านการอนุมัติไปแล้ว — และ PATCH /grpo/:id/invoice ฝั่ง backend ไม่เคยมีด่านสถานะใบเลย
+ *   (มีแค่ authGuard) หน้าจอจึงเข้มกว่า API อยู่ฝ่ายเดียว
+ */
+const canManageInvoice = computed(() => props.editable);
 
 const emit = defineEmits<{
   (e: 'over-cost', value: boolean): void;
   /** ชิ้นที่ยังรอผู้ขอแก้ - DraftForm เอาไปขึ้น banner ว่าต้องแก้ชิ้นไหนบ้าง */
   (e: 'rejected-pieces', value: RejectedPiece[]): void;
+  /**
+   * ตารางเพิ่งทำอะไรที่ทำให้ asset_request.updatedAt เปลี่ยน - DraftForm ต้องโหลดหัวใบใหม่
+   *
+   * ★ ตัวนี้มีไว้แก้บั๊ก "กด Submit แล้วขึ้นว่าคำขอถูกแก้ไขโดยผู้อื่นแล้ว ทั้งที่ไม่มีใครแก้"
+   *   ปุ่ม Submit ส่ง updatedAt ที่โหลดมาตอนเปิดหน้าไปเทียบกัน lost update แต่การแจ้ง
+   *   จำนวนชิ้นเรียก touchRequest() ฝั่ง backend ทุกครั้ง (updatedAt = now()) ค่าที่หน้าจอ
+   *   ถืออยู่จึงเก่าทันทีที่ตัวเองกดแจ้ง
+   * ★ สาย presence ช่วยไม่ได้ตรงนี้: มันกรองก้อนของตัวเองทิ้งโดยตั้งใจ (skipOwn) เพื่อไม่ให้
+   *   จอกระพริบตอนตัวเองกดปุ่ม - "ตัวเองแก้" จึงต้องบอกกันตรง ๆ ด้วย event นี้แทน
+   */
+  (e: 'request-touched'): void;
 }>();
 
 const items = ref<AssetSlotItem[]>([]);
@@ -67,6 +99,8 @@ const requestStatus = ref<AssetRequestStatus>('DRAFT');
 // เหตุผลที่ถูกตีกลับ (มีเฉพาะตอน REJECTED) - ป้าย Rejected บอกแค่ว่า "ไม่ผ่าน"
 // ผู้ใช้ต้องได้เหตุผลในจอเดียวกันถึงจะรู้ว่าต้องแก้อะไรก่อนกดส่งใหม่
 const rejectReason = ref<string | null>(null);
+/** บริษัทเจ้าของใบ (จาก PO) - ตัวกรองของ dropdown แผนก ดู loadMasterData */
+const companyCode = ref('');
 const loading = ref(true);
 const loadError = ref('');
 
@@ -78,6 +112,7 @@ async function load() {
     items.value = res.items;
     requestStatus.value = res.status;
     rejectReason.value = res.rejectReason;
+    companyCode.value = res.companyCode;
     void loadThumbnails();
   } catch (e) {
     console.error('โหลดรายการ asset ไม่สำเร็จ:', e);
@@ -264,7 +299,20 @@ const grouped = computed(() =>
       receivedQty: l.receivedQty,
       declaredQty: l.declaredQty,
       declaredReason: l.declaredReason,
-      qty: l.declaredQty ?? l.receivedQty,
+      /**
+       * จำนวนช่องของรอบนี้ - ★ ปัดขึ้นเสมอ ห้ามใช้ receivedQty ดิบ
+       *
+       * receivedQty เป็นทศนิยมได้จริง (SAP ตัดรับเป็นงวด/นับเป็นหน่วยที่ไม่ใช่ชิ้น) —
+       * วัด 2026-09-09: 45 จาก 960 แถวเป็นเศษ เช่น 0.4 · 0.5151 · 1.8
+       *
+       * ★ ต้องตรงกับ backend ซึ่งปัดขึ้นทั้ง slotCount และ remain (ดู findSlotsByRequest)
+       *   ถ้าใช้ค่าดิบจะพังสองทาง: หัวรอบขึ้น "0 / 0.5151 ชิ้น" และช่องกรอกจำนวนใน
+       *   กล่องแจ้งจำนวนถูก seed เป็นทศนิยม พอกดบันทึกจะได้ 422 จาก t.Integer ทันที
+       *   ทั้งที่ผู้ใช้ไม่ได้แตะอะไรเลย = แจ้งจำนวนในรอบพวกนั้นไม่ได้เลยสักรอบ
+       *
+       * declaredQty เป็นจำนวนเต็มอยู่แล้ว (DB บังคับ) - ceil จึงไม่เปลี่ยนค่าของมัน
+       */
+      qty: Math.ceil(l.declaredQty ?? l.receivedQty),
       invoices: l.invoices,
       slots: item.slots
         .filter(
@@ -276,7 +324,11 @@ const grouped = computed(() =>
           price:
             s.status === 'registered'
               ? s.acquisitionCost
-              : i < l.receivedQty
+              : // ★ เทียบกับค่าที่ปัดขึ้นแล้ว ไม่ใช่ค่าดิบ - เส้นแบ่ง "ชิ้นตาม SAP / ชิ้นที่
+                //   แจ้งเพิ่มเอง" ต้องเป็นเส้นเดียวกับที่ backend ใช้ (declaredExtra)
+                //   ไม่งั้นรอบที่รับมา 0.4 จะได้ราคา 0 ตั้งแต่ชิ้นแรก ทั้งที่ระบบถือว่า
+                //   ชิ้นนั้นเป็นของที่มีเอกสาร SAP รองรับ
+                i < Math.ceil(l.receivedQty)
                 ? item.unitPrice
                 : 0,
         })),
@@ -331,6 +383,8 @@ const declareError = ref('');
 
 function openDeclare(round: RoundGroup) {
   declareTarget.value = round;
+  // round.qty ปัดขึ้นมาแล้วตั้งแต่ grouped - ห้ามหยิบ receivedQty ดิบมาใส่ที่นี่
+  // (สคีมาฝั่ง backend รับเฉพาะจำนวนเต็ม ค่าทศนิยมจะได้ 422 ตั้งแต่กดบันทึกครั้งแรก)
   declareQty.value = round.qty;
   declareReason.value = round.declaredReason ?? '';
   declareError.value = '';
@@ -340,8 +394,14 @@ function openDeclare(round: RoundGroup) {
 async function onConfirmDeclare() {
   const round = declareTarget.value;
   if (!round) return;
-  // แจ้งเท่ากับที่ SAP รับมา = ไม่ได้แตกรายการ (backend จะถือว่าไม่แจ้ง) จึงไม่ต้องบังคับเหตุผล
-  if (declareQty.value !== round.receivedQty && !declareReason.value.trim()) {
+  /**
+   * ต่างจากที่ SAP รับมา = ต้องมีเหตุผล (ด่านเดียวกับ backend ใน declareLine)
+   *
+   * ★ เทียบกับค่าที่ "ปัดขึ้นแล้ว" ไม่ใช่ค่าดิบ — receivedQty เป็นทศนิยมได้ (เช่น 2.5)
+   *   แต่จำนวนที่แจ้งเป็นจำนวนเต็มเสมอ เทียบค่าดิบจะไม่มีวันเท่ากัน ผลคือฟอร์มบังคับให้
+   *   พิมพ์เหตุผลทั้งที่ backend ถือว่า "เท่ากับ SAP = ไม่ได้แจ้ง" แล้วโยนเหตุผลนั้นทิ้ง
+   */
+  if (declareQty.value !== Math.ceil(round.receivedQty) && !declareReason.value.trim()) {
     declareError.value = 'กรุณาระบุเหตุผลที่จำนวนไม่ตรงกับที่ PO แจ้ง';
     return;
   }
@@ -351,6 +411,8 @@ async function onConfirmDeclare() {
     await declareLine(props.requestId, round.id, declareQty.value, declareReason.value.trim());
     declareOpen.value = false;
     await load();
+    // backend แตะ updatedAt ของใบไปแล้ว - หัวใบต้องรับค่าใหม่ ไม่งั้น Submit จะติด 409
+    emit('request-touched');
   } catch (e) {
     declareError.value = e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ โปรดลองอีกครั้ง';
   } finally {
@@ -367,6 +429,8 @@ async function onRevertToSap() {
     await removeDeclaredLine(props.requestId, round.id);
     declareOpen.value = false;
     await load();
+    // เหตุผลเดียวกับ onSaveDeclare - ยกเลิกการแจ้งก็แตะ updatedAt ของใบเหมือนกัน
+    emit('request-touched');
   } catch (e) {
     declareError.value = e instanceof ApiError ? e.message : 'ยกเลิกไม่สำเร็จ โปรดลองอีกครั้ง';
   } finally {
@@ -404,7 +468,7 @@ const STATUS_META: Record<
   },
   saved: {
     label: 'Saved',
-    class: 'badge-neutral badge-soft',
+    class: 'badge-ghost',
     border: 'border-l-neutral',
     desc: 'กรอกและบันทึกแล้ว แต่ยังไม่ได้ส่งใบคำขอ ยังไม่มีใครเห็นคำขอนี้',
   },
@@ -518,13 +582,52 @@ function isSlotClosed(slot: RoundSlot): boolean {
 }
 
 /**
+ * ชิ้นนี้ "ถูกบัญชีตีกลับรายชิ้น" หรือเปล่า
+ *
+ * ★ ห้ามดูจาก displayStatus === 'rejected' อย่างเดียว — backend ยุบสองเคสที่ต่างกันมาก
+ *   ให้เป็นค่าเดียว (ดู slotDisplayStatus):
+ *     บัญชีตีกลับ "ชิ้นนี้"   → asset.rejectedAt/rejectReason ถูกเซ็ตที่ตัวชิ้น
+ *     หัวหน้าตีกลับ "ทั้งใบ" → ไม่มีอะไรที่ตัวชิ้นเลย เหตุผลอยู่บนใบ แต่ทุกชิ้นขึ้น 'rejected'
+ *
+ *   backend จึงส่ง rejectedOnPiece มาให้แยกโดยเฉพาะ (rejectedRole ใช้แทนไม่ได้ — FINANCE
+ *   โผล่ได้ทั้งสองเคสเพราะบัญชีอยู่ใน APPROVER_ROLES ด้วย)
+ */
+function isPieceRejected(slot: RoundSlot): boolean {
+  return slot.status === 'registered' && slot.rejectedOnPiece;
+}
+
+/**
+ * ในใบนี้มีชิ้นที่บัญชีตีกลับค้างอยู่ไหม (ไม่นับชิ้นของใบอื่น)
+ *
+ * มีเมื่อไหร่ = งานที่รอผู้ขออยู่คือ "แก้ชิ้นเหล่านั้น" เท่านั้น ชิ้นอื่นในใบผ่านสายตาหัวหน้า
+ * และบัญชีไปแล้ว ไม่ควรเปิดให้แก้พ่วงไปด้วย
+ */
+const hasPieceReject = computed(() =>
+  grouped.value.some(({ rounds }) =>
+    rounds.some((round) => round.slots.some((s) => isPieceRejected(s) && !isFromOtherRequest(s))),
+  ),
+);
+
+/**
  * ชิ้นนี้กดแก้ได้ไหม - รวมทุกด่านไว้ที่เดียว (เดิมกระจายอยู่ใน :disabled ของปุ่ม)
+ *
+ * ★ มีชิ้นที่บัญชีตีกลับอยู่ = เปิดเฉพาะชิ้นเหล่านั้น ไม่ว่าสถานะใบจะเป็นอะไร
+ *
+ *   เดิมตัดสินจาก editableScope ที่มาจาก "สถานะใบ" อย่างเดียว ซึ่งพลาดเคสผสม: บัญชีกด
+ *   ยืนยันทั้งที่ยังมีชิ้นที่ตีกลับไว้ → ใบกลายเป็น REJECTED (0018) แล้ว statusEditable
+ *   กลับเป็น true ทำให้ scope เด้งเป็น 'all' → เปิดให้แก้ได้ทุกชิ้นที่ยังไม่ registered
+ *   ทั้งที่งานที่รออยู่คือชิ้นที่ถูกตีกลับเท่านั้น
+ *
+ *   ★ ไม่กระทบ flow "หัวหน้าตีกลับทั้งใบ" — เคสนั้นไม่มีชิ้นไหน rejectedOnPiece เลย
+ *     hasPieceReject จึงเป็น false และทุกชิ้นยังแก้ได้ตามเดิม (ซึ่งถูก: หัวหน้าตีกลับทั้งใบ
+ *     แปลว่าให้กลับไปแก้ทั้งใบ)
  *
  * โหมด rejected (ใบอนุมัติแล้ว) เปิดเฉพาะชิ้นที่บัญชีตีกลับ ตรงกับที่ backend บังคับไว้
  * ใน asset.service.update() - หน้าจอกับ API ต้องตอบเหมือนกัน ไม่งั้นกดได้แล้วเจอ 400
  */
 function canEditSlot(slot: RoundSlot): boolean {
   if (!props.editable || isSlotClosed(slot) || isFromOtherRequest(slot)) return false;
+  if (hasPieceReject.value) return isPieceRejected(slot);
   if (props.editableScope === 'rejected') return slot.displayStatus === 'rejected';
   return true;
 }
@@ -577,7 +680,12 @@ async function loadMasterData() {
   masterError.value = '';
   try {
     const [dept, loc, sub] = await Promise.all([
-      listDepartments(),
+      // ★ ต้องส่ง companyCode ของ "ใบ" เสมอ ไม่ใช่ของผู้ใช้ - ADMIN เปิดใบบริษัทไหนก็ได้
+      //   ของเดิมไม่ส่งอะไรเลย จึงได้แผนกทั้งเครือ (วัด 2026-09-03: 151 แผนก 3 บริษัท
+      //   ชื่อซ้ำกัน 55 ชื่อ) คนกรอกเห็น "บัญชี" สามอันเรียงกันแล้วต้องเดา และถ้าเดาผิด
+      //   บริษัท การบันทึกจะล้มที่ fk_asset_department ซึ่งเป็น composite FK
+      //   (departmentId, companyCode) - พังตอนกดบันทึก ไม่ใช่ตอนเลือก
+      listDepartments({ companyCode: companyCode.value }),
       listLocations(),
       listSubLocations(),
     ]);
@@ -591,7 +699,13 @@ async function loadMasterData() {
   }
 }
 
-onMounted(loadMasterData);
+// ★ ผูกกับ companyCode ไม่ใช่ onMounted - ลิสต์แผนกต้องรู้บริษัทก่อนถึงจะขอได้ถูก
+//   และบริษัทมาจาก getAssetSlots ซึ่งกว่าจะตอบก็หลัง mount ไปแล้ว ยิงตอน mount จะได้
+//   companyCode เป็น '' = ขอแบบไม่กรอง = ได้แผนกทั้งเครือกลับมาเหมือนเดิม
+//   (สลับใบด้วย props.requestId ก็เข้าทางนี้เอง เพราะ load() เซ็ต companyCode ใหม่)
+watch(companyCode, (code) => {
+  if (code) void loadMasterData();
+});
 
 // ── โหลดใหม่เมื่อมีคนอื่นเปลี่ยนใบนี้ - DraftForm เรียกเข้ามาตอนได้ก้อนจากสาย presence ──
 //
@@ -716,17 +830,19 @@ defineExpose({ reloadFromRemote });
                       </button>
 
                       <!-- action: invoice - เปิด modal จัดการ (แนบ/ถอด/preview 1 รอบหลายใบ) -->
+                      <!-- ★ ไม่มี :disabled - เปิดให้กดดูได้เสมอ โมดัลคุมสิทธิ์แก้เองผ่าน :editable
+                           เดิมปิดทั้งปุ่มตอนแก้ไม่ได้ ซึ่งแปลว่าดูก็ไม่ได้ ทั้งที่ invoice เป็นหลักฐาน
+                           ที่คนอ่านใบต้องเปิดดูได้เสมอ -->
                       <button
                         type="button"
                         class="btn btn-outline btn-xs ml-auto"
                         :class="round.invoices.length ? 'btn-success' : ''"
-                        :disabled="!canEditRound"
-                        :title="!canEditRound ? 'ไม่มีสิทธิ์จัดการ invoice' : (round.invoices.length ? `invoice ${round.invoices.length} ใบ` : 'ยังไม่มี invoice')"
+                        :title="canManageInvoice ? (round.invoices.length ? `invoice ${round.invoices.length} ใบ - กดเพื่อจัดการ` : 'ยังไม่มี invoice - กดเพื่อแนบ') : `ดู invoice ${round.invoices.length} ใบ (แก้ไม่ได้ในสถานะนี้)`"
                         @click="invoiceGrpoId = round.grpoId"
                       >
                         <Icon icon="lucide:receipt-text" />
                         <span v-if="round.invoices.length">invoice ({{ round.invoices.length }})</span>
-                        <span v-else>{{ canEditRound ? 'แนบ invoice' : 'ไม่มี invoice' }}</span>
+                        <span v-else>{{ canManageInvoice ? 'แนบ invoice' : 'ไม่มี invoice' }}</span>
                       </button>
 
                       <!-- เส้นคั่น action | info -->
@@ -753,7 +869,7 @@ defineExpose({ reloadFromRemote });
                       <button
                         type="button"
                         class="btn btn-ghost btn-sm btn-square"
-                        :disabled="!canEditRound"
+                        :disabled="!canDeclare"
                         :title="round.declaredQty !== null ? 'แก้จำนวนที่แจ้งไว้' : 'แจ้งจำนวนชิ้นของรอบนี้'"
                         @click="openDeclare(round)"
                       >
@@ -762,6 +878,20 @@ defineExpose({ reloadFromRemote });
                     </div>
 
                     <table v-if="isRoundOpen(round.id)" class="table table-sm rounded-box bg-base-10">
+                      <!-- ★ หัวตารางอยู่ที่นี่ที่เดียว - เดิมช่อง Serial/Price แปะป้ายชื่อคอลัมน์
+                           ไว้ในทุกแถวของตัวเอง ซึ่งซ้ำ n รอบตามจำนวนชิ้นและกินความสูงแถวไปฟรี ๆ
+                           ★ ช่องที่ 2 (รูป) กับช่องที่ 5 (สถานะ) เว้นหัวว่างไว้โดยตั้งใจ - รูปกับป้าย
+                             สถานะอ่านออกได้เองอยู่แล้ว ใส่คำกำกับมีแต่ทำให้แถวหัวแน่นขึ้นเปล่า ๆ -->
+                      <thead>
+                        <tr class="text-xs uppercase bg-base-100">
+                          <th class="w-[20px] text-right">No.</th>
+                          <th class="text-center"></th>
+                          <th>Serial number</th>
+                          <th class="text-right">Price per unit</th>
+                          <th class="text-right">Status</th>
+                          <th class="text-center">Action</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         <tr
                           v-for="slot in round.slots"
@@ -790,26 +920,20 @@ defineExpose({ reloadFromRemote });
                             <Icon v-else icon="lucide:image" class="mx-auto text-base-content/40" />
                           </td>
 
-                          <!-- Serial -->
+                          <!-- Serial - ชื่อคอลัมน์ย้ายไป <thead> แล้ว ห้ามเอากลับมาแปะในแถว -->
                           <td>
-                            <div class="flex flex-col">
-                              <span class="text-xs uppercase text-base-content/50">Serial number</span>
-                              <span :class="slot.status === 'registered' ? 'text-base-content/60' : ''">
-                                {{ slot.status === 'registered' ? (slot.serialNumber ?? 'Not assigned') : 'Not assigned' }}
-                              </span>
-                            </div>
+                            <span :class="slot.status === 'registered' ? 'text-base-content/60' : ''">
+                              {{ slot.status === 'registered' ? (slot.serialNumber ?? 'Not assigned') : 'Not assigned' }}
+                            </span>
                           </td>
 
                           <td class="text-right">
-                            <div class="flex flex-col">
-                              <span class="text-xs uppercase text-base-content/50">Price per unit</span>
-                              <span
-                                class="font-mono"
-                                :class="slot.status === 'registered' ? 'text-base-content/60' : ''"
-                              >
-                                {{ formatCurrency(slot.price) }}
-                              </span>
-                            </div>
+                            <span
+                              class="font-mono"
+                              :class="slot.status === 'registered' ? 'text-base-content/60' : ''"
+                            >
+                              {{ formatCurrency(slot.price) }}
+                            </span>
                           </td>
 
                           <!-- Status - ป้าย + บรรทัดบอกว่าใครทำอะไรเพราะอะไร
@@ -910,8 +1034,11 @@ defineExpose({ reloadFromRemote });
 
         <fieldset class="fieldset">
           <legend class="fieldset-legend">จำนวนชิ้นที่จะขึ้นทะเบียน*</legend>
-          <input v-model.number="declareQty" type="number" min="0" class="input w-full" />
-          <p class="label">*ลดต่ำกว่าจำนวนที่ลงทะเบียนไปแล้วไม่ได้</p>
+          <!-- ★ max ต้องมี ไม่ใช่แค่ min - ฟอร์มเรนเดอร์หนึ่งแถวต่อหนึ่งช่อง พิมพ์ผิดหลัก
+               แล้วสั่งวาดล้านแถว แท็บค้างจนกดยกเลิกไม่ได้ (backend กันไว้ที่ 1000 เหมือนกัน)
+               step="1" กันพิมพ์ทศนิยมซึ่งสคีมาปฏิเสธอยู่แล้ว - บอกที่ช่องดีกว่าให้ไปเจอ error -->
+          <input v-model.number="declareQty" type="number" min="0" max="1000" step="1" class="input w-full" />
+          <p class="label">*ลดต่ำกว่าจำนวนที่ลงทะเบียนไปแล้วไม่ได้ (สูงสุด 1,000 ชิ้นต่อรอบ)</p>
 
           <legend class="fieldset-legend">เหตุผล (บังคับ)*</legend>
           <textarea
@@ -943,7 +1070,7 @@ defineExpose({ reloadFromRemote });
 
     <!-- จัดการ invoice ของรอบที่เลือก - เปิดเมื่อ invoiceGrpoId ถูกเซ็ต, ปิด = คืนเป็น null -->
     <InvoiceModal v-if="invoiceRound" :open="true" :grpo-id="invoiceRound.grpoId" :grpo-no="invoiceRound.grpoNo"
-      :invoices="invoiceRound.invoices" :editable="canEditRound" @update:open="invoiceGrpoId = null"
+      :invoices="invoiceRound.invoices" :editable="canManageInvoice" @update:open="invoiceGrpoId = null"
       @changed="load" />
 
     <AssetFormDialog

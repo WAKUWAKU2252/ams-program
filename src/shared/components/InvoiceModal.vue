@@ -136,7 +136,11 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <div class="modal backdrop-blur-sm" :class="{ 'modal-open': open }" role="dialog" aria-modal="true">
-      <div class="modal-box max-w-3xl">
+      <!-- max-h ต้องระบุเอง — daisyUI build นี้ตั้ง .modal-box ไว้ที่ max-height: 100dvh และ
+           .modal ไม่มี padding พอเนื้อหายาวกล่องจะสูงเท่าจอพอดี ชนขอบบน-ล่างของเบราว์เซอร์
+           ★ 4rem ให้ตรงกับ AssetDetailModal/AssetImageDialog/AssetSummary — อย่าตั้งค่าใหม่
+           ★ dvh ไม่ใช่ vh เพราะแถบ address bar ของมือถือยุบ/ขยายตอนเลื่อน -->
+      <div class="modal-box max-h-[calc(100dvh-4rem)] max-w-3xl">
         <!-- header -->
         <div class="flex items-start justify-between gap-4">
           <div class="flex items-center gap-3">

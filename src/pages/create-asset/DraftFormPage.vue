@@ -10,7 +10,10 @@ import type { PresenceState, PresenceConnection } from '@/shared/services/presen
 import { ApiError } from '@/shared/services/httpClient'
 import { formatDate } from '@/shared/utils/date'
 import { requestStatusMeta } from '@/shared/utils/request-status'
+import { rejectRoleLabel } from '@/shared/utils/reject-role'
 import type { RejectedPiece } from '@/shared/types/rejected-piece'
+import { useIdleKick } from '@/shared/utils/idle-kick'
+import { useConnectionStore } from '@/shared/stores/connection'
 import { Icon } from '@iconify/vue'
 
 const props = defineProps<{
@@ -59,7 +62,23 @@ const statusEditable = computed(() =>
  * ถ้าแก้ราคา/สเปกได้โดยไม่ต้องขออนุมัติใหม่ การอนุมัติจะไม่เหลือความหมาย
  */
 const rejectedOnly = computed(() => draft.value?.status === 'APPROVED')
-/** ขอบเขตที่แก้ได้ - RequestTable เอาไปตัดสินรายชิ้นอีกที */
+/**
+ * ขอบเขตที่แก้ได้ - RequestTable เอาไปตัดสินรายชิ้นอีกที
+ *
+ *   DRAFT / REJECTED → 'all'      ใบยังอยู่ในมือผู้ขอ แก้ได้ทุกอย่าง
+ *   APPROVED         → 'rejected'  แก้ได้เฉพาะชิ้นที่บัญชีตีกลับรายชิ้น
+ *
+ * ★ REJECTED = 'all' โดยตั้งใจ — หัวหน้าตีกลับ "ทั้งใบ" ไม่ได้ระบุรายชิ้น สิ่งที่ผู้ขอต้อง
+ *   ทำจึงเป็น "กลับไปแก้ทั้งใบ" ซึ่งรวมการลงชิ้นที่ยังขาด (เหตุผลตีกลับที่เจอบ่อยที่สุดคือ
+ *   "กรอกไม่ครบ") การแจ้งจำนวนใหม่ และการแนบ invoice ตามที่ถูกสั่ง
+ *
+ *   เคยลองแยกเป็นโหมด 'existing' ที่ล็อกช่องว่างไว้ แล้วพบว่าปิดทางแก้ตามที่หัวหน้าสั่ง
+ *   ทั้งหมด — ถอดออกแล้ว (backend ยอม DRAFT+REJECTED ทั้ง create() และ declareLine อยู่แล้ว
+ *   โหมดนั้นจึงเป็นการทำให้จอเข้มกว่า API ฝ่ายเดียว)
+ *
+ * ★ ชิ้นที่บัญชีตีกลับรายชิ้นยังถูกล็อกให้แก้ได้เฉพาะชิ้นนั้นเสมอ ไม่ว่าสถานะใบจะเป็นอะไร
+ *   — ตัวนั้นอยู่ที่ hasPieceReject ใน RequestTable ไม่ได้ผูกกับ scope
+ */
 const editableScope = computed<'all' | 'rejected'>(() => (statusEditable.value ? 'all' : 'rejected'))
 // presence (กันสองคนแก้ใบเดียวกันพร้อมกัน) ใช้กับทั้งสองโหมด - การแก้ชิ้นที่ถูกตีกลับ
 // ก็ชนกันได้เหมือนกัน
@@ -67,27 +86,52 @@ const editable = computed(
   () => (statusEditable.value || rejectedOnly.value) && presenceState.value?.state === 'editable',
 )
 
-const lockBanner = computed(() => {
-  if (!draft.value) return ''
+/**
+ * แถบ "ตอนนี้แก้ไม่ได้/แก้ได้แค่ไหน"
+ *
+ * ★ คืนเป็น object ไม่ใช่สตริง — badge เลขชิ้นต้องโผล่เฉพาะข้อความที่ลงท้ายว่า "รายการ:"
+ *   เท่านั้น เดิม template วน rejectedPieces ไว้ใน alert แบบไม่มีเงื่อนไข เลขชิ้นจึงติดไป
+ *   กับทุกข้อความ รวมถึง "PO ใบนี้กำลังถูกใช้โดยผู้อื่น" ซึ่งไม่เกี่ยวกับชิ้นไหนเลย
+ *   (อ่านแล้วเหมือนบอกว่าชิ้น 1.3 ถูกคนอื่นใช้อยู่)
+ */
+const lockBanner = computed<{ text: string; pieces: boolean }>(() => {
+  const plain = (text: string) => ({ text, pieces: false })
+  if (!draft.value) return plain('')
   if (!statusEditable.value && !rejectedOnly.value) {
     // ป้ายเดียวกับที่หน้ารายการใช้ - ผู้ใช้เพิ่งเห็น "Approved" ในตารางแล้วกดเข้ามา
     // ถ้าตรงนี้ขึ้น "APPROVED" ดิบ ๆ จะอ่านเหมือนคนละสถานะ
-    return `คำขอนี้อยู่สถานะ ${requestStatusMeta(draft.value.status).label} เปิดดูได้อย่างเดียว`
+    return plain(`คำขอนี้อยู่สถานะ ${requestStatusMeta(draft.value.status).label} เปิดดูได้อย่างเดียว`)
   }
   if (presenceState.value?.state === 'pending') {
-    return 'PO ใบนี้กำลังถูกใช้โดยผู้อื่น เปิดดูได้แต่แก้ไขไม่ได้ แก้ได้เมื่อผู้ใช้ก่อนหน้าออก'
+    return plain('PO ใบนี้กำลังถูกใช้โดยผู้อื่น เปิดดูได้แต่แก้ไขไม่ได้ แก้ได้เมื่อผู้ใช้ก่อนหน้าออก')
   }
   if (rejectedOnly.value) {
     // ★ ใบอนุมัติแล้วแต่บัญชียังไม่ได้ตีกลับอะไร = ไม่มีอะไรให้แก้จริง ๆ ต้องพูดให้ตรง
     //   ข้อความ "แก้ได้เฉพาะชิ้นที่ตีกลับ" ในสภาพนั้นทำให้ผู้ขอไปนั่งไล่หาชิ้นที่ไม่มีอยู่
     // เลขชิ้นถูกต่อท้ายข้อความนี้ใน template (badge) - ไม่ต้องบอกให้ไปดูที่อื่น
     if (rejectedPieces.value.length > 0) {
-      return 'คำขอนี้อนุมัติแล้ว แก้ได้เฉพาะชิ้นที่บัญชีตีกลับ รายการ:'
+      return { text: 'คำขอนี้อนุมัติแล้ว แก้ได้เฉพาะชิ้นที่บัญชีตีกลับ รายการ:', pieces: true }
     }
-    if (!piecesChecked.value) return 'คำขอนี้อนุมัติแล้ว - กำลังตรวจว่ามีชิ้นที่ต้องแก้ไหม'
-    return 'คำขอนี้อนุมัติแล้ว รอบัญชีออกเลขสินทรัพย์ - ยังไม่มีชิ้นที่ต้องแก้'
+    if (!piecesChecked.value) return plain('คำขอนี้อนุมัติแล้ว - กำลังตรวจว่ามีชิ้นที่ต้องแก้ไหม')
+    return plain('คำขอนี้อนุมัติแล้ว รอบัญชีออกเลขสินทรัพย์ - ยังไม่มีชิ้นที่ต้องแก้')
   }
-  return ''
+  return plain('')
+})
+
+/**
+ * ใบนี้ถูก "ตีกลับทั้งใบ" หรือเปล่า พร้อมเหตุผล — คนละเรื่องกับบัญชีตีกลับรายชิ้น
+ *
+ * ★ เดิมไม่มีอะไรบอกเลยบนหัวหน้าจอ: lockBanner ไล่เงื่อนไขแล้วตกท้ายเป็น '' เพราะ REJECTED
+ *   นับเป็น statusEditable (แก้ได้) และไม่ใช่ rejectedOnly (ซึ่งเช็ค APPROVED) ผู้ขอจึงเห็น
+ *   แค่ตารางที่แก้ได้ โดยไม่รู้ว่าโดนตีกลับ ไม่รู้ว่าใครตีกลับ และไม่รู้ว่าต้องแก้อะไร
+ *   ทั้งที่ backend เก็บเหตุผลไว้ให้แล้วตั้งแต่ rejectRequest()
+ */
+const requestReject = computed(() => {
+  if (draft.value?.status !== 'REJECTED') return null
+  return {
+    reason: draft.value.rejectReason?.trim() || null,
+    by: rejectRoleLabel(draft.value.rejectedRole ?? null),
+  }
 })
 
 async function loadDraft() {
@@ -102,7 +146,6 @@ async function loadDraft() {
     // แล้ว editable จะ false ตลอด (ปุ่มแก้ไม่ติดทั้งที่ควรแก้ได้)
     if (statusEditable.value || rejectedOnly.value) {
       openPresenceStream()
-      startIdleTimer()
     }
   } catch (e) {
     console.error('โหลดคำขอไม่สำเร็จ:', e)
@@ -139,6 +182,25 @@ function scheduleRemoteRefresh() {
   }, 400)
 }
 
+/**
+ * โหลด "หัวใบ" ใหม่อย่างเดียว - ใช้ตอนที่ตัวเราเองเป็นคนแก้ ไม่ใช่คนอื่น
+ *
+ * ★ แก้บั๊ก "กด Submit แล้วขึ้นว่าคำขอถูกแก้ไขโดยผู้อื่นแล้ว ทั้งที่ไม่มีใครแก้"
+ *   onSubmit ส่ง draft.updatedAt ไปเทียบกัน lost update แต่ draft ถูกโหลดครั้งเดียวตอน
+ *   เปิดหน้า ส่วนการแจ้งจำนวนชิ้นแตะ asset_request.updatedAt ทุกครั้ง (touchRequest)
+ *   ค่าที่เราถืออยู่จึงเก่าทันทีที่ตัวเองกดแจ้ง แล้ว Submit ติด 409 ตลอดจนกว่าจะรีเฟรชหน้า
+ *
+ * ★ ไม่เรียก reloadFromRemote() ของตาราง - ตารางเพิ่ง load() ของตัวเองมาแล้วก่อน emit
+ *   โหลดซ้ำคือยิงซ้ำเปล่า ๆ และเสี่ยงกระพริบทับกล่องที่ผู้ใช้เปิดค้างอยู่
+ */
+async function refreshHeader() {
+  try {
+    draft.value = await getAssetRequest(Number(props.requestId))
+  } catch (e) {
+    console.error('โหลดหัวใบใหม่ไม่สำเร็จ:', e)
+  }
+}
+
 async function refreshFromRemote() {
   try {
     // ไม่แตะ loading - จอไม่ควรกระพริบเป็นสปินเนอร์เพราะคนอื่นกดปุ่ม
@@ -154,6 +216,22 @@ function closePresence() {
   presenceConn?.close()
   presenceConn = null
 }
+
+// ── ใบนี้เปลี่ยนสถานะโดยคนอื่น ขณะที่เราไม่ได้ถือ lock อยู่ ────────────────────
+//
+// ★ สาย presence ครอบเคสนี้ไม่ได้ - มันถูกเปิดเฉพาะใบที่แก้ได้ (statusEditable/rejectedOnly)
+//   ใบที่ส่งไปแล้วรอหัวหน้าอนุมัติจึงไม่มีสายอะไรเลย เปิดค้างไว้ก็ไม่มีวันรู้ว่าถูกอนุมัติ/
+//   ตีกลับแล้ว ต้องกด F5 เอง (เพิ่งกลายเป็นเรื่องจริงตอนลิสต์เริ่มแสดงใบ Pending Approval)
+//
+// ★ ห้ามแก้ด้วยการเปิด presence ให้ทุกสถานะเด็ดขาด - presence.subscribe() ตั้งคนแรก
+//   ที่เข้าห้องเป็น holder ทันที คนที่แค่ "เปิดดู" จะไปคว้า lock ค้างไว้แล้วคนที่ต้องแก้จริง
+//   เข้าไม่ได้จนกว่า TTL จะหมด = เปลี่ยนบั๊กเล็กเป็นบั๊กใหญ่
+//
+// สายนี้ (myRequests ฝั่ง backend) เป็นผู้ฟังล้วน ไม่ถือ lock ไม่มีตัวตนในคิว และถูกกรอง
+// มาแล้วว่าเป็นก้อนที่กระทบใบของผู้ขอ (affectsMyRequestsList) — เปิดทั้งแอปอยู่แล้วตั้งแต่
+// ล็อกอิน จึงไม่กินโควตา connection เพิ่ม
+const connection = useConnectionStore()
+watch(() => connection.changeTick, () => scheduleRemoteRefresh())
 async function onSubmit() {
   if (!draft.value || submitting.value) return
   submitError.value = ''
@@ -177,45 +255,19 @@ async function onSubmit() {
   }
 }
 
-let idleTimer: ReturnType<typeof setTimeout> | undefined
+/**
+ * ถือ lock ค้างไว้โดยไม่ทำอะไร = บล็อกคนอื่นฟรี ๆ - เตะออกหลัง 10 นาที
+ *
+ * ★ จับเวลาเฉพาะตอน "ถือ lock อยู่จริง" ไม่ใช่ตั้งแต่เปิดหน้า - คนที่รอคิว (pending)
+ *   ต้องไม่ถูกนับ idle ไปด้วย ไม่งั้นเขาจะถูกเด้งออกทั้งที่ยังไม่เคยได้แก้อะไรเลย
+ *   แล้วคิวจะว่างเปล่าตอน holder ถูกเตะ (ดูเหตุผลเต็มที่ utils/idle-kick.ts)
+ */
+const holdingLock = computed(() => presenceState.value?.state === 'editable')
 
-const idleEvents: Array<keyof WindowEventMap> = [
-  'mousemove',
-  'keydown',
-  'click',
-  'scroll',
-]
-
-function resetIdleTimer() {
-  if (idleTimer) {
-    clearTimeout(idleTimer)
-  }
-
-  idleTimer = setTimeout(() => {
-    closePresence()
-    router.replace({ name: 'DraftList' })
-  }, 10 * 60 * 1000)
-}
-
-function startIdleTimer() {
-  idleEvents.forEach((event) => {
-    window.addEventListener(event, resetIdleTimer)
-  })
-
-  resetIdleTimer()
-}
-
-function stopIdleTimer() {
-  if (idleTimer) {
-    clearTimeout(idleTimer)
-    idleTimer = undefined
-  }
-
-  idleEvents.forEach((event) => {
-    window.removeEventListener(event, resetIdleTimer)
-  })
-}
-
+useIdleKick(holdingLock, () => {
+  closePresence()
+  router.replace({ name: 'DraftList' })
+})
 
 onMounted(loadDraft)
 
@@ -236,7 +288,6 @@ onMounted(loadDraft)
 watch(
   () => props.requestId,
   () => {
-    stopIdleTimer()
     closePresence()
     presenceState.value = null
 
@@ -253,12 +304,10 @@ watch(
 )
 
 onBeforeRouteLeave(() => {
-  stopIdleTimer()
   closePresence()
 })
 
 onUnmounted(() => {
-  stopIdleTimer()
   closePresence()
   if (remoteTimer) clearTimeout(remoteTimer)
 })
@@ -279,7 +328,8 @@ onUnmounted(() => {
     </div>
 
     <!-- โหลดอยู่ -->
-    <section v-if="loading" class="mx-4 flex items-center justify-center gap-2 py-16 text-base-content/70 md:mx-10 lg:mx-20">
+    <section v-if="loading"
+      class="mx-4 flex items-center justify-center gap-2 py-16 text-base-content/70 md:mx-10 lg:mx-20">
       <span class="loading loading-spinner loading-md"></span>กำลังโหลดคำขอ...
     </section>
 
@@ -294,8 +344,35 @@ onUnmounted(() => {
       </button>
     </section>
 
-    <!-- เนื้อฟอร์ม - draft โหลดสำเร็จแล้วเท่านั้น -->
     <template v-else-if="draft">
+      <!-- ── ใบถูกตีกลับทั้งใบ — ต้องขึ้นก่อนทุกอย่าง
+           ★ เดิมหน้านี้ไม่บอกอะไรเลยตอนใบถูกหัวหน้าตีกลับ: ผู้ขอเห็นแค่ตารางที่แก้ได้
+             แล้วเดาเอาเองว่าทำไมใบกลับมาอยู่ในลิสต์ ทั้งที่เหตุผลถูกเก็บไว้ตั้งแต่ตอนกดตีกลับ
+           ★ ใช้ alert-error ไม่ใช่ warning — คนละความหมายกับแถบ lock ข้างล่างที่บอกแค่ว่า
+             "ตอนนี้แก้ไม่ได้" อันนี้คือ "มีงานรอคุณอยู่" -->
+      <div v-if="requestReject" role="alert" class="alert alert-error alert-soft mx-4 items-start md:mx-10 lg:mx-20">
+        <Icon icon="mdi:undo-variant" class="size-5 shrink-0" />
+        <div class="min-w-0 flex-1 text-left">
+          <p class="text-sm font-semibold">
+            คำขอนี้ถูกตีกลับ{{ requestReject.by ? `โดย${requestReject.by}` : '' }}
+            <span class="text-sm">รายการ</span>
+            <span v-for="p in rejectedPieces" :key="`${p.poLine}.${p.unitNo}`"
+              class="badge badge-error badge-sm font-mono px-1.5 mx-1.5">
+              {{ p.poLine }}.{{ p.unitNo }}
+            </span>
+          แก้แล้วกด
+          Submit เพื่อส่งใหม่ได้เลย
+          </p>
+          <!-- เหตุผลว่างได้จริง (ตีกลับโดยไม่พิมพ์อะไร) ต้องบอกว่าไม่มี ไม่ใช่ซ่อนบรรทัดทิ้ง
+               ให้ดูเหมือนระบบลืมแสดง -->
+          <p class="mt-0.5 text-sm">
+            เหตุผล:
+            <span v-if="requestReject.reason">{{ requestReject.reason }}</span>
+            <span v-else class="opacity-70">ไม่ได้ระบุ — สอบถามผู้ที่ตีกลับโดยตรง</span>
+          </p>
+        </div>
+      </div>
+
       <!-- banner แจ้งเมื่อแก้ไม่ได้ (คนอื่นถือ lock / ส่งไปแล้ว) พร้อมเลขชิ้นที่ต้องแก้ต่อท้าย
            อยู่ใน alert เดียวกันโดยตั้งใจ - เป็นประโยคเดียวที่อ่านต่อกัน ("แก้ได้เฉพาะชิ้นที่
            ตีกลับ [1.3] [2.1]") แยกเป็นสอง alert แล้วผู้ใช้ต้องอ่านสองรอบเพื่อได้ความเดียวกัน
@@ -303,15 +380,12 @@ onUnmounted(() => {
            บอกแค่เลขชิ้น ไม่เอาเหตุผลมาด้วย - เหตุผลอยู่ที่แถวนั้นในตารางข้างล่างแล้ว
            ตีกลับ 5 ชิ้นก็ยังเป็นบรรทัดเดียว (badge ตัดขึ้นบรรทัดใหม่เองถ้าไม่พอ)
            เลข poLine.unitNo ตรงกับที่ตารางโชว์เป๊ะ - อ่านจากที่นี่แล้วไล่หาแถวได้ตรง ๆ -->
-      <div v-if="lockBanner" role="alert" class="alert alert-warning alert-soft mx-4 md:mx-10 lg:mx-20">
+      <div v-if="lockBanner.text" role="alert" class="alert alert-warning alert-soft mx-4 md:mx-10 lg:mx-20">
         <Icon icon="lucide:lock" class="shrink-0" />
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-left">
-          <span class="text-sm">{{ lockBanner }}</span>
-          <span
-            v-for="p in rejectedPieces"
-            :key="`${p.poLine}.${p.unitNo}`"
-            class="badge badge-warning badge-sm font-mono"
-          >
+          <span class="text-sm">{{ lockBanner.text }}</span>
+          <span v-for="p in lockBanner.pieces ? rejectedPieces : []" :key="`${p.poLine}.${p.unitNo}`"
+            class="badge badge-warning badge-sm font-mono">
             {{ p.poLine }}.{{ p.unitNo }}
           </span>
         </div>
@@ -339,9 +413,9 @@ onUnmounted(() => {
                 <p class="text-sm text-base-content/50">ผู้ขอซื้อ (Requester)</p>
                 <p>{{ draft.purchaseOrder.ownerPrName }}</p>
               </div>
-<div>
+              <div>
                 <p class="text-sm text-base-content/50">แผนก</p>
-                <p>{{ draft.purchaseOrder.departmentName}}</p>
+                <p>{{ draft.purchaseOrder.departmentName }}</p>
               </div>
               <div>
                 <p class="text-sm text-base-content/50">Vendor</p>
@@ -358,14 +432,9 @@ onUnmounted(() => {
       </section>
 
       <section class="mx-4 md:mx-10 lg:mx-20">
-        <RequestTable
-          ref="tableRef"
-          :request-id="Number(requestId)"
-          :editable="editable"
-          :editable-scope="editableScope"
-          @over-cost="hasOverCost = $event"
-          @rejected-pieces="onRejectedPieces"
-        />
+        <RequestTable ref="tableRef" :request-id="Number(requestId)" :editable="editable"
+          :editable-scope="editableScope" @over-cost="hasOverCost = $event" @rejected-pieces="onRejectedPieces"
+          @request-touched="refreshHeader" />
       </section>
 
       <footer class="mx-4 pb-10 md:mx-10 lg:mx-20">
@@ -384,11 +453,8 @@ onUnmounted(() => {
         </p>
         <!-- ปุ่มส่งคำขอผูกกับ statusEditable ไม่ใช่ editable - ใบที่อนุมัติแล้วส่งซ้ำไม่ได้
              (แก้ชิ้นที่ตีกลับแล้วชิ้นนั้นกลับเข้าคิวบัญชีเอง ไม่ต้องส่งใบใหม่) -->
-        <FormActions
-          :editable="statusEditable && editable && !submitting && !hasOverCost"
-          @cancel="router.replace({ name: 'DraftList' })"
-          @submit="onSubmit"
-        />
+        <FormActions :editable="statusEditable && editable && !submitting && !hasOverCost"
+          @cancel="router.replace({ name: 'DraftList' })" @submit="onSubmit" />
       </footer>
     </template>
   </div>

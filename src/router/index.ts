@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './routes'
 import { getToken, isTokenValid, clearToken, getTokenRole } from '@/shared/services/auth.token'
+import { homePathForRole, isPathInRoleScope } from '@/shared/utils/role-scope'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -15,20 +16,29 @@ router.beforeEach((to) => {
 
   if (!isTokenValid(getToken())) {
     clearToken()
-    // พากลับมาที่หน้าเดิมหลังล็อกอินเสร็จ (login.vue อ่าน query.redirect อยู่แล้ว)
+    // ส่ง path เดิมไปกับ query.redirect ให้ login.vue ตัดสินใจ
     //
-    // ★ จำเป็นกับ flow สแกน QR: คนเดินตรวจนับสแกนสติกเกอร์บนเครื่อง → มือถือยังไม่ได้
-    //   ล็อกอิน → เด้งไป login ถ้าไม่พก path มาด้วย พอล็อกอินเสร็จจะไปโผล่ dashboard
-    //   แล้วเขาต้องเดินกลับไปสแกนใหม่ ทั้งที่เพิ่งสแกนไปเมื่อกี้
+    // ★ login.vue กลับไปหน้าเดิมเฉพาะ /assets/ (deep link จาก QR บนสติกเกอร์) นอกนั้น
+    //   ล็อกอินเสร็จไป /dashboard เสมอ - token หมดอายุกลางทางแล้วล็อกอินใหม่ ไม่ควรเด้ง
+    //   กลับหน้าที่ค้างไว้
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  // หน้าที่จำกัด role (meta.roles) - role ไม่ตรงให้กลับ dashboard แทนที่จะปล่อยให้เห็นฟอร์ม
-  // แล้วไปโดน 403 ตอนกดบันทึก; นี่เป็นแค่ UI guard ตัวบังคับจริงคือ requireRole ฝั่ง backend
+  const role = getTokenRole()
+
+  // role ที่ถูกจำกัดให้ใช้ได้หน้าเดียว (AUDIT) - ดักก่อน meta.roles เพราะเป็นกติกาที่กว้างกว่า:
+  // หน้าที่ "ไม่มี meta.roles" คือหน้าที่เปิดให้ทุก role ซึ่งรวม AUDIT ด้วยถ้าไม่มีตัวนี้
+  if (!isPathInRoleScope(role, to.path)) return { path: homePathForRole(role) }
+
+  // หน้าที่จำกัด role (meta.roles) - role ไม่ตรงให้กลับหน้าเริ่มต้นของ role นั้นแทนที่จะ
+  // ปล่อยให้เห็นฟอร์มแล้วไปโดน 403 ตอนกดบันทึก; นี่เป็นแค่ UI guard ตัวบังคับจริงคือ
+  // requireRole/auditScopeGuard ฝั่ง backend
+  //
+  // ★ ปลายทางต้องมาจาก homePathForRole ไม่ใช่ '/dashboard' ตรง ๆ - role ที่เข้า dashboard
+  //   ไม่ได้จะถูกดีดไปหน้าที่ตัวเองก็เข้าไม่ได้ แล้ววนซ้ำไม่จบ
   const roles = to.meta.roles as string[] | undefined
   if (roles?.length) {
-    const role = getTokenRole()
-    if (!role || !roles.includes(role)) return { path: '/dashboard' }
+    if (!role || !roles.includes(role)) return { path: homePathForRole(role) }
   }
 })
 

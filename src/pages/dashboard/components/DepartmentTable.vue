@@ -165,8 +165,17 @@ onMounted(async () => {
 // ต่างจากที่ตั้งเพราะพนักงานมีหลักร้อยและโตตามบริษัทที่เพิ่มเข้ามา - ใช้กติกาเดียวกับ
 // AppEmployeeSelect: ขอทีละ 8 แถวแล้วบอกว่ายังเหลืออีกกี่คน ให้ผู้ใช้พิมพ์ค้นให้แคบลงเอง
 //
-// ★ ไม่ผูก departmentId ของ Dashboard เข้าไปในคำขอ: ของแผนกหนึ่งอยู่ในมือคนอีกแผนกได้จริง
-//   กรองรายชื่อตามแผนกไว้แล้วคนที่ถือของอยู่จะหายจากลิสต์จนเลือกไม่ได้ ตัวกรองจะดูเหมือนพัง
+// ★ ผูก companyCode ของ Dashboard เข้าไปด้วย แต่ **ไม่ผูก departmentId** - สองแกนนี้
+//   ตอบคนละคำถามและมีคำตอบต่างกัน:
+//
+//     แผนก   : ของแผนกหนึ่งอยู่ในมือคนอีกแผนกได้เป็นเรื่องปกติ (ยืมข้ามแผนก/ช่างดูแล)
+//              กรองตามแผนกไว้แล้วคนที่ถือของอยู่จริงจะหายจากลิสต์จนเลือกไม่ได้
+//     บริษัท : เป็นขอบเขตชั้นนอกที่ทั้งหน้าถูกจำกัดไว้แล้ว ลิสต์ที่เทชื่อคนทั้งเครือลงมา
+//              (649 คน) ทำให้คนกดต้องเดาว่าชื่อไหนเป็นของบริษัทที่กำลังดูอยู่ ทั้งที่
+//              ตารางข้างล่างมีแต่ของบริษัทเดียว
+//
+// ★ '' (ทุกบริษัท) = ไม่ส่ง companyCode ไป ลิสต์กลับไปเป็นทั้งเครือตามเดิม ซึ่งถูก -
+//   ตอนนั้นตารางก็ไล่ของทั้งเครืออยู่เหมือนกัน
 const EMPLOYEE_LIMIT = 8
 const employeeSearch = ref('')
 const employees = ref<EmployeeOption[]>([])
@@ -177,9 +186,19 @@ let employeesLoaded = false
 let employeeTimer: ReturnType<typeof setTimeout> | undefined
 let employeeSeq = 0
 
-/** ยังมีคนที่ไม่ได้โชว์อีกกี่คน - ต้องบอก ไม่งั้นผู้ใช้จะคิดว่าลิสต์ 8 คนคือทั้งหมด */
-const employeeHiddenCount = computed(() =>
-  Math.max(0, employeeTotal.value - employees.value.length),
+/**
+ * "แสดง 8 จาก 396 คน" - ต้องบอกทั้งสองตัวเลข ไม่ใช่แค่ "เหลืออีก N คน"
+ *
+ * ลิสต์ขอมาทีละ 8 แถว (ดู EMPLOYEE_LIMIT) คนที่เปิดมาเห็น 8 ชื่อโดยไม่มีอะไรกำกับจะอ่านว่า
+ * "บริษัทนี้มีพนักงานแค่นี้" แล้วสรุปว่าคนที่หาไม่เจอไม่มีในระบบ - ทั้งที่ต้องพิมพ์ค้น
+ *
+ * ★ ตัวหารคือ total ของ "ชุดที่กรองแล้ว" ไม่ใช่พนักงานทั้งหมด - พิมพ์ค้นแล้วเลขนี้ต้องลดลง
+ *   ตาม ไม่งั้นมันจะขัดกับลิสต์ที่เห็นอยู่ตรงหน้า
+ */
+const employeeRangeLabel = computed(() =>
+  employeeTotal.value === 0
+    ? ''
+    : `แสดง ${employees.value.length} จาก ${employeeTotal.value.toLocaleString('th-TH')} คน`,
 )
 
 async function loadEmployees() {
@@ -189,6 +208,7 @@ async function loadEmployees() {
   try {
     const res = await listEmployees({
       search: employeeSearch.value.trim() || undefined,
+      companyCode: props.companyCode || undefined,
       page: 1,
       limit: EMPLOYEE_LIMIT,
     })
@@ -342,10 +362,33 @@ async function load() {
  *
  * ค้างอยู่หน้า 4 แล้วสลับไปแผนกที่มีของ 6 ชิ้น จะได้ตารางว่างทั้งที่แผนกนั้นมีของ
  * และแถบเลขหน้าก็หายไปด้วย (เหลือหน้าเดียว) = ไม่มีปุ่มให้กดกลับ ผู้ใช้ติดอยู่ตรงนั้น
+ *
+ * ★★ เปลี่ยน "บริษัท" ต้องล้างรายชื่อผู้ครอบครองด้วย - ลิสต์ที่โหลดไว้เป็นของบริษัทก่อนหน้า
+ *    ถ้าปล่อยไว้ ผู้ใช้จะเห็นชื่อคนของบริษัทเก่าค้างอยู่ในแผงของบริษัทใหม่
+ *
+ *    และถ้ามีคนถูกเลือกเป็นตัวกรองอยู่ ต้องปลดทิ้ง - เขาอาจไม่มีตัวตนในบริษัทใหม่เลย
+ *    ผลคือตารางว่างพร้อม chip ที่เขียนชื่อคนซึ่งเลือกซ้ำจากในแผงไม่ได้อีก (หาไม่เจอ)
+ *
+ *    ★ ปลดแล้ว return ทันที ไม่ยิง load() ต่อ - การล้าง employeeId ไปทริก watch ของ
+ *      ตัวกรองข้างล่างซึ่งยิง load() ให้อยู่แล้ว ยิงเองอีกรอบ = สอง request ที่ผลลัพธ์
+ *      ของอันแรกเป็นของเงื่อนไขที่ถูกทิ้งไปแล้ว (บั๊กเดียวกับที่ Dashboard/Inventory
+ *      เขียนเตือนไว้เรื่อง watch สองตัวในรอบ flush เดียว)
  */
 watch(
   () => [props.departmentId, props.companyCode],
-  () => {
+  ([, company], prev) => {
+    if (prev !== undefined && company !== prev[1]) {
+      employeesLoaded = false
+      employees.value = []
+      employeeTotal.value = 0
+      // กางหัวข้อค้างอยู่ = ต้องเห็นชื่อชุดใหม่ทันที ไม่ใช่ลิสต์ว่างจนกว่าจะหุบแล้วกางใหม่
+      if (expandedField.value === 'holder') void loadEmployees()
+      if (employeeId.value) {
+        page.value = 1
+        clearEmployee()
+        return
+      }
+    }
     page.value = 1
     void load()
   },
@@ -589,6 +632,15 @@ function openAsset(item: InventoryItem) {
                     </li>
                   </ul>
 
+                  <!-- "แสดง 8 จาก 396 คน" - ลิสต์ขอมาทีละ 8 แถว ถ้าไม่บอกจำนวนทั้งหมด
+                       คนที่หาชื่อไม่เจอจะสรุปว่าคนนั้นไม่มีในระบบ แทนที่จะพิมพ์ค้น -->
+                  <p
+                    v-if="employeeRangeLabel"
+                    class="mt-1.5 px-2 text-center text-xs text-base-content/50"
+                  >
+                    {{ employeeRangeLabel }}
+                  </p>
+
                 </template>
 
                 <ul v-else-if="f.key === 'status'">
@@ -679,6 +731,16 @@ function openAsset(item: InventoryItem) {
     />
 
     <!-- Teleport ไป body อยู่แล้ว วางตรงไหนก็ได้ -->
-    <AssetDetailModal v-model="detailOpen" :item="selectedItem" editable-location editable-image />
+    <!-- @updated: แก้ที่ตั้ง/รูป/ประกันจากในกล่องแล้ว คอลัมน์ในตารางต้องตามไปด้วย
+       ไม่งั้นแถวข้างหลังยังโชว์ห้องเดิมจนกว่าจะเปลี่ยนหน้าหรือกรองใหม่ -->
+  <AssetDetailModal
+    v-model="detailOpen"
+    :item="selectedItem"
+    editable-location
+    editable-image
+    editable-holder
+    editable-warranty
+    @updated="load()"
+  />
   </section>
 </template>

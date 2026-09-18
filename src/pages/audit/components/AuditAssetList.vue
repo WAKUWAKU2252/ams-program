@@ -113,12 +113,16 @@ function locateLevel(item: InventoryItem): 'pinned' | 'room' | 'unknown' {
         <div class="card-body gap-2 p-3">
           <!-- แถวป้าย: สถานะ / แผนก / ที่ตั้ง - เรียงตามที่คนตรวจใช้คัดสายตาก่อนอ่านเลข
 
-               ★ ต้อง flex-wrap ที่ชั้นนอกด้วย ไม่ใช่แค่ชั้นใน - เดิมชั้นนอกเป็น
-                 justify-between ที่ตรึงป้าย "บนผัง/รู้ห้อง/ไม่ระบุที่ตั้ง" ไว้ขวาสุดเสมอ
-                 บนการ์ดแคบ กลุ่มป้ายซ้ายจึงถูกบีบให้ตัดสองสามบรรทัดโดยที่ป้ายขวายังยืนเดี่ยว
-                 ปล่อยให้ wrap ได้ทั้งแถว แล้วใช้ ml-auto ดันไปขวาเฉพาะตอนที่ยังมีที่เหลือ -->
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <div class="flex flex-wrap items-center gap-1">
+               ★ **ชั้นนอกเป็น justify-between + items-start ห้าม flex-wrap**
+                 เคยเป็น flex-wrap + ml-auto มาก่อน ซึ่งอ่านแล้วเหมือนจะดีกว่า แต่ผลจริงคือ
+                 พอกลุ่มป้ายซ้ายกับป้ายขวารวมกันไม่พอบรรทัด ป้าย "บนผัง" ตกลงไปทั้งใบเป็น
+                 บรรทัดที่สามของตัวเอง ลอยอยู่ขวาสุดโดยไม่มีอะไรอยู่ข้าง ๆ - อ่านแล้วไม่รู้ว่า
+                 มันเป็นป้ายของอะไร และตำแหน่งมันขยับไปมาตามความยาวชื่อแผนก/ห้องของแต่ละใบ
+                 (เห็นชัดที่ความกว้างการ์ดบน iPad แนวนอน ~336px)
+                 between ตรึงมันไว้มุมขวาบนคู่กับป้ายสถานะเสมอ ส่วนกลุ่มซ้าย wrap ในที่ของ
+                 ตัวเองข้างใต้ - ตำแหน่งป้ายจึงคงที่ทุกใบ กวาดสายตาลงมาเป็นคอลัมน์เดียวได้ -->
+          <div class="flex items-start justify-between gap-x-2 gap-y-1">
+          <div class="flex min-w-0 flex-wrap items-center gap-1">
             <span class="badge badge-sm" :class="statusBadge(item.status)">
               {{ statusLabel(item.status) }}
             </span>
@@ -130,7 +134,7 @@ function locateLevel(item: InventoryItem): 'pinned' | 'room' | 'unknown' {
               {{ placeLabel(item) }}
             </span>
           </div>
-          <div class="ml-auto">
+          <div class="shrink-0">
             <!-- บอกล่วงหน้าว่าคลิกแล้วแผนที่จะพาไปได้ละเอียดแค่ไหน จะได้ไม่ต้องคลิกลองทีละชิ้น -->
             <span
               v-if="locateLevel(item) === 'pinned'"

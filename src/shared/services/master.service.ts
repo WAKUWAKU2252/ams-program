@@ -16,7 +16,16 @@ export interface MasterOption {
 export interface DepartmentOption extends MasterOption {
   /** ชื่อย่อไว้โชว์ในที่แคบ เช่น badge ในตาราง - HR ไม่ได้กรอกครบทุกแผนก */
   shortName: string | null;
-  ManagerEmpId: number | null;
+  /**
+   * หัวหน้าแผนก = employee.id (ไม่ใช่ user.id) · null = ยังไม่ได้ตั้ง
+   *
+   * ★ ชื่อฟิลด์เดิมคือ ManagerEmpId ซึ่ง **backend ไม่เคยส่งมา** ค่าจึงเป็น undefined
+   *   เสมอ (ชนิดโกหกมาตลอด ไม่มีใครใช้เลยไม่มีใครเจอ) — 2026-09-17 เพิ่มคอลัมน์ฝั่ง
+   *   backend แล้วเปลี่ยนชื่อให้ตรงกับที่ส่งมาจริง
+   *
+   * ★ คนนี้คือปลายทางของการ์ดขออนุมัติใน Teams ของทั้งแผนก
+   */
+  managerId: number | null;
   departmentId: string | null;
   /**
    * บริษัทเจ้าของแผนก (0024) - backend ส่งมาให้ตั้งแต่แรก แต่ชนิดฝั่งนี้เคยไม่ประกาศไว้
@@ -112,8 +121,25 @@ export interface MasterListParams {
   includeInactive?: boolean;
 }
 
+export interface ListDepartmentsParams extends MasterListParams {
+  /**
+   * เอาเฉพาะแผนกของบริษัทนี้ - ไม่ส่ง = ทุกบริษัท
+   *
+   * ★ ฟอร์มที่บันทึกลง asset ต้องส่งเสมอ: fk_asset_department ฝั่ง DB เป็น composite FK
+   *   บน (departmentId, companyCode) แผนกข้ามบริษัทจึงบันทึกไม่ผ่าน ตัวเลือกที่เลือกแล้ว
+   *   เซฟไม่ได้ต้องไม่โผล่ให้เลือกตั้งแต่แรก
+   */
+  companyCode?: string;
+}
+
 export interface ListEmployeesParams extends MasterListParams {
   departmentId?: number;
+  /**
+   * เอาเฉพาะคนที่มีตัวตนในบริษัทนี้ (employee_company) - ไม่ส่ง = ทุกบริษัท
+   *
+   * ★ คนคนเดียวสังกัดได้หลายบริษัท ลิสต์ของสองบริษัทจึงซ้อนกันได้ ไม่ใช่ตัดขาดจากกัน
+   */
+  companyCode?: string;
   page?: number;
   limit?: number;
   /**
@@ -138,7 +164,7 @@ function toQuery(params: Record<string, string | number | boolean | undefined>):
 }
 
 /** GET /master/departments - คืนครบทั้งชุด */
-export function listDepartments(params: MasterListParams = {}): Promise<DepartmentOption[]> {
+export function listDepartments(params: ListDepartmentsParams = {}): Promise<DepartmentOption[]> {
   return request<DepartmentOption[]>(`/master/departments${toQuery({ ...params })}`, {
     method: 'GET',
   });
@@ -199,6 +225,7 @@ export function listEmployees(params: ListEmployeesParams = {}): Promise<Paginat
     `/master/employees${toQuery({
       search: params.search?.trim(),
       departmentId: params.departmentId,
+      companyCode: params.companyCode,
       includeInactive: params.includeInactive,
       id: params.id,
       page: params.page,
@@ -216,4 +243,109 @@ export function listEmployees(params: ListEmployeesParams = {}): Promise<Paginat
  */
 export function listFiscalYears(): Promise<number[]> {
   return request<number[]>('/master/fiscal-years', { method: 'GET' });
+}
+
+/**
+ * หมวดสินทรัพย์จากท่อนที่ 1 ของรหัสบัญชี - ตัวเลือกตัวกรองหน้าทะเบียน
+ *
+ *   '1216301-1-228' = <หมวด 7 หลัก>-<ที่ตั้ง>-<รหัส cost center>
+ *
+ * ★ แกนเดียวกับตัวกรอง "Asset class" ของหน้า Asset summary - สองหน้าต้องแบ่งด้วยท่อน
+ *   เดียวกัน ไม่งั้นกรองหมวดเดียวกันสองที่แล้วได้จำนวนชิ้นไม่ตรงกันโดยไม่มีอะไรอธิบาย
+ * ★ code เป็นคีย์ ไม่ใช่ id (รูปเดียวกับ CompanyOption)
+ */
+export interface AssetClassOption {
+  /** รหัสหมวด 7 หลัก เช่น '1216301' */
+  code: string
+  /**
+   * ชื่อหมวด - null = ยังไม่ได้ import ชื่อของรหัสนี้
+   * ★ หน้าจอโชว์รหัสดิบแทน **ห้ามเขียน "ไม่ระบุ"** - รหัสอ่านออกและเทียบกับรายงานของ
+   *   finance ได้ ส่วน "ไม่ระบุ" ทำให้ดูเหมือนข้อมูลหาย
+   */
+  name: string | null
+}
+
+export interface ListAssetClassesParams {
+  search?: string
+  /** ไม่ส่ง = ทุกบริษัท - หน้าทะเบียนส่งบริษัทที่เลือกอยู่มาเพื่อตัดรหัสที่ไม่มีของทิ้ง */
+  companyCode?: string
+}
+
+/**
+ * GET /master/asset-classes
+ *
+ * อ่านจากทะเบียนจริง ไม่ใช่จากตาราง category - category มีหมวดที่ยังไม่มีของอยู่จริงปนอยู่
+ * ตัวเลือกที่กดแล้วได้ตารางว่างเสมอไม่ควรอยู่ในลิสต์ (หลักเดียวกับ listFiscalYears)
+ */
+export function listAssetClasses(
+  params: ListAssetClassesParams = {},
+): Promise<AssetClassOption[]> {
+  return request<AssetClassOption[]>(
+    `/master/asset-classes${toQuery({
+      search: params.search?.trim(),
+      companyCode: params.companyCode,
+    })}`,
+    { method: 'GET' },
+  )
+}
+
+// ── role / หัวหน้าแผนก (หน้า Manage role - ADMIN เท่านั้น) ──────────────────
+
+export interface RoleOption {
+  id: number;
+  name: string;
+  description: string | null;
+}
+
+/**
+ * GET /master/roles - role ทั้งหมดที่แจกได้ (id จริงจากฐาน)
+ *
+ * ★ ต้องใช้แทนการฝัง { EMPLOYEE:1, MANAGER:2, ... } ไว้ในหน้าจอ - id พวกนั้นมาจากลำดับที่
+ *   db:import:role รันครั้งแรก ถ้าฐานไหน import คนละลำดับ หน้าจอจะแจกสิทธิ์ผิดคนเงียบ ๆ
+ */
+export function listRoles(): Promise<RoleOption[]> {
+  return request<RoleOption[]>('/master/roles', { method: 'GET' });
+}
+
+/**
+ * พนักงานที่ตั้งเป็นหัวหน้าแผนกแล้ว "อนุมัติได้จริง"
+ *
+ * ★ ไม่ใช่รายชื่อพนักงานทั้งหมด - backend กรองเหลือเฉพาะคนที่มีบัญชี AMS ที่เปิดใช้อยู่
+ *   และ role อยู่ใน MANAGER/FINANCE/ADMIN เพราะเส้นทางอนุมัติบังคับไว้แบบนั้น
+ *   (ตั้งคนที่ไม่เข้าเงื่อนไข = ใบของทั้งแผนกส่งไม่ออกโดยไม่มี error ตอนตั้ง)
+ */
+export interface ApproverOption {
+  /** employee.id - ค่าที่ลง department.managerId ไม่ใช่ user.id */
+  id: number;
+  name: string;
+  empId: string | null;
+  departmentName: string | null;
+  companyCode: string | null;
+  /** role ที่ทำให้เขาอนุมัติได้ - โชว์ให้คนเลือกเห็นว่าอนุมัติได้ด้วยสิทธิ์อะไร */
+  roleName: string;
+}
+
+/** GET /master/approvers */
+export function listApprovers(
+  params: { search?: string; companyCode?: string } = {},
+): Promise<ApproverOption[]> {
+  return request<ApproverOption[]>(`/master/approvers${toQuery({ ...params })}`, { method: 'GET' });
+}
+
+/**
+ * PATCH /master/departments/:id/manager - ตั้ง/ถอดหัวหน้าแผนก (null = ถอด)
+ *
+ * ⚠️⚠️ เขียนลงฐานจริง และ **เปลี่ยนปลายทางของการ์ดขออนุมัติใน Teams ทันที** - ใบคำขอของ
+ *      แผนกนี้ทุกใบที่ส่งหลังจากนี้จะวิ่งไปหาคนใหม่ ไม่มีขั้นตอนย้อนกลับอัตโนมัติ
+ *      ห้ามเรียกโดยไม่ให้ผู้ใช้ยืนยันก่อน
+ */
+export function setDepartmentManager(
+  departmentId: number,
+  managerEmployeeId: number | null,
+): Promise<DepartmentOption> {
+  return request<DepartmentOption>(`/master/departments/${departmentId}/manager`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ managerEmployeeId }),
+  });
 }

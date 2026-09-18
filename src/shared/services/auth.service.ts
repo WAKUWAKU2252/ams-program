@@ -29,8 +29,11 @@ export const authService = {
       
     })
   },
-
-  logout(): Promise<void> {
-    return request<void>('/auth/logout', { method: 'POST' })
-  },
 }
+
+// ── ไม่มี logout() แล้ว (ถอดออก 2026-09-16)
+//
+// มันยิง POST /auth/logout ซึ่ง **ไม่เคยมีใน backend** — JWT เป็น stateless ไม่มี session
+// ให้ทำลายฝั่ง server การออกจากระบบจึงเป็นการทิ้ง token ทิ้งฝั่งจออย่างเดียว
+// ทางที่ใช้จริงคือ authStore.logout() (ดู Sidebar.vue ที่เขียนกำกับไว้แล้วว่าไม่เรียกตัวนี้)
+// ★ ถ้าวันหลังต้องเพิ่ม logout จริง (revoke token / blacklist) ต้องทำเส้นฝั่ง backend ก่อน

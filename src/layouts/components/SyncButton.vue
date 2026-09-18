@@ -231,7 +231,12 @@ onUnmounted(() => {
 
     <!-- เวลา sync ล่าสุด อยู่ "ข้าง ๆ ปุ่ม" ตามที่ตกลง - บอกความสดโดยไม่ต้องกดอะไร
          ★ ตัวนี้แหละที่ทำให้คนไม่ต้องกดปุ่ม ถ้าไม่มี ทุกคนจะกดเพื่อ "เช็คว่าสดไหม" -->
-    <span class="hidden text-xs text-base-content/60 sm:inline" :title="syncedAt ?? ''">
+    <!-- ★ whitespace-nowrap - ข้อความไทยตัดบรรทัดกลางวลีได้ ("sync เมื่อ 21 ชม.ที่ / แล้ว")
+         ซึ่งอ่านไม่ออกและดันความสูง navbar ตาม ที่นี่ยอมล้นดีกว่ายอมตัด -->
+    <span
+      class="hidden text-xs whitespace-nowrap text-base-content/60 sm:inline"
+      :title="syncedAt ?? ''"
+    >
       {{ syncedText }}
     </span>
 

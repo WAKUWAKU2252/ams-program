@@ -27,18 +27,25 @@ import AssetTable from '@/shared/components/AssetTable.vue'
 import { getAssetInventory } from '@/shared/services/asset.service'
 import type { InventoryItem, InventoryParams } from '@/shared/services/asset.service'
 import {
+  listAssetClasses,
   listCompanies,
   listDepartments,
   listFiscalYears,
   listLocations,
 } from '@/shared/services/master.service'
-import type { CompanyOption, DepartmentOption, MasterOption } from '@/shared/services/master.service'
+import type {
+  AssetClassOption,
+  CompanyOption,
+  DepartmentOption,
+  MasterOption,
+} from '@/shared/services/master.service'
 import { ApiError } from '@/shared/services/httpClient'
 import { ASSET_STATUS_OPTIONS } from '@/shared/utils/asset-status'
 import { ASSET_SORT_OPTIONS } from '@/shared/utils/asset-sort'
 import AppSortMenu from '@/shared/components/AppSortMenu.vue'
 import type { SortDirection } from '@/shared/components/AppSortMenu.vue'
 import AssetDetailModal from '@/shared/components/AssetDetailModal.vue'
+import TopicCard from '@/shared/components/TopicCard.vue'
 
 const items = ref<InventoryItem[]>([])
 const total = ref(0)
@@ -61,6 +68,8 @@ const companyCode = ref('')
 const departmentId = ref('')
 const locationId = ref('')
 const status = ref('')
+/** รหัสหมวด = ท่อน 1 ของรหัสบัญชี เช่น '1216301' - '' = ทุกหมวด (ค่าคือ code ไม่ใช่ id) */
+const assetClass = ref('')
 const fiscalYear = ref('')
 const minNbv = ref('')
 const maxNbv = ref('')
@@ -73,6 +82,7 @@ const companies = ref<CompanyOption[]>([])
 const departments = ref<DepartmentOption[]>([])
 const locations = ref<MasterOption[]>([])
 const fiscalYears = ref<number[]>([])
+const assetClasses = ref<AssetClassOption[]>([])
 
 /**
  * ต้องเลือกบริษัทก่อนถึงจะเลือกแผนกได้ - แผนกเป็นของบริษัท ไม่ใช่ของทั้งเครือ (0024)
@@ -116,6 +126,7 @@ async function load() {
       departmentId: num(departmentId.value),
       locationId: num(locationId.value),
       status: status.value || undefined,
+      assetClass: assetClass.value || undefined,
       fiscalYear: num(fiscalYear.value),
       minNetBookValue: num(minNbv.value),
       maxNetBookValue: num(maxNbv.value),
@@ -162,6 +173,23 @@ function loadFilterOptions() {
   void listFiscalYears()
     .then((rows) => (fiscalYears.value = rows))
     .catch(() => {})
+  void loadAssetClasses()
+}
+
+/**
+ * ตัวเลือก Asset class - แคบตามบริษัทที่เลือกอยู่ จึงต้องโหลดใหม่ทุกครั้งที่เปลี่ยนบริษัท
+ *
+ * ★ ต่างจากแผนกที่โหลดทั้งเครือทีเดียวแล้วกรองฝั่งจอ (companyDepartments) - ที่นี่กรอง
+ *   ฝั่งจอไม่ได้ เพราะ **หมวดเดียวกันใช้ร่วมกันข้ามบริษัทจริง** ตัวเลือกหนึ่งอันจึงเป็นของ
+ *   หลายบริษัทพร้อมกัน จะติด companyCode เดียวไว้บนแถวแล้วกรองไม่ได้
+ *
+ * ★ ไม่ต้องล้าง assetClass ที่เลือกไว้ตรงนี้ - watch ของตัวกรองข้างล่างล้างให้แล้วตอน
+ *   บริษัทเปลี่ยน (ที่เดียว กติกาเดียวกับแผนก)
+ */
+function loadAssetClasses() {
+  return listAssetClasses({ companyCode: companyCode.value || undefined })
+    .then((rows) => (assetClasses.value = rows))
+    .catch(() => {})
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -199,14 +227,27 @@ onUnmounted(() => {
 //    ตัวหนึ่งยิง load() ด้วยคู่ (บริษัทใหม่ + แผนกของบริษัทเก่า) ซึ่งเป็นคู่ที่ไม่มีอยู่จริง
 //    → ได้ตารางว่างแวบหนึ่ง แล้วอีกตัวค่อยล้างแผนกจนยิงซ้ำอีกรอบ
 //    (บั๊กเดียวกับที่หน้า Dashboard เคยเจอ - ดู watch ใน DashboardPage.vue)
-watch([companyCode, departmentId, locationId, status, fiscalYear, sort, sortDir], ([company], [prevCompany]) => {
-  if (company !== prevCompany && departmentId.value) {
-    departmentId.value = ''
-    return
-  }
-  page.value = 1
-  void load()
-})
+watch(
+  [companyCode, departmentId, locationId, status, assetClass, fiscalYear, sort, sortDir],
+  ([company], [prevCompany]) => {
+    if (company !== prevCompany) {
+      // ลิสต์ Asset class แคบตามบริษัท - โหลดใหม่ทุกครั้งที่เปลี่ยน ไม่ว่าจะมีค่าให้ล้างหรือไม่
+      // (ไม่เกี่ยวกับตาราง จึงไม่ต้องรอ และไม่ต้อง return ตรงนี้)
+      void loadAssetClasses()
+
+      // ★ ล้างสองแกนพร้อมกันในรอบเดียว แล้ว return - ทั้งคู่เป็นของบริษัท ค่าที่ค้างจาก
+      //   บริษัทก่อนจึงไม่มีอยู่ในบริษัทใหม่ การเซ็ตสองตัวในรอบเดียวกระตุ้น watch ตัวนี้
+      //   ซ้ำแค่ครั้งเดียว (Vue รวม flush ให้) รอบถัดไปจึงโหลดด้วยชุดที่ถูกต้องครั้งเดียว
+      if (departmentId.value || assetClass.value) {
+        departmentId.value = ''
+        assetClass.value = ''
+        return
+      }
+    }
+    page.value = 1
+    void load()
+  },
+)
 
 function onPageChange(next: number) {
   page.value = next
@@ -221,6 +262,7 @@ function clearFilters() {
   departmentId.value = ''
   locationId.value = ''
   status.value = ''
+  assetClass.value = ''
   fiscalYear.value = ''
   minNbv.value = ''
   maxNbv.value = ''
@@ -246,6 +288,8 @@ const FILTER_FIELDS = [
   { key: 'department', label: 'แผนก', icon: 'lucide:users' },
   { key: 'location', label: 'ที่ตั้ง', icon: 'lucide:map-pin' },
   { key: 'status', label: 'สถานะ', icon: 'lucide:activity' },
+  // ★ ป้ายกับไอคอนต้องตรงกับหน้า Asset summary - เป็นตัวกรองแกนเดียวกัน (ท่อน 1 ของรหัสบัญชี)
+  { key: 'assetClass', label: 'Asset class', icon: 'lucide:layers' },
   { key: 'fiscalYear', label: 'ปีบัญชีของตัวเลข', icon: 'lucide:calendar' },
   { key: 'netBookValue', label: 'มูลค่าคงเหลือ', icon: 'lucide:coins' },
 ]
@@ -266,6 +310,8 @@ function filterHasValue(key: string): boolean {
       return !!locationId.value
     case 'status':
       return !!status.value
+    case 'assetClass':
+      return !!assetClass.value
     case 'fiscalYear':
       return !!fiscalYear.value
     case 'netBookValue':
@@ -280,6 +326,7 @@ function clearField(key: string) {
   else if (key === 'department') departmentId.value = ''
   else if (key === 'location') locationId.value = ''
   else if (key === 'status') status.value = ''
+  else if (key === 'assetClass') assetClass.value = ''
   else if (key === 'fiscalYear') fiscalYear.value = ''
   else if (key === 'netBookValue') {
     minNbv.value = ''
@@ -308,7 +355,9 @@ function toggleValue(key: string, value: string) {
             ? status
             : key === 'fiscalYear'
               ? fiscalYear
-              : null
+              : key === 'assetClass'
+                ? assetClass
+                : null
   if (!target) return
   target.value = target.value === value ? '' : value
 }
@@ -324,6 +373,8 @@ function fieldValueLabel(key: string): string {
       return locations.value.find((l) => String(l.id) === locationId.value)?.name ?? ''
     case 'status':
       return STATUS_OPTIONS.find((s) => s.value === status.value)?.label ?? status.value
+    case 'assetClass':
+      return assetClassLabel(assetClass.value)
     case 'fiscalYear':
       return fiscalYear.value
     case 'netBookValue': {
@@ -370,6 +421,47 @@ const filteredLocations = computed(() => {
   const q = locationSearch.value.trim().toLowerCase()
   return q ? locations.value.filter((l) => l.name.toLowerCase().includes(q)) : locations.value
 })
+
+/**
+ * ตัวเลือกในรูป { code, label } - รูปเดียวกับ categoryOptions ของหน้า Asset summary
+ *
+ * ★ ชื่อยังไม่มีก็ใช้รหัสไปก่อน (label = code) เหมือนหน้านั้นเป๊ะ - ต่างจากการซ่อน
+ *   ตัวเลือกทิ้ง และห้ามเขียน "ไม่ระบุ" เพราะรหัสอ่านออกและเทียบกับรายงานของ finance ได้
+ */
+const assetClassOptions = computed(() =>
+  assetClasses.value.map((c) => ({ code: c.code, label: c.name ?? c.code })),
+)
+
+const assetClassSearch = ref('')
+
+// ★ เงื่อนไขค้นยกมาจาก filteredCategoryOptions ของ Asset summary ทั้งก้อน
+//   (รหัสเทียบตรง ๆ ไม่ต้อง toLowerCase เพราะเป็นตัวเลขล้วน ส่วนชื่อเทียบแบบไม่สนตัวพิมพ์)
+const filteredAssetClasses = computed(() => {
+  const q = assetClassSearch.value.trim().toLowerCase()
+  if (!q) return assetClassOptions.value
+  return assetClassOptions.value.filter(
+    (o) => o.code.includes(q) || o.label.toLowerCase().includes(q),
+  )
+})
+
+/**
+ * ค่าที่เลือกไว้ - รูปแบบ '<รหัส> · <ชื่อ>' ตรงกับ fieldValueLabel ของ Asset summary
+ *
+ * ★ โชว์รหัสเสมอ แม้จะมีชื่อแล้ว - รหัสคือตัวที่เอาไปเทียบกับรายงานของ finance ได้ และ
+ *   ชื่อหมวดหลายอันขึ้นต้นเหมือนกัน ('อาคารและสิ่งปลูกสร้าง' กับ 'อาคารและสิ่งปลูกสร้าง-ให้เช่า')
+ *   จนแยกไม่ออกถ้าไม่มีรหัสกำกับ
+ *
+ * ★ ตกกลับเป็น code ที่ส่งเข้ามาเมื่อหาไม่เจอในลิสต์ - เกิดได้จริงระหว่างที่ลิสต์กำลังโหลด
+ *   ใหม่หลังเปลี่ยนบริษัท หรือตอนลิสต์โหลดไม่สำเร็จ chip กับป้ายจึงยังบอกได้ว่ากรองอะไรอยู่
+ */
+function assetClassLabel(code: string): string {
+  if (!code) return ''
+  const label = assetClassOptions.value.find((o) => o.code === code)?.label ?? code
+  return `${code} · ${label}`
+}
+
+// เปลี่ยนบริษัท = ล้างคำค้น Asset class ด้วย เหตุผลเดียวกับ departmentSearch ข้างบน
+watch(companyCode, () => (assetClassSearch.value = ''))
 
 // ปิดแผงเมื่อคลิกนอกแผง - ไม่ปิดตอนคลิกในแผง ไม่งั้นกดเลือกค่าทีเดียวแผงหุบทุกครั้ง
 const panelRef = ref<HTMLElement | null>(null)
@@ -439,6 +531,15 @@ const activeFilterChips = computed(() => {
     chips.push({ key: 'status', label: `สถานะ: ${label}`, clear: () => (status.value = '') })
   }
 
+  // assetClassLabel ใส่รหัสนำหน้าชื่อให้แล้ว - รูปแบบเดียวกับที่โชว์ในแผงตัวกรอง
+  if (assetClass.value) {
+    chips.push({
+      key: 'class',
+      label: `Asset class: ${assetClassLabel(assetClass.value)}`,
+      clear: () => (assetClass.value = ''),
+    })
+  }
+
   if (fiscalYear.value) {
     chips.push({ key: 'year', label: `ปีบัญชี: ${fiscalYear.value}`, clear: () => (fiscalYear.value = '') })
   }
@@ -500,10 +601,8 @@ const range = computed(() => {
 
 <template>
   <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
-    <div class="text-left">
-      <h1 class="text-3xl font-semibold sm:text-4xl">Asset Inventory</h1>
-      <p class="text-base-content/70">ทะเบียนสินทรัพย์ทั้งหมด ค้นหาและดูรายละเอียดรายชิ้น</p>
-    </div>
+      <TopicCard 
+      value="asset-inventory"/>
 
     <!-- ── แถบค้นหา/กรอง ──────────────────────────────────────────────────── -->
     <div class="mt-5 flex flex-wrap items-end gap-3">
@@ -515,7 +614,7 @@ const range = computed(() => {
             v-model="searchText"
             type="search"
             class="grow"
-            placeholder="เลขสินทรัพย์ / ชื่อของ / เลขเครื่อง (S/N)"
+            placeholder="เลขสินทรัพย์ / ชื่อของ / เลขเครื่อง (S/N) / รหัสบัญชี"
           />
           <!-- ตัวหมุนอยู่ในช่องค้น ไม่ใช่ทับทั้งตาราง - ผลลัพธ์เดิมยังอ่านได้ระหว่างรอของใหม่ -->
           <span v-if="loading" class="loading loading-spinner loading-xs shrink-0" />
@@ -702,6 +801,30 @@ const range = computed(() => {
                   </ul>
                 </template>
 
+                <!-- ★ มาร์กอัปก้อนนี้ยกมาจากหน้า Asset summary ทั้งดุ้น (ตัวกรอง Asset class
+                     ของหน้านั้น) - เป็นตัวกรองแกนเดียวกัน คนใช้สลับไปมาระหว่างสองหน้า
+                     ถ้าหน้าตาไม่ตรงกันจะอ่านว่าคนละเรื่อง ห้ามแต่งเพิ่มข้างเดียว -->
+                <template v-else-if="f.key === 'assetClass'">
+                  <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
+                    <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
+                    <input v-model="assetClassSearch" type="search" class="grow" placeholder="ค้น Asset class" />
+                  </label>
+                  <ul class="max-h-44 overflow-y-auto">
+                    <li v-for="o in filteredAssetClasses" :key="o.code">
+                      <button
+                        class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                        :class="{ 'bg-primary/10 font-medium': assetClass === o.code }"
+                        @click="toggleValue('assetClass', o.code)">
+                        <Icon :icon="assetClass === o.code ? 'lucide:check' : 'lucide:minus'" class="size-3.5 shrink-0"
+                          :class="assetClass === o.code ? 'text-primary' : 'opacity-0'" />
+                        <span class="truncate">{{ o.code }} · {{ o.label }}</span>
+                      </button>
+                    </li>
+                    <li v-if="!filteredAssetClasses.length" class="px-2 py-2 text-xs text-base-content/50">
+                      ไม่พบ Asset class ที่ตรงกับคำค้น
+                    </li>
+                  </ul>
+                </template>
                 <ul v-else-if="f.key === 'status'">
                   <li v-for="s in STATUS_OPTIONS" :key="s.value">
                     <button
@@ -844,5 +967,15 @@ const range = computed(() => {
   </div>
 
   <!-- Teleport ไป body อยู่แล้ว วางตรงไหนก็ได้ - ไว้ท้ายสุดเพื่อให้อ่านลำดับหน้าจอง่าย -->
-  <AssetDetailModal v-model="detailOpen" :item="selectedItem" editable-location editable-image />
+  <!-- @updated: แก้ที่ตั้ง/รูป/ประกันจากในกล่องแล้ว คอลัมน์ในตารางต้องตามไปด้วย
+       ไม่งั้นแถวข้างหลังยังโชว์ห้องเดิมจนกว่าจะเปลี่ยนหน้าหรือกรองใหม่ -->
+  <AssetDetailModal
+    v-model="detailOpen"
+    :item="selectedItem"
+    editable-location
+    editable-image
+    editable-holder
+    editable-warranty
+    @updated="load()"
+  />
 </template>

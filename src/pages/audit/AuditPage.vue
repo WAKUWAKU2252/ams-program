@@ -37,9 +37,10 @@ import {
   type FloorPlan,
 } from '@/shared/services/master.service'
 import { ApiError } from '@/shared/services/httpClient'
+import { getTokenRole } from '@/shared/services/auth.token'
 import { categoryIcon } from '@/shared/utils/category-icon'
 import { ASSET_STATUS_OPTIONS } from '@/shared/utils/asset-status'
-
+import TopicCard from '@/shared/components/TopicCard.vue'
 // ── รายการฝั่งซ้าย ─────────────────────────────────────────────────────────
 const items = ref<InventoryItem[]>([])
 const total = ref(0)
@@ -492,6 +493,25 @@ function onDetail(item: InventoryItem) {
   detailOpen.value = true
 }
 
+/**
+ * แก้ทะเบียนจาก modal ของหน้านี้ได้ไหม — ตอบจาก role ไม่ใช่ตอบจากหน้า
+ *
+ * ★ **หน้านี้มีคนใช้สองแบบที่ต้องการคนละสิทธิ์** — AUDIT คือผู้ตรวจจากภายนอก ส่วน FINANCE
+ *   คือผู้ตรวจภายในซึ่งเป็นเจ้าของทะเบียนเอง เดินไปเจอของไม่ตรงก็แก้ตรงนั้นได้เลย ไม่ต้อง
+ *   จำเลขแล้วเดินกลับไปเปิดหน้าทะเบียนอีกรอบ
+ *
+ * ★ ผู้ตรวจภายนอกยังห้ามแก้เหมือนเดิม: เขากำลังตอบคำถามว่า "ของอยู่ตรงที่ทะเบียนบอกไหม"
+ *   ถ้าแก้ทะเบียนได้กลางคัน คำตอบจะกลายเป็นใช่เสมอโดยไม่เหลือร่องรอยว่าเคยไม่ตรง
+ *
+ * ★ **ต้องเป็น allowlist เท่านั้น ห้ามเขียนเป็น `!== 'AUDIT'`** — /image กับ /warranty ฝั่ง
+ *   backend ปิด AUDIT ไว้แล้วที่ auditScopeGuard แต่เส้น location **ไม่ได้ปิด** (AUDIT ต้องยิง
+ *   เส้นนั้นได้เพื่อบันทึกตำแหน่งจริง) ตัวที่กัน AUDIT ไม่ให้แก้ที่ตั้งจากตรงนี้จึงมีแค่บรรทัด
+ *   เดียวคือบรรทัดนี้ เงื่อนไขที่หลวมกว่านี้แปลว่า role ใหม่ที่ใครเพิ่มทีหลังได้สิทธิ์แก้
+ *   ที่ตั้งไปเองโดยไม่มีใครตั้งใจ
+ */
+const REGISTRY_EDIT_ROLES = ['FINANCE', 'ADMIN']
+const canEditRegistry = computed(() => REGISTRY_EDIT_ROLES.includes(getTokenRole() ?? ''))
+
 function onSelect(item: InventoryItem) {
   selectedId.value = item.id
   // สลับแท็บให้ตรงกับชั้นของชิ้นที่คลิก - ผู้ใช้ไม่ต้องรู้ล่วงหน้าว่าของอยู่ชั้นไหน
@@ -578,10 +598,7 @@ onMounted(async () => {
        มือถือปล่อยให้หน้ายาวแล้วเลื่อนทั้งหน้าตามปกติ -->
   <div class="flex min-h-0 flex-col gap-4 bg-base-100 px-4 py-6 lg:h-[calc(100dvh-3.5rem)] lg:min-h-[34rem] md:px-10">
     <div class="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-semibold sm:text-4xl">Audit</h1>
-        <p class="text-base-content/70">การตรวจสอบสินทรัพย์</p>
-      </div>
+      <TopicCard value="audit" />
 
       <div v-if="plans.length" role="tablist" class="tabs tabs-box">
         <button
@@ -783,7 +800,6 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- ตัวกรองที่ใช้อยู่ - เห็นได้โดยไม่ต้องเปิดแผง กดที่ตัวไหนก็ปลดตัวนั้น -->
         <div v-if="hasFilter" class="flex flex-wrap items-center gap-1.5">
           <button
             v-for="chip in activeFilterChips"
@@ -806,9 +822,6 @@ onMounted(async () => {
           <span v-if="!loading" class="text-sm text-base-content/60">พบ {{ total }} ชิ้น</span>
         </div>
 
-        <!-- ── สุ่มรายการตรวจ ────────────────────────────────────────────────
-             ขั้นแรกของ flow ตรวจนับ: สุ่มที่นี่ → เดินไปสแกน QR ที่ตัวเครื่อง → เจอตรงก็จบ
-             ไม่มีอะไรบันทึกกลับเข้าระบบ ปุ่มนี้จึงเป็นแค่ตัวออกรายการให้เดินไปดู -->
         <div class="flex flex-wrap items-center gap-2 rounded-box bg-base-200/60 px-3 py-2">
           <Icon icon="lucide:dice-5" class="size-4 shrink-0 opacity-60" />
           <span class="text-sm">สุ่มรายการตรวจ</span>
@@ -826,8 +839,6 @@ onMounted(async () => {
             ออกจากโหมดสุ่ม
           </button>
 
-          <!-- บอกให้ชัดว่ากำลังดูของที่สุ่มมา ไม่ใช่ทะเบียนทั้งกอง - ไม่งั้นคนกดสุ่มแล้ว
-               เห็นลิสต์สั้นลงจะนึกว่าตัวกรองพัง -->
           <span v-if="randomMode && !loading" class="ml-auto text-sm text-base-content/60">
             สุ่มมา {{ items.length }} จาก {{ total }} ชิ้นที่ตรงเงื่อนไข
           </span>
@@ -837,8 +848,6 @@ onMounted(async () => {
           <span class="text-sm">{{ loadError }}</span>
         </div>
 
-        <!-- มือถือ: ปล่อยสูงตามเนื้อหา ไม่ต้องมีกล่องเลื่อนซ้อนในหน้าที่เลื่อนได้อยู่แล้ว
-             lg: กลับเป็นกล่องเลื่อนของตัวเองเหมือนเดิม (สองคอลัมน์ต้องเลื่อนแยกกัน) -->
         <div ref="listScroller" class="pr-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
           <AuditAssetList
             :items="items"
@@ -848,9 +857,6 @@ onMounted(async () => {
             @detail="onDetail"
           />
         </div>
-
-        <!-- โหมดสุ่มไม่มีเลขหน้า - การสุ่มเกิดใหม่ทุกคำขอ หน้า 2 จึงไม่ใช่ "ส่วนที่เหลือ
-             ของหน้า 1" แต่เป็นชุดใหม่ที่ซ้ำกับหน้า 1 ได้ กดสุ่มใหม่แทนถ้าอยากได้ชุดอื่น -->
         <AppPagination
           v-if="!randomMode"
           :page="page"
@@ -866,10 +872,6 @@ onMounted(async () => {
           <Icon :icon="locateNote.icon" class="size-4 shrink-0" />
           <span class="text-sm">{{ locateNote.text }}</span>
         </div>
-
-        <!-- ★ ข้อความต่างกันตามจอ ไม่ใช่แค่เรื่องความยาว - บนมือถือ grid ยุบเหลือคอลัมน์เดียว
-             ลิสต์จึงอยู่ "ด้านบน" ไม่ใช่ "ทางซ้าย" คำเดิมจึงชี้ผิดทิศบนมือถือ
-             และคำที่สั้นลงยังพอดีบรรทัดเดียวที่ 390px แทนที่จะตัดเป็นสองบรรทัด -->
         <div
           v-else
           class="rounded-box border border-dashed border-base-300 px-3 py-2 text-center text-sm text-base-content/60"
@@ -878,8 +880,8 @@ onMounted(async () => {
           <span class="hidden lg:inline">คลิกรายการทางซ้ายเพื่อดูตำแหน่งบนผัง</span>
         </div>
 
-        <div v-if="planError" role="alert" class="alert alert-error flex-1">
-          <span>{{ planError }}</span>
+        <div v-if="planError" role="alert" class="flex-1 justify-center rounded-box border border-error/50 bg-error/10 px-3 py-2 text-center text-sm text-error">
+          <span class="flex items-center justify-center">{{ planError }}</span>
         </div>
 
         <div v-else class="h-[55dvh] min-h-[18rem] lg:h-auto lg:min-h-[20rem] lg:flex-1">
@@ -901,11 +903,18 @@ onMounted(async () => {
 
     <!-- ตัวเดียวกับหน้าทะเบียน/My asset - ยิง /assets/by-number เอารายละเอียดเต็มมาเอง
 
-         ★ **ไม่ส่ง editable-location โดยตั้งใจ** - อย่าเติมให้ "ครบเหมือนหน้าอื่น"
-           หน้านี้เปิดกล่องดูได้เหมือนกันทุกหน้า แต่ห้ามแก้ทะเบียนจากตรงนี้: คนเดินตรวจนับ
-           กำลังตอบคำถามว่า "ของอยู่ตรงที่ทะเบียนบอกไหม" ถ้าแก้ทะเบียนได้กลางคัน คำตอบ
-           จะกลายเป็นใช่เสมอโดยไม่มีร่องรอยว่าเคยไม่ตรง - ของที่ผิดต้องถูกบันทึกว่าผิดก่อน
-           แล้วค่อยไปแก้ที่หน้าทะเบียน/แผนผัง ซึ่งเปิดปุ่มนั้นไว้ให้แล้ว -->
-    <AssetDetailModal v-model="detailOpen" :item="detailItem" />
+         ★ **สามช่องนี้เปิดตาม role ไม่ใช่เปิดตามหน้า** (ดู canEditRegistry) - ผู้ตรวจภายนอก
+           (AUDIT) เปิดกล่องดูได้แต่แก้ไม่ได้ ส่วนผู้ตรวจภายใน (FINANCE/ADMIN) แก้ได้
+           อย่าเปลี่ยนกลับเป็นค่าคงที่ทั้งสองทาง: เปิดค้างไว้ = ผู้ตรวจภายนอกแก้ที่ตั้งได้จริง
+           (backend ไม่ได้กันเส้น /location ไว้) / ปิดค้างไว้ = ผู้ตรวจภายในต้องเดินกลับไป
+           เปิดหน้าทะเบียนอีกรอบทั้งที่ยืนอยู่หน้าเครื่องแล้ว -->
+    <AssetDetailModal
+      v-model="detailOpen"
+      :item="detailItem"
+      :editable-location="canEditRegistry"
+      :editable-image="canEditRegistry"
+      :editable-holder="canEditRegistry"
+      :editable-warranty="canEditRegistry"
+    />
   </div>
 </template>

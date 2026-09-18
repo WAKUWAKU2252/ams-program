@@ -184,4 +184,74 @@ describe('แผงตัวกรองของตารางบน Dashboard
     await nextTick()
     expect(lastQuery().locationId).toBeUndefined()
   })
+
+  // ── รายชื่อผู้ครอบครองต้องเป็นของบริษัทที่กำลังดูอยู่ ──────────────────────
+  //
+  // อาการที่เคยเกิด: แผงเทชื่อคนทั้งเครือลงมา ทั้งที่ตารางข้างล่างมีแต่ของบริษัทเดียว
+  // คนกดจึงต้องเดาว่าชื่อไหนเป็นของบริษัทที่กำลังดู
+  describe('รายชื่อผู้ครอบครองผูกกับบริษัท', () => {
+    it('ขอรายชื่อพร้อม companyCode ของหน้านั้น', async () => {
+      await mountTable()
+      await openField('ผู้ครอบครอง')
+
+      const args = listEmployees.mock.calls[listEmployees.mock.calls.length - 1]![0] as Record<
+        string,
+        unknown
+      >
+      expect(args.companyCode).toBe('UBA')
+    })
+
+    it('ดู "ทุกบริษัท" = ไม่ส่ง companyCode (ลิสต์กลับไปเป็นทั้งเครือตามที่ตารางแสดง)', async () => {
+      wrapper = mount(DepartmentTable, {
+        props: { departmentId: '', departmentName: '', companyCode: '' },
+        global: {
+          stubs: { AssetTable: true, AppPagination: true, AssetDetailModal: true, Icon: true },
+        },
+      })
+      await nextTick()
+      await nextTick()
+      await openField('ผู้ครอบครอง')
+
+      const args = listEmployees.mock.calls[listEmployees.mock.calls.length - 1]![0] as Record<
+        string,
+        unknown
+      >
+      expect(args.companyCode).toBeUndefined()
+    })
+
+    it('เปลี่ยนบริษัทแล้วโหลดรายชื่อใหม่ ไม่ใช้ชุดเดิมของบริษัทก่อนหน้า', async () => {
+      await mountTable()
+      await openField('ผู้ครอบครอง')
+      expect(listEmployees).toHaveBeenCalledTimes(1)
+
+      await wrapper!.setProps({ companyCode: 'UBP' })
+      await nextTick()
+      await nextTick()
+
+      const args = listEmployees.mock.calls[listEmployees.mock.calls.length - 1]![0] as Record<
+        string,
+        unknown
+      >
+      expect(args.companyCode).toBe('UBP')
+    })
+
+    it('เปลี่ยนบริษัทแล้วปลดผู้ครอบครองที่เลือกไว้ - เขาอาจไม่มีตัวตนในบริษัทใหม่', async () => {
+      await mountTable()
+      await openField('ผู้ครอบครอง')
+      await wrapper!.findAll('button').find((b) => b.text().includes('สมชาย'))!.trigger('click')
+      await nextTick()
+      expect(lastQuery().employeeId).toBe(21)
+
+      await wrapper!.setProps({ companyCode: 'UBP' })
+      await nextTick()
+      await nextTick()
+
+      expect(lastQuery().employeeId).toBeUndefined()
+      expect(lastQuery().companyCode).toBe('UBP')
+      // chip ต้องหายไปด้วย ไม่ใช่ค้างชื่อคนของบริษัทเก่าไว้บนหน้าจอ
+      expect(wrapper!.findAll('button.badge').some((b) => b.text().includes('ผู้ครอบครอง:'))).toBe(
+        false,
+      )
+    })
+  })
 })

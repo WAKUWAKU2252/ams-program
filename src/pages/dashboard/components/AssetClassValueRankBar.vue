@@ -1,5 +1,8 @@
 <script setup lang="ts">
-// อันดับมูลค่าสินทรัพย์รวมของแต่ละหน่วยงาน (แท่งนอน เรียงจากมากไปน้อย)
+// อันดับมูลค่าสินทรัพย์รวมของแต่ละชั้นบัญชี (แท่งนอน เรียงจากมากไปน้อย)
+//
+// ★ แกนนี้คือ asset.assetClass รหัสเต็ม ตรงกับที่รายงานของ finance แบ่ง - เอาไปเทียบกับ
+//   ชีต Asset-สรุป ได้ทีละชั้น ต่างจากแกนแผนกที่ finance ไม่ได้ออกรายงานให้
 //
 // ★ ค่าที่วัดคือ "มูลค่าคงเหลือ" (netBookValue) ตัวเดียวกับช่องใหญ่ด้านบนของหน้า
 //   ไม่ใช่ราคาทุน - ถ้าเปลี่ยนไปใช้ราคาทุนต้องแก้หัวเรื่องด้วย ไม่งั้นคนจะเอาแท่งนี้
@@ -13,11 +16,31 @@
 //   (ไม่มีของ / มีของแต่ SAP ยังไม่ส่งตัวเลขมา) อ่านได้จากตารางซึ่งแยก - ไว้ '0' กับ '-'
 import { computed } from 'vue'
 import AppApexChart from '@/pages/dashboard/components/AppApexChart.vue'
-import type { DepartmentSummary } from '@/shared/services/dashboard.service'
+import type { AssetClassSummary } from '@/shared/services/dashboard.service'
 import { formatMoney } from '@/shared/utils/money'
-import { GRID, INK, INK_MUTED, VALUE_COLOR, compactBaht } from './chart-theme'
+import { VALUE_COLOR, compactBaht, grid, ink, inkMuted } from './chart-theme'
 
-const props = defineProps<{ rows: DepartmentSummary[] }>()
+const props = defineProps<{ rows: AssetClassSummary[] }>()
+
+/** ชื่อที่จะขึ้นบนแกน - ชื่อบัญชี > รหัสดิบ > แถวที่ไม่มีชั้นบัญชีเลย
+ *  ★ ห้ามเขียน "ไม่ระบุ" เมื่อยังไม่ได้ import ชื่อ - รหัสดิบอ่านออกและเทียบรายงานได้ */
+const labelOf = (row: AssetClassSummary): string =>
+  row.accountName ?? row.assetClass ?? 'ยังไม่ระบุชั้นบัญชี'
+
+/**
+ * ชื่อเต็มพร้อมรหัสชั้นบัญชี — ใช้เฉพาะหัว tooltip ตอนเอาเมาส์ชี้
+ *
+ * ★ ห้ามเอาไปใส่ใน xaxis.categories แทน — ป้ายบนแกน y ถูกจำกัดความกว้างอยู่แล้ว
+ *   (maxWidth 110px บนจอแคบ) เติมรหัส 13 ตัวเข้าไปจะไปเบียดชื่อจนอ่านไม่ออก
+ *   ซึ่งเป็นปัญหาเดียวกับที่เจอใน legend ของ AssetClassSharePie
+ *
+ * ★ ไม่เติมรหัสเมื่อ label เป็นรหัสอยู่แล้ว (ชั้นที่ยังไม่ได้ import ชื่อบัญชี — UBP 4 รหัส ·
+ *   MIG 7 · UBA 10) ไม่งั้นจะได้ "1216301-1-228 · 1216301-1-228" ซ้ำสองรอบ
+ */
+const fullLabel = (row: AssetClassSummary): string => {
+  const name = labelOf(row)
+  return row.assetClass && row.assetClass !== name ? `${name}  ${row.assetClass}` : name
+}
 
 const TOP_N = 10
 
@@ -44,9 +67,16 @@ const chartOptions = computed(() => {
       // และพอมี 10 แผนกแท่งจะเบียดจนชื่อซ้อนกัน
       height: Math.max(220, rows.length * 38 + 48),
       fontFamily: 'inherit',
+      // สีตัวหนังสือตั้งต้นของกราฟ - ป้ายแกนกับหัวแกนที่ไม่ได้ระบุสีไว้จะตกมาใช้ค่านี้
+      // ไม่ตั้ง = Apex ใช้เทาเข้มของมันเอง (#373d3f) ซึ่งจมหายไปกับพื้นการ์ดบนธีมมืด
+      foreColor: ink.value,
       // อนิเมชันคุมที่ prop `animate` ของ AppApexChart ไม่ใช่ที่นี่ - เขียนซ้ำสองที่แล้ว
       // จะงงว่าอันไหนชนะ (wrapper ทับค่าตรงนี้อยู่ดี)
-      toolbar: { show: false },
+      toolbar: {
+        show: true, 
+        offsetX: 10,
+        offsetY: -20
+      },
     },
     plotOptions: {
       bar: {
@@ -66,7 +96,7 @@ const chartOptions = computed(() => {
     colors: [VALUE_COLOR],
     series: [{ name: 'มูลค่าคงเหลือ', data: values }],
     xaxis: {
-      categories: rows.map((r, i) => `${i + 1}. ${r.departmentName ?? 'ยังไม่ระบุแผนก'}`),
+      categories: rows.map((r, i) => `${i + 1}. ${labelOf(r)}`),
       // ★ ตรึงจุดเริ่มไว้ที่ 0 - ปล่อยให้ Apex เลือกเอง มันจะจัดสเกลสวย ๆ ที่เริ่มติดลบ
       //   (วัดจริง: ได้ขีดแรกที่ -43 ล้าน) ซึ่งทั้งกินที่และผิดความจริง มูลค่าสินทรัพย์
       //   ติดลบไม่ได้ และความยาวแท่งต้องเทียบกันได้จากศูนย์เท่านั้น
@@ -77,21 +107,21 @@ const chartOptions = computed(() => {
       tickAmount: 4,
       labels: {
         formatter: (value: string | number) => compactBaht(Number(value)),
-        style: { colors: INK_MUTED, fontSize: '11px' },
+        style: { colors: inkMuted.value, fontSize: '11px' },
       },
       axisBorder: { show: false },
       axisTicks: { show: false },
     },
     yaxis: {
       labels: {
-        // ตัดชื่อยาวด้วยความกว้าง ไม่ใช่จำนวนตัวอักษร - ชื่อแผนกภาษาไทยมีทั้งสั้นและยาว
-        // ปล่อยให้ Apex เติม … ให้เอง ชื่อเต็มยังอ่านได้จาก tooltip และตารางข้างล่าง
-        maxWidth: 170,
-        style: { colors: INK, fontSize: '12px' },
+        // ตัดชื่อยาวด้วยความกว้าง ไม่ใช่จำนวนตัวอักษร - ชื่อบัญชีภาษาไทยยาวกว่าชื่อแผนกมาก
+        // ("เครื่องจักร และอุปกรณ์โรงงาน-ผลิตเลคเกอร์บางปู") จึงเผื่อกว้างกว่าเดิม
+        maxWidth: 210,
+        style: { colors: ink.value, fontSize: '12px' },
       },
     },
     grid: {
-      borderColor: GRID,
+      borderColor: grid.value,
       // เส้นตารางแนวตั้งอย่างเดียว เส้นทึบ 1px - แท่งนอนอ่านค่าตามแนวนอน
       // เส้นแนวนอนจะซ้อนทับตัวแท่งเปล่า ๆ
       xaxis: { lines: { show: true } },
@@ -105,13 +135,27 @@ const chartOptions = computed(() => {
       textAnchor: 'start' as const,
       offsetX: 6,
       formatter: (val: number) => compactBaht(val),
-      style: { fontSize: '11px', fontWeight: 500, colors: [INK] },
+      style: { fontSize: '11px', fontWeight: 500, colors: [ink.value] },
     },
     legend: { show: false },
-    // จอแคบ: ตัดชื่อแผนกให้สั้นลง ไม่งั้นป้ายชื่อกินพื้นที่จนแท่งเหลือไม่กี่สิบพิกเซล
+    // จอแคบ: ตัดชื่อบัญชีให้สั้นลง ไม่งั้นป้ายชื่อกินพื้นที่จนแท่งเหลือไม่กี่สิบพิกเซล
     // แล้วกราฟจะเลิกบอกอะไรเลย (ชื่อเต็มยังอยู่ใน tooltip และตารางข้างล่าง)
     responsive: [{ breakpoint: 640, options: { yaxis: { labels: { maxWidth: 110 } } } }],
     tooltip: {
+      /**
+       * หัว tooltip = ชื่อชั้นบัญชี **พร้อมรหัส** (ป้ายบนแกน y มีแต่ชื่อ เพราะที่จำกัด)
+       *
+       * ★ อ้างแถวด้วย dataPointIndex ไม่ใช่เทียบสตริงจากค่าที่ส่งมา — ค่าที่ส่งมาคือ
+       *   category ที่มีเลขอันดับนำหน้าแล้ว ('1. เครื่องใช้...') และชั้นที่ยังไม่มีชื่อบัญชี
+       *   ใช้รหัสเป็นชื่ออยู่แล้ว เทียบสตริงมีโอกาสจับคู่ผิดแถว
+       * ★ คงเลขอันดับไว้ ให้ตรงกับที่เห็นบนแกนและในตารางใต้กราฟ
+       */
+      x: {
+        formatter: (val: string, opts?: { dataPointIndex?: number }) => {
+          const row = rows[opts?.dataPointIndex ?? -1]
+          return row ? `${(opts?.dataPointIndex ?? 0) + 1}. ${fullLabel(row)}` : val
+        },
+      },
       // ตัวเลขเต็มบาทสตางค์อยู่ที่นี่ ป้ายบนกราฟเป็นแค่ตัวย่อ
       y: { formatter: (val: number) => `${formatMoney(val)} บาท` },
     },
@@ -121,22 +165,22 @@ const chartOptions = computed(() => {
 </script>
 
 <template>
-  <div class="card border border-base-300 bg-base-100 shadow-sm">
+  <div class="card min-w-0 border border-base-300 bg-base-100 shadow-sm">
     <div class="card-body gap-3 text-left">
       <div class="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h2 class="card-title text-base">มูลค่าสินทรัพย์รายหน่วยงาน</h2>
+          <h2 class="card-title text-base">มูลค่าสินทรัพย์ราย Asset class</h2>
           <p class="text-xs text-base-content/60">
             มูลค่าคงเหลือรวม (บาท) เรียงจากมากไปน้อย
           </p>
         </div>
         <span v-if="hiddenCount" class="text-xs text-base-content/60">
-          แสดง {{ shown.length }} อันดับแรก จาก {{ ranked.length }} แผนกที่มีมูลค่า
+          แสดง {{ shown.length }} อันดับแรก จาก {{ ranked.length }} ชั้นบัญชีที่มีมูลค่า
         </span>
       </div>
 
       <p v-if="!shown.length" class="py-10 text-center text-sm text-base-content/50">
-        ยังไม่มีแผนกไหนที่มีมูลค่าทางบัญชีในขอบเขตนี้
+        ยังไม่มีชั้นบัญชีไหนที่มีมูลค่าทางบัญชีในขอบเขตนี้
       </p>
 
       <AppApexChart v-else :options="chartOptions" />

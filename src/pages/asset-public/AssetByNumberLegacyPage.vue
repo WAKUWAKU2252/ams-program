@@ -64,7 +64,7 @@ onMounted(async () => {
       <p class="text-sm text-base-content/60">กำลังค้นหา {{ assetNumber }}</p>
     </div>
 
-    <div v-else-if="failed" role="alert" class="alert alert-error text-left">
+    <div v-else-if="failed" role="alert" class="alert alert-error alert-soft text-left">
       <Icon icon="lucide:triangle-alert" class="size-5 shrink-0" />
       <span>{{ failed }}</span>
     </div>

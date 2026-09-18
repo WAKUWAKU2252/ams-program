@@ -5,8 +5,13 @@
    สีทุกจุดในแอปต้องอ้างชื่อ semantic ของ daisyUI (primary, base-100, success, ...)
    ไม่ใช่สีดิบของ Tailwind - เปลี่ยนแบรนด์ทีหลังแก้ที่ไฟล์นี้ไฟล์เดียว */
 @plugin "daisyui" {
-  themes: 
-emerald;
+  themes: emerald,
+  halloween,
+  synthwave, 
+  forest,
+  coffee,
+  night,
+  dim
 }
 
 @plugin "daisyui/theme" {
@@ -85,6 +90,24 @@ emerald;
   --noise: 0;
 }
 
+/* ── ความโค้งของ checkbox ────────────────────────────────────────────────────
+
+   ธีมด้านบนตั้ง --radius-selector: 1rem ซึ่งเป็นตัวแปรร่วมของ "ตัวเลือก" ทุกชนิด
+   (checkbox / radio / toggle / badge) พอมาเจอ checkbox-sm ที่กว้างแค่ ~1.25rem
+   ความโค้ง 1rem จึงกินจนกลายเป็นวงกลม ดูไม่ออกว่าต่างจาก radio ตรงไหน
+
+   ★ ห้ามแก้ที่ --radius-selector ในธีม — มันลากเอา toggle (ที่ต้องเป็นแคปซูล) กับ
+     badge ทั้งระบบเปลี่ยนตามไปด้วย ซึ่งไม่ใช่สิ่งที่ต้องการ (ลองมาแล้ว 2026-09-17)
+
+   ★ เจาะที่ input.checkbox ไม่ใช่ .checkbox เฉย ๆ — จำเพาะกว่าของ daisyUI (0,1,1 > 0,1,0)
+     จึงชนะได้โดยไม่ต้องใช้ !important และไม่ไปโดน element อื่นที่บังเอิญติดคลาสนี้
+
+   ★ วางไว้นอก @layer โดยตั้งใจ — กฎที่ไม่อยู่ใน layer ชนะกฎใน layer เสมอไม่ว่า
+     specificity จะเป็นเท่าไหร่ ซึ่งเป็นสิ่งที่ต้องการเมื่อจะทับสไตล์ของ daisyUI */
+input.checkbox {
+  border-radius: 0.25rem;
+}
+
 @keyframes ams-shake {
   0%, 100% { transform: translateX(0); }
   20%, 60% { transform: translateX(-5px); }
@@ -115,9 +138,12 @@ emerald;
    แรก (ชื่อ/เลขสินทรัพย์ = ตัวบอกว่าแถวนี้คืออะไร) เลื่อนหายไปพร้อมกับที่เหลือ
    พอเลื่อนไปดูคอลัมน์ขวาสุดก็ไม่รู้แล้วว่ากำลังอ่านแถวของอะไรอยู่
 
-   ★ ครอบด้วย max-width: 1023px — **จอ lg ขึ้นไปไม่โดน CSS ก้อนนี้เลยสักบรรทัด**
-     desktop จึงหน้าตาเหมือนเดิมทุกพิกเซล (ถ้าวันหลังอยากได้บน desktop ด้วยสำหรับ
-     ตาราง 15 คอลัมน์ ให้ถอด media query ออก ไม่ต้องแก้อย่างอื่น)
+   ★ จอ lg ขึ้นไปยังไม่โดน CSS ก้อนนี้ตามเดิม — desktop หน้าตาเหมือนเดิมทุกพิกเซล
+     ยกเว้นตารางที่ติดป้าย `table-freeze-always` เอง (ดูสวิตช์ข้างล่าง)
+
+   ⚠️ ถ้าวันหลังมีตารางที่ทาสีแถวค้างไว้ (แถวที่เลือก/แถวเตือน) ด้วย utility บน <tr>
+      แล้วตารางนั้นเปิด freeze อยู่ สีนั้นจะแพ้กฎข้างล่างเพราะ specificity สูงกว่า —
+      ต้องทาที่เซลล์แทน หรือยกความจำเพาะขึ้น
 
    ★ background: inherit ที่เซลล์ ไม่ใช่ระบุสีตายตัว
 
@@ -143,6 +169,44 @@ emerald;
      จะยังชี้ไปที่เซลล์ที่ display:none อยู่ดี (CSS นับจาก DOM ไม่ใช่จากสิ่งที่มองเห็น)
      ผลคือไม่มีอะไรถูกตรึงเลย ติดป้ายเองจึงตรงกว่าและรอดเวลาสลับลำดับคอลัมน์
    ───────────────────────────────────────────────────────────────────────────── */
+/* ── สวิตช์: ตารางนี้ตรึงคอลัมน์ "เมื่อไหร่" ──────────────────────────────────
+
+   ค่าเริ่มต้นคือ **ไม่ตรึง** แล้วเปิดด้วยตัวแปรสองตัว — ทำแบบนี้เพื่อไม่ต้องก๊อป
+   กฎทั้งก้อนไปวางสองที่ (สำเนาที่ drift กันคือสิ่งที่โปรเจกต์นี้เจ็บมาหลายรอบแล้ว)
+
+     table-freeze-first              → ตรึงเฉพาะจอแคบ (ค่าเริ่มต้นของทั้งระบบ)
+     table-freeze-first
+     + table-freeze-always           → ตรึงทุกความกว้าง — สำหรับตารางที่กว้างจนเลื่อน
+                                        แนวนอนบน desktop อยู่ดี (Asset summary 15 คอลัมน์)
+
+   ⚠️ table-freeze-always ใช้เดี่ยวไม่ได้ ต้องติดคู่กับ table-freeze-first เสมอ
+      เพราะกฎข้างล่างทั้งหมด scope อยู่ใต้ .table-freeze-first
+
+   ★ ประวัติ: 2026-09-16 เคยถอด media query ทิ้งทั้งก้อนเพื่อให้ Asset summary ตรึงได้
+     บน desktop ผลคือ **ตารางอื่นทุกหน้าหน้าตาเปลี่ยนตาม** (หัวตารางกลายเป็น base-200
+     และมีเส้นคั่นโผล่ที่คอลัมน์แรก) — ตรึงกับ "ทาสีหัวตาราง" เป็นคนละเรื่องกัน
+     แต่ถูกมัดรวมอยู่ในก้อนเดียว ตัวแปรนี้จึงแยกสองเรื่องนั้นออกจากกัน */
+.table-freeze-first {
+  --freeze-pos: static;
+  --freeze-shadow: none;
+}
+@media (max-width: 1023px) {
+  .table-freeze-first {
+    --freeze-pos: sticky;
+    --freeze-shadow: 1px 0 0 0 var(--color-base-300);
+  }
+}
+.table-freeze-first.table-freeze-always {
+  --freeze-pos: sticky;
+  --freeze-shadow: 1px 0 0 0 var(--color-base-300);
+}
+
+/* ── พื้นหลังของแถว — ประกาศเฉพาะตอนที่ "ตรึงจริง" เท่านั้น ──────────────────
+
+   เซลล์ที่ sticky ต้องมีพื้นหลังทึบ (ดูหัวข้อข้างบน) และมันรับสีจาก <tr> ผ่าน inherit
+   แถวจึงต้องมีสีจริง — แต่ถ้าประกาศไว้ตลอดเวลา ตารางที่ไม่ได้ตรึงบน desktop จะถูก
+   ทาสีหัวตารางใหม่ทั้งที่ไม่มีเหตุผล จึงต้องอยู่ในเงื่อนไขเดียวกับสวิตช์ข้างบน
+   ⚠️ สองก้อนนี้ (media query กับ .table-freeze-always) ต้องมีเนื้อเหมือนกันเสมอ */
 @media (max-width: 1023px) {
   .table-freeze-first tbody tr {
     background-color: var(--color-base-100);
@@ -153,41 +217,157 @@ emerald;
   .table-freeze-first thead tr {
     background-color: var(--color-base-200);
   }
+}
+.table-freeze-first.table-freeze-always tbody tr {
+  background-color: var(--color-base-100);
+}
+.table-freeze-first.table-freeze-always tbody tr:hover {
+  background-color: var(--color-base-200);
+}
+.table-freeze-first.table-freeze-always thead tr {
+  background-color: var(--color-base-200);
+}
 
-  .table-freeze-first :is(th, td):is(.freeze-col, .freeze-col-2) {
-    position: sticky;
-    z-index: 1;
-    background-color: inherit;
-    /* เส้นคั่นบอกว่าตรงนี้คือขอบของส่วนที่ตรึงไว้ - ไม่มีเส้นแล้วตอนเลื่อน ตัวหนังสือ
-       สองฝั่งจะดูเหมือนอยู่คอลัมน์เดียวกัน */
-    box-shadow: 1px 0 0 0 var(--color-base-300);
+.table-freeze-first :is(th, td):is(.freeze-col, .freeze-col-2) {
+  position: var(--freeze-pos);
+  z-index: 1;
+  background-color: inherit;
+  /* เส้นคั่นบอกว่าตรงนี้คือขอบของส่วนที่ตรึงไว้ - ไม่มีเส้นแล้วตอนเลื่อน ตัวหนังสือ
+     สองฝั่งจะดูเหมือนอยู่คอลัมน์เดียวกัน */
+  box-shadow: var(--freeze-shadow);
+}
+
+.table-freeze-first :is(th, td).freeze-col {
+  left: 0;
+}
+
+/* ── ตรึงสองคอลัมน์ (บางตารางคอลัมน์เดียวยังบอกไม่พอ เช่นหน้า Create ที่ต้องเห็น
+     ทั้งเลขคำขอและเลข PO) ────────────────────────────────────────────────────
+
+   ★ left ของคอลัมน์ที่สองต้องเท่ากับ "ความกว้างจริงของคอลัมน์แรก" ซึ่ง CSS คำนวณ
+     ให้เองไม่ได้ - ตารางที่ใช้ต้องประกาศ --freeze-1-w มาเอง แล้วบังคับความกว้าง
+     คอลัมน์แรกให้เท่ากับค่านั้น (ดูตัวอย่างที่ DraftListPage) ไม่งั้นสองคอลัมน์จะซ้อนกัน
+     หรือมีช่องโหว่ตรงกลางที่เนื้อหาเลื่อนทะลุขึ้นมา */
+.table-freeze-first :is(th, td).freeze-col-2 {
+  left: var(--freeze-1-w, 6rem);
+}
+
+/* เส้นคั่นต้องอยู่ที่ "ขอบขวาสุดของกลุ่มที่ตรึง" เท่านั้น - มีสองคอลัมน์แล้วเส้นของ
+   คอลัมน์แรกจะกลายเป็นเส้นลอยกลางกลุ่ม */
+.table-freeze-first:has(.freeze-col-2) :is(th, td).freeze-col {
+  box-shadow: none;
+}
+
+.table-freeze-first thead :is(th.freeze-col, th.freeze-col-2) {
+  z-index: 3;
+}
+.table-freeze-first thead th {
+  z-index: 2;
+}
+/* ─────────────────────────────────────────────────────────────────────────────
+   แอนิเมชันของหน้า Login
+
+   ★ ทุกตัวในก้อนนี้ถูกปิดทิ้งใน prefers-reduced-motion ที่ท้ายไฟล์ — ไม่ใช่ของประดับ
+     ที่ "มีก็ดี" แต่เป็นข้อบังคับ: ken-burns เป็นภาพเคลื่อนไหวต่อเนื่องไม่รู้จบ ซึ่งเป็น
+     ตัวกระตุ้นอาการเวียนหัวของคนที่ตั้งค่า reduce motion ไว้โดยตรง
+
+   ★ rise ใช้ animation-delay จากตัวแปร --rise-delay แทนที่จะทำคลาส delay-1..delay-5
+     ทีละใบ — ลำดับการโผล่ของฟอร์มเปลี่ยนบ่อยเวลาสลับตำแหน่งช่องกรอก การเขียน
+     style="--rise-delay: 120ms" ติดไปกับ element ทำให้เห็นตัวเลขตรงจุดที่ใช้จริง
+
+   ★ backwards ใน shorthand จำเป็น — ถ้าไม่มี element จะแสดงผลเต็มที่ในเฟรมแรกก่อน
+     แล้วค่อยกระโดดกลับไปเริ่ม animation = เห็นฟอร์มกะพริบทุกครั้งที่เข้าหน้า
+   ───────────────────────────────────────────────────────────────────────────── */
+@keyframes ams-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ภาพอาคารซูมช้า ๆ สลับไปกลับ — กันไม่ให้แผงซ้ายดูเป็นภาพนิ่งที่ค้างอยู่เฉย ๆ
+   24 วินาทีต่อรอบโดยตั้งใจ: ช้าจนไม่มีใครจับได้ว่ามันขยับ แต่รู้สึกว่าหน้ามีชีวิต */
+@keyframes ams-ken-burns {
+  from { transform: scale(1.02) translate3d(0, 0, 0); }
+  to   { transform: scale(1.14) translate3d(0, -2%, 0); }
+}
+
+/* ไอคอนติ๊กถูกตอนล็อกอินผ่าน */
+@keyframes ams-pop {
+  0%   { opacity: 0; transform: scale(0.5); }
+  60%  { opacity: 1; transform: scale(1.18); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@utility rise {
+  animation: ams-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@utility ken-burns {
+  animation: ams-ken-burns 24s ease-in-out infinite alternate;
+}
+
+@utility pop-in {
+  animation: ams-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .ken-burns,
+  .pop-in,
+  .shake {
+    animation: none !important;
+  }
+}
+
+/* ── แถวที่ผู้ใช้ติ๊กเลือกไว้ (Asset summary) ─────────────────────────────────
+
+   ★ ต้องอยู่ที่นี่ ไม่ใช่ utility บน <tr> — ก้อน table-freeze ข้างบนประกาศ background
+     ไว้ที่ `.table-freeze-first tbody tr` (และ :hover) ซึ่งจำเพาะกว่า utility ตัวเดียว
+     ทาจากฝั่ง template เมื่อไหร่ก็แพ้เงียบ ๆ (คำเตือนที่เขียนกำกับไว้ในก้อนนั้นแล้ว)
+
+   ★ ต้องทาที่ "เซลล์" ด้วย ไม่ใช่แค่ที่แถว — คอลัมน์ที่ตรึงไว้ตั้ง background: inherit
+     โดยมีกฎของตัวเองที่จำเพาะกว่า ถ้าทาแค่ที่ <tr> คอลัมน์แรกจะเป็นสีพื้นค้างอยู่คนเดียว
+     ตอนเลื่อนตารางแนวนอน = แถวที่เลือกไว้ดูขาดครึ่ง
+
+   ★ ใช้ color-mix กับ base-100 ไม่ใช่ primary/10 แบบโปร่งใส — เซลล์ที่ตรึงต้องทึบแสง
+     ไม่งั้นเนื้อหาที่เลื่อนอยู่ข้างใต้จะทะลุขึ้นมาซ้อน */
+.table-freeze-first tbody tr.row-selected,
+.table-freeze-first tbody tr.row-selected :is(th, td) {
+  background-color: color-mix(in oklab, var(--color-primary) 12%, var(--color-base-100));
+}
+
+@keyframes ambient-float {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
 
-  .table-freeze-first :is(th, td).freeze-col {
-    left: 0;
+  33% {
+    transform: translate3d(800px, 20px, 0) scale(1.05);
   }
 
-  /* ── ตรึงสองคอลัมน์ (บางตารางคอลัมน์เดียวยังบอกไม่พอ เช่นหน้า Create ที่ต้องเห็น
-       ทั้งเลขคำขอและเลข PO) ────────────────────────────────────────────────────
-
-     ★ left ของคอลัมน์ที่สองต้องเท่ากับ "ความกว้างจริงของคอลัมน์แรก" ซึ่ง CSS คำนวณ
-       ให้เองไม่ได้ - ตารางที่ใช้ต้องประกาศ --freeze-1-w มาเอง แล้วบังคับความกว้าง
-       คอลัมน์แรกให้เท่ากับค่านั้น (ดูตัวอย่างที่ DraftListPage) ไม่งั้นสองคอลัมน์จะซ้อนกัน
-       หรือมีช่องโหว่ตรงกลางที่เนื้อหาเลื่อนทะลุขึ้นมา */
-  .table-freeze-first :is(th, td).freeze-col-2 {
-    left: var(--freeze-1-w, 6rem);
+  66% {
+    transform: translate3d(-20px, 40px, 0) scale(0.95);
   }
+}
 
-  /* เส้นคั่นต้องอยู่ที่ "ขอบขวาสุดของกลุ่มที่ตรึง" เท่านั้น - มีสองคอลัมน์แล้วเส้นของ
-     คอลัมน์แรกจะกลายเป็นเส้นลอยกลางกลุ่ม */
-  .table-freeze-first:has(.freeze-col-2) :is(th, td).freeze-col {
-    box-shadow: none;
+@keyframes float-reverse {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
 
-  .table-freeze-first thead :is(th.freeze-col, th.freeze-col-2) {
-    z-index: 3;
+  33% {
+    transform: translate3d(-300px, -20px, 0) scale(1.04);
   }
-  .table-freeze-first thead th {
-    z-index: 2;
+
+  66% {
+    transform: translate3d(-50px, 10px, 0) scale(0.96);
   }
+}
+
+.animate-ambient {
+  animation: ambient-float 12s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: float-reverse 10s ease-in-out infinite;
 }

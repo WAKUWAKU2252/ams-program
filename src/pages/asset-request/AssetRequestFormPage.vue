@@ -22,6 +22,7 @@ import {
   rejectAsset,
   cancelAsset,
   uncancelAsset,
+  declareLine,
 } from '@/shared/services/assetRequest.service'
 import type { PendingRegistrationRow } from '@/shared/services/assetRequest.service'
 import { getAssetSlots } from '@/shared/services/asset.service'
@@ -33,6 +34,7 @@ import { invoiceBlobUrl } from '@/shared/services/invoice.service'
 import { ApiError } from '@/shared/services/httpClient'
 import { formatDate, formatDateTime } from '@/shared/utils/date'
 import { formatMoney } from '@/shared/utils/money'
+import { useIdleKick } from '@/shared/utils/idle-kick'
 import { Icon } from '@iconify/vue'
 import ApexCharts from 'apexcharts'
 
@@ -78,7 +80,6 @@ async function loadAll() {
   try {
     await Promise.all([loadHeader(), loadSlots()])
     openPresenceStream()
-    startIdleTimer()
   } catch (e) {
     // 404 = ใบไม่อยู่ในคิวแล้ว (ยืนยันไปแล้ว/ถูกลบ) - ไม่ใช่ error ของผู้ใช้
     loadError.value =
@@ -110,35 +111,18 @@ function closePresence() {
 }
 
 /**
- * ถือ lock ค้างไว้โดยไม่ทำอะไร = บล็อกคนอื่นฟรี ๆ - เตะออกเหมือนหน้า DraftForm
- * (10 นาทีตรงกับที่นั่น ส่วน backend มี TTL 15 นาทีเป็นตาข่ายอีกชั้นเผื่อแท็บถูกฆ่าทิ้ง)
+ * ถือ lock ค้างไว้โดยไม่ทำอะไร = บล็อกคนอื่นฟรี ๆ - เตะออกหลัง 10 นาที
+ *
+ * ★ จับเวลาเฉพาะตอน "ถือ lock อยู่จริง" (editable) ไม่ใช่ตั้งแต่เปิดใบ - บัญชีคนที่สอง
+ *   ที่รอคิวอยู่ต้องไม่ถูกนับ idle ไปด้วย ไม่งั้นเขาจะถูกเด้งออกทั้งที่ยังไม่เคยได้แก้อะไร
+ *   แล้วคิวจะว่างเปล่าตอน holder ถูกเตะ (ดูเหตุผลเต็มที่ utils/idle-kick.ts)
+ *
+ * ★ backend มี TTL 15 นาทีเป็นตาข่ายอีกชั้นเผื่อแท็บถูกฆ่าทิ้งโดยไม่ได้ปิดสาย
  */
-let idleTimer: ReturnType<typeof setTimeout> | undefined
-const idleEvents: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'click', 'scroll']
-
-function resetIdleTimer() {
-  if (idleTimer) clearTimeout(idleTimer)
-  idleTimer = setTimeout(
-    () => {
-      closePresence()
-      router.replace({ name: 'MainAssetRequest' })
-    },
-    10 * 60 * 1000,
-  )
-}
-
-function startIdleTimer() {
-  idleEvents.forEach((event) => window.addEventListener(event, resetIdleTimer))
-  resetIdleTimer()
-}
-
-function stopIdleTimer() {
-  if (idleTimer) {
-    clearTimeout(idleTimer)
-    idleTimer = undefined
-  }
-  idleEvents.forEach((event) => window.removeEventListener(event, resetIdleTimer))
-}
+useIdleKick(editable, () => {
+  closePresence()
+  router.replace({ name: 'MainAssetRequest' })
+})
 
 /**
  * จัดรายชิ้นใหม่เป็น "รอบรับของ → ชิ้น"
@@ -184,6 +168,8 @@ interface FlatSlot {
   posY: number | null
   /** ใช้เลือกไอคอนของหมุดเท่านั้น หน้านี้ไม่มีช่องหมวดให้แสดง */
   categoryName: string | null
+  /** ชิ้นที่เกินจากจำนวนที่ SAP รับมา = ผู้ขอแจ้งเพิ่มเอง - ตัวที่ระบายสีแถว */
+  declaredExtra: boolean
 }
 
 /**
@@ -196,11 +182,28 @@ function warrantyText(start: string | null, end: string | null): string {
   return start ? `เริ่ม ${formatDate(start)}` : `ถึง ${formatDate(end!)}`
 }
 
+/**
+ * "รอบนี้ผู้ขอแจ้งจำนวนเอง ไม่ได้ใช้ตัวเลขจาก SAP" - หนึ่งก้อนต่อหนึ่งบรรทัด PO ที่ถูกแจ้ง
+ *
+ * ★ ผูกกับ "บรรทัด" ไม่ใช่กับรอบ: GRPO ใบเดียวคร่อมได้หลาย PO line และแต่ละบรรทัดแจ้ง
+ *   คนละจำนวนคนละเหตุผลได้ ถ้ายุบเป็นค่าเดียวต่อรอบ เหตุผลจะไปแปะผิดบรรทัด
+ */
+interface DeclaredNotice {
+  poLine: number
+  description: string
+  receivedQty: number
+  declaredQty: number
+  reason: string
+  by: string
+}
+
 /** ข้อมูลของ "รอบ" ที่ตารางกับกล่องจัดการต้องใช้ - invoice ผูกกับรอบ ไม่ใช่กับชิ้น */
 interface RoundGroup {
   grpoNo: string
   grpoId: number
   invoices: InvoiceFile[]
+  /** ว่าง = ทุกบรรทัดในรอบนี้ใช้จำนวนตาม SAP */
+  declared: DeclaredNotice[]
   slots: FlatSlot[]
 }
 
@@ -213,9 +216,23 @@ const rounds = computed<RoundGroup[]>(() => {
   // GRPO ใบเดียวคร่อมได้หลาย PO line จึงโผล่เป็น grpoLine หลายแถวที่มี grpoNo เดียวกัน -
   // grpoId กับ invoices เป็นของ "ใบ GRPO" จึงเหมือนกันทุกแถว หยิบแถวแรกที่เจอพอ
   const roundMeta = new Map<string, { grpoId: number; invoices: InvoiceFile[] }>()
+  // การแจ้งจำนวนเองเป็นราย grpoLine (= รอบ × บรรทัด PO) จึงสะสมทีละแถว ไม่ใช่หยิบแถวแรก
+  // แบบ grpoId/invoices ที่เป็นของ "ใบ GRPO" ทั้งใบ
+  const roundDeclared = new Map<string, DeclaredNotice[]>()
   for (const item of data.items) {
     for (const l of item.grpoLines) {
       if (!roundMeta.has(l.grpoNo)) roundMeta.set(l.grpoNo, { grpoId: l.grpoId, invoices: l.invoices })
+      if (l.declaredQty === null) continue
+      const list = roundDeclared.get(l.grpoNo) ?? []
+      roundDeclared.set(l.grpoNo, list)
+      list.push({
+        poLine: item.poLine,
+        description: item.itemDescription,
+        receivedQty: l.receivedQty,
+        declaredQty: l.declaredQty,
+        reason: l.declaredReason ?? '-',
+        by: l.declaredByName ?? '-',
+      })
     }
   }
 
@@ -253,6 +270,7 @@ const rounds = computed<RoundGroup[]>(() => {
         posX: slot.posX,
         posY: slot.posY,
         categoryName: slot.categoryName,
+        declaredExtra: slot.declaredExtra,
       })
     }
   }
@@ -263,6 +281,7 @@ const rounds = computed<RoundGroup[]>(() => {
     grpoNo,
     grpoId: roundMeta.get(grpoNo)?.grpoId ?? 0,
     invoices: roundMeta.get(grpoNo)?.invoices ?? [],
+    declared: roundDeclared.get(grpoNo) ?? [],
     slots: s.sort(byLineThenUnit),
   }))
   // รอบเรียงตามชิ้นแรกของรอบ ไม่ใช่ตาม grpoNo (เลขเอกสารไม่ได้เรียงตามลำดับที่ของมาถึงเสมอ)
@@ -270,6 +289,37 @@ const rounds = computed<RoundGroup[]>(() => {
     a.slots[0] && b.slots[0] ? byLineThenUnit(a.slots[0], b.slots[0]) : 0,
   )
 })
+
+
+/**
+ * รายการแจ้งจำนวนของทั้งใบ - ใช้ขึ้นแถบเตือนบนหัวหน้า
+ *
+ * ★ ต้องอยู่บนหัวใบ ไม่ใช่แค่ในโน้ตรายชิ้น: บัญชีเปิดหน้านี้มาเพื่อ "ออกเลข" ถ้าข้อมูลว่า
+ *   ของบางชิ้นไม่ได้มาจากเอกสาร SAP ซ่อนอยู่หลังปุ่มที่ต้องกดทีละชิ้น เขาจะออกเลขจนจบใบ
+ *   โดยไม่เคยเห็นเลย - แถบบนหัวคือที่เดียวที่การันตีว่าถูกอ่านก่อนเริ่มทำงาน
+ */
+const declaredNotices = computed(() =>
+  rounds.value.flatMap((r) => r.declared.map((d) => ({ ...d, grpoNo: r.grpoNo }))),
+)
+
+// ── โน้ตรายชิ้น (กล่องเดียวใช้ร่วมทุกแถว) - แพตเทิร์นเดียวกับโน้ตในหน้า Create New Asset
+//
+// snapshot ทั้ง notice ไว้ตอนกดเปิด ไม่ใช่เก็บแค่ id แล้วไปหาใหม่ตอนเรนเดอร์:
+// rounds สร้าง object ใหม่ทุกครั้งที่ slots เปลี่ยน กล่องที่เปิดค้างจะชี้ของเก่าทันที
+const noteTarget = ref<{ slot: FlatSlot; notice: DeclaredNotice; grpoNo: string } | null>(null)
+
+/** โน้ตของชิ้นนี้ - null = ชิ้นปกติที่ไม่มีอะไรต้องอธิบาย (ไม่ต้องมีปุ่มให้กด) */
+function declaredNoticeOf(round: RoundGroup, s: FlatSlot): DeclaredNotice | null {
+  if (!s.declaredExtra) return null
+  // การแจ้งผูกกับ "บรรทัด PO" ในรอบนั้น ไม่ใช่กับชิ้น - ชิ้นที่เกินทุกชิ้นของบรรทัดเดียวกัน
+  // จึงอ้างเหตุผลก้อนเดียวกัน
+  return round.declared.find((d) => d.poLine === s.poLine) ?? null
+}
+
+function openNote(round: RoundGroup, s: FlatSlot) {
+  const notice = declaredNoticeOf(round, s)
+  if (notice) noteTarget.value = { slot: s, notice, grpoNo: round.grpoNo }
+}
 
 // ── รูป: /uploads/:id/file อยู่หลัง authGuard - ยัดใน <img src> ตรง ๆ จะโดน 401
 // ต้องโหลดเป็น blob พร้อม token (ดู attachment.service.ts) แล้ว revoke ตอนออกจากหน้า
@@ -415,7 +465,7 @@ const blockedReason = computed(() => {
   const s = target.value?.slot
   if (!s) return null
   if (s.displayStatus === 'cancelled' && s.cancelReason)
-    return { title: 'ปิดถาวรแล้ว', text: s.cancelReason, class: 'alert-error', icon: 'mdi:cancel' }
+    return { title: 'ปิดถาวรแล้ว', text: s.cancelReason, class: 'alert-error alert-soft', icon: 'mdi:cancel' }
   if (s.rejectReason)
     return {
       title: 'เหตุผลที่ตีกลับ',
@@ -663,6 +713,8 @@ function onEscape(e: KeyboardEvent) {
   if (e.key !== 'Escape' || invoiceOpen.value) return
   if (invoiceViewOpen.value) invoiceViewOpen.value = false
   else if (lightboxOpen.value) lightboxOpen.value = false
+  // โน้ตอยู่ชั้นล่างสุดของสามตัวนี้ - ปิดต่อเมื่อไม่มีอะไรซ้อนอยู่ข้างบนแล้ว
+  else if (noteTarget.value) noteTarget.value = null
 }
 
 function switchAction(next: SlotAction) {
@@ -755,6 +807,8 @@ async function onConfirm() {
 const busyWithInput = computed(
   () =>
     target.value !== null ||
+    // โน้ตก็เป็น snapshot เหมือนกัน - โหลดทับแล้วกล่องจะชี้ของเก่าค้างโดยไม่มีอะไรบอก
+    noteTarget.value !== null ||
     invoiceOpen.value ||
     invoiceViewOpen.value ||
     saving.value ||
@@ -796,7 +850,6 @@ watch(busyWithInput, (busy) => {
 
 /** ออกจากใบนี้ = ปล่อย lock ให้คิวถัดไปทันที ไม่ต้องรอ timeout */
 function leave() {
-  stopIdleTimer()
   closePresence()
   router.replace({ name: 'MainAssetRequest' })
 }
@@ -807,13 +860,11 @@ onMounted(() => {
 })
 
 onBeforeRouteLeave(() => {
-  stopIdleTimer()
   closePresence()
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onEscape)
-  stopIdleTimer()
   closePresence()
   if (remoteTimer) clearTimeout(remoteTimer)
   for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url)
@@ -826,7 +877,7 @@ onUnmounted(() => {
   <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
     <div class="flex items-start justify-between gap-4 text-left">
       <div>
-        <h1 class="text-3xl font-semibold sm:text-4xl">ออกเลขสินทรัพย์</h1>
+        <h1 class="text-3xl font-semibold sm:text-4xl">Asset Registration</h1>
         <p class="text-base-content/70">กรอกเลขจาก SAP ทีละชิ้น ครบแล้วกดยืนยันเพื่อแจ้งผลกลับผู้ขอ</p>
       </div>
     </div>
@@ -847,17 +898,17 @@ onUnmounted(() => {
 
     <template v-else>
       <!-- ── สถานะ lock: ต้องอยู่บนสุดเพราะมันตัดสินว่าทุกปุ่มข้างล่างกดได้ไหม -->
-<!-- ลำดับที่ 1: ถ้ามี loadError จะแสดงอันนี้ก่อน และไม่แสดงอันอื่นเลย -->
-<div v-if="loadError" role="alert" class="alert alert-error alert-soft mt-4">
-  <Icon icon="mdi:alert-circle-outline" class="size-5" />
-  <span>{{ loadError }}</span>
-</div>
+      <!-- ลำดับที่ 1: ถ้ามี loadError จะแสดงอันนี้ก่อน และไม่แสดงอันอื่นเลย -->
+      <div v-if="loadError" role="alert" class="alert alert-error alert-soft mt-4">
+        <Icon icon="mdi:alert-circle-outline" class="size-5" />
+        <span>{{ loadError }}</span>
+      </div>
 
-<!-- ลำดับที่ 2: ถ้าไม่มี loadError เลย แต่มี lockBanner ถึงจะแสดงอันนี้ -->
-<div v-else-if="lockBanner" role="alert" class="alert alert-warning alert-soft mt-4">
-  <Icon icon="lucide:lock" class="size-5" />
-  <span class="text-sm">{{ lockBanner }}</span>
-</div>
+      <!-- ลำดับที่ 2: ถ้าไม่มี loadError เลย แต่มี lockBanner ถึงจะแสดงอันนี้ -->
+      <div v-else-if="lockBanner" role="alert" class="alert alert-warning alert-soft mt-4">
+        <Icon icon="lucide:lock" class="size-5" />
+        <span class="text-sm">{{ lockBanner }}</span>
+      </div>
 
       <!-- ── หัวใบ - ข้อมูลที่บัญชีต้องเห็นค้างไว้ตลอดขณะไล่กรอกทีละชิ้น -->
       <section class="mt-6">
@@ -881,6 +932,14 @@ onUnmounted(() => {
                 </span>
               </div>
             </div>
+
+            <!-- ── ใบนี้มีของที่ผู้ขอแจ้งเพิ่มเอง ไม่ได้มาจากจำนวนที่ SAP รับ
+                 ★ อยู่บนหัวใบเพราะบัญชีต้องรู้ "ก่อน" เริ่มออกเลข ไม่ใช่รู้ตอนบังเอิญกดโน้ต
+                   ของชิ้นใดชิ้นหนึ่ง - ของพวกนี้ไม่มีเอกสาร SAP รองรับ คนออกเลขกำลังรับรอง
+                   ตัวเลขที่คนอื่นแจ้งไว้ จึงต้องอ่านเหตุผลกับชื่อผู้แจ้งครบก่อนตัดสินใจ
+                 ★ ชื่อผู้แจ้งอยู่ในแถบนี้ด้วย ไม่ใช่แค่ในโน้ต - เวลามีข้อสงสัยต้องรู้ทันที
+                   ว่าจะไปถามใคร โดยไม่ต้องไล่เปิดทีละชิ้น -->
+
 
             <div class="mt-6 grid w-full gap-4 md:grid-cols-4">
               <div>
@@ -930,6 +989,15 @@ onUnmounted(() => {
       <!-- ── รอบรับของ → รายชิ้น -->
       <section class="mt-6 space-y-4">
         <div v-for="round in rounds" :key="round.grpoNo">
+                      <div v-if="declaredNotices.length" role="alert" class="alert alert-warning alert-soft mt-4 mb-4 items-start">
+              <Icon icon="lucide:triangle-alert" class="size-5 shrink-0" />
+              <div class="min-w-0 space-y-1.5 text-sm">
+                <div class="font-medium">
+                  ใบนี้มีรายการที่ผู้ขอแจ้งจำนวนเอง (ไม่ใช่จำนวนที่เดิมของใบขอซื้อ)
+                </div>
+
+              </div>
+            </div>
           <div class="mb-2 flex flex-wrap items-center gap-2">
             <Icon icon="mdi:truck-delivery-outline" class="size-3.5" />
             <span class="font-mono text-sm font-medium">Grpo no. {{ round.grpoNo }}</span>
@@ -950,24 +1018,47 @@ onUnmounted(() => {
                 {{ round.invoices.length }}
               </span>
             </button>
+
+            <span v-if="round.declared.length" class="badge badge-warning badge-soft badge-sm gap-1">
+              <Icon icon="mdi:account-edit-outline" class="size-3.5" />
+              ผู้ขอแจ้งจำนวนเอง
+            </span>
           </div>
 
+          <!-- ★ ไม่มีกล่องเหตุผลซ้ำตรงนี้แล้ว - ย้ายไปอยู่สองที่ที่ทำหน้าที่ต่างกัน:
+                 แถบบนหัวใบ = ภาพรวมทั้งใบ ต้องอ่านก่อนเริ่มออกเลข
+                 โน้ตรายชิ้น (คอลัมน์ note) = รายละเอียดของชิ้นที่กำลังดูอยู่
+               วางซ้ำสามที่ทำให้คนเลิกอ่านทั้งหมด ป้ายที่หัวรอบพอเป็นสัญญาณแล้ว -->
           <div class="overflow-x-auto rounded-box border border-base-300">
-            <table class="table table-sm bg-base-100">
+            <!-- ★ table-fixed + min-w: ตัวที่ทำให้ความกว้างของ <th> มีผลจริง
+                 ตอนเป็น table-auto (ค่าตั้งต้น) ความกว้างเป็นแค่คำแนะนำ เบราว์เซอร์ขยาย
+                 คอลัมน์ตามข้อความยาวสุดแล้วไปบีบคอลัมน์อื่นจนขึ้นบรรทัดใหม่กันหมด
+                 (อาการจริง: description ยาว ๆ ดันจนป้ายในช่อง Note แตกเป็น 3 บรรทัด)
+                 min-w คู่กับ .overflow-x-auto ของกรอบข้างนอก - จอแคบให้เลื่อนตาราง
+                 ไม่ใช่บีบคอลัมน์จนอ่านไม่ออก -->
+            <table class="table table-sm min-w-[64rem] table-fixed bg-base-100">
               <thead>
                 <tr>
-                  <th class="w-16 text-center">Unit</th>
+                  <!-- ★ Description ไม่กำหนดความกว้างโดยตั้งใจ - กินที่ที่เหลือทั้งหมด
+                       คอลัมน์อื่นตายตัวหมดแล้ว มันจึงยืด/หดได้โดยไม่ไปกระทบใคร -->
+                  <th class="w-20 text-center">Unit</th>
                   <th class="w-20 text-center">Img</th>
                   <th>Description</th>
-                  <th>Serial No.</th>
-                  <th class="text-right">Acquisition</th>
-                  <th>Location</th>
+                  <th class="w-40">Serial No.</th>
+                  <th class="w-32 text-right">Acquisition</th>
+                  <th class="w-48">Location</th>
+                  <th class="w-28 text-center">Note</th>
                   <th class="w-32 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="s in round.slots" :key="s.assetId">
-                  <td class="text-center font-mono">{{ s.poLine }}.{{ s.unitNo }}</td>
+                <!-- ชิ้นที่เกินจากจำนวนที่ SAP รับมามีพื้นหลังต่างจากชิ้นปกติ - ธงมาจาก backend
+                     ที่เดียว (AssetSlot.declaredExtra) ชุดเดียวกับแถวในอีเมล/การ์ดของหัวหน้า
+                     ★ ระดับชิ้น ไม่ใช่ทั้งบรรทัด - ชิ้นที่มีเอกสาร SAP รองรับอยู่แล้วต้องขาวปกติ -->
+                <tr v-for="s in round.slots" :key="s.assetId" :class="{ 'bg-warning/10': s.declaredExtra }">
+                  <td class="whitespace-nowrap text-center font-mono">
+                    {{ s.poLine }}.{{ s.unitNo }}
+                  </td>
                   <td class="text-center">
                     <!-- object-contain ไม่ใช่ cover - รูปสินทรัพย์ส่วนใหญ่ไม่ใช่จัตุรัส
                          cover จะขยายแล้วเฉือนขอบทิ้ง ซึ่งตัดส่วนที่ใช้ระบุของ (ป้าย/serial)
@@ -978,38 +1069,57 @@ onUnmounted(() => {
                       <Icon icon="mdi:image-off-outline" class="size-4 opacity-40" />
                     </div>
                   </td>
-                  <td class="truncate text-sm">{{ s.description }}</td>
-                  <td class="font-mono text-sm">{{ s.serialNumber ?? '-' }}</td>
-                  <td class="text-right font-mono text-sm">
+                  <!-- ★ ตัดท้ายบรรทัดเดียวทุกช่องที่ข้อความยาวได้ พร้อม title ให้ hover อ่านเต็ม
+                       ข้อความเต็มยังดูได้ในกล่องรายชิ้นอยู่แล้ว ตารางนี้มีไว้กวาดตาหาแถว
+                       ไม่ใช่ที่อ่านรายละเอียด - ปล่อยให้ wrap แล้วความสูงแถวไม่เท่ากันทั้งตาราง -->
+                  <td class="truncate text-sm" :title="s.description">{{ s.description }}</td>
+                  <td class="truncate font-mono text-sm" :title="s.serialNumber ?? '-'">
+                    {{ s.serialNumber ?? '-' }}
+                  </td>
+                  <td class="whitespace-nowrap text-right font-mono text-sm">
                     {{ formatMoney(s.acquisitionCost) }} ฿
                   </td>
-                  <td class="truncate">{{ s.location }}</td>
-                  <!-- ปุ่มเดียว เปิดกล่องเดียว แล้วเลือกในนั้นว่าจะออกเลข/ตีกลับ/ปิดถาวร
-                       ทั้งสามอย่างตัดสินจากข้อมูลชุดเดียวกัน (รูปเต็ม S/N ราคา สถานที่)
-                       จึงต้องให้เห็นของจริงก่อนเสมอ ไม่ใช่ตัดสินจากตารางย่อ
-                       ★ ไม่ disable ตอนไม่ได้ถือ lock - เปิดดูรายละเอียดยังต้องทำได้
-                         ตัวที่ถูกปิดคือปุ่มยืนยันในกล่อง (canSave) -->
+                  <td class="truncate text-sm" :title="s.location">{{ s.location }}</td>
+                  <!-- โน้ตของชิ้น - ★ ป้ายเป็นปุ่มในตัว ไม่ใช่ปุ่มแยก
+                       แพตเทิร์นเดียวกับป้ายสถานะในหน้า Create New Asset (ดู openNote ที่นั่น):
+                       ป้ายคือสิ่งที่ผู้ใช้มองอยู่แล้ว และช่องนี้แคบ ปุ่มแยกจะดันคอลัมน์จนตารางเบียด
+                       ★ ขึ้นเฉพาะชิ้นที่เกินจากจำนวนที่ SAP รับมา ชิ้นปกติเว้นว่างไว้ - ถ้าใส่ทุกแถว
+                         แล้วส่วนใหญ่กดไปเจอกล่องเปล่า คนจะเลิกกดทั้งคอลัมน์ แล้วชิ้นที่มีเรื่อง
+                         ต้องอ่านจริงก็จะถูกข้ามไปด้วย -->
                   <td class="text-center">
-                    <button
-                      class="btn btn-outline btn-xs"
+                    <!-- whitespace-nowrap: ป้ายต้องอยู่บรรทัดเดียวเสมอ ไม่งั้นพอคอลัมน์แคบลง
+                         "แจ้งเพิ่มเอง" จะแตกเป็นหลายบรรทัดแล้วดันความสูงของทั้งแถว -->
+                    <button v-if="s.declaredExtra" type="button"
+                      class="badge badge-warning badge-soft badge-sm cursor-pointer whitespace-nowrap transition hover:brightness-95"
+                      title="ผู้ขอแจ้งเพิ่มเอง กดเพื่อดูเหตุผลและผู้แจ้ง" @click.stop="openNote(round, s)">
+                      แจ้งเพิ่มเอง
+                      <Icon icon="lucide:info" class="ml-0.5 size-3 shrink-0 opacity-70" />
+                    </button>
+                  </td>
+                  <!-- ทุกอย่างในช่องนี้ต้องไม่ตัดคำ - ปุ่มกับป้ายสถานะเป็นคำสั้น ๆ ที่ถ้าแตก
+                       บรรทัดจะอ่านไม่ออกทันที (เช่น "Registered" แตกเป็น "Regis|tered") -->
+                  <td class="text-center">
+                    <button class="btn btn-outline btn-xs whitespace-nowrap"
                       :class="s.displayStatus === 'registered' ? 'btn-success' : 'btn-info'"
                       @click="openSlotAction(round, s)">
                       {{ s.displayStatus === 'registered' ? 'Registered' : 'Register' }}
                     </button>
                     <div class="space-y-1 text-center">
-                      <span v-if="s.displayStatus === 'cancelled'" class="badge badge-error badge-sm">
+                      <span v-if="s.displayStatus === 'cancelled'"
+                        class="badge badge-error badge-sm whitespace-nowrap">
                         ปิดถาวร
                       </span>
                       <span v-else-if="s.displayStatus === 'rejected'"
-                        class="badge badge-warning badge-soft badge-sm">
+                        class="badge badge-warning badge-soft badge-sm whitespace-nowrap">
                         ตีกลับแล้ว
                       </span>
                       <!-- ชิ้นที่เคยสั่งให้แก้ แล้วผู้ขอแก้กลับมาแล้ว (ยังไม่ได้ออกเลข)
                            ต้องเห็นจากตาราง ไม่งั้นบัญชีแยกไม่ออกจากชิ้นปกติที่ไม่เคยมีปัญหา
                            แล้วจะออกเลขให้โดยไม่ได้ตรวจซ้ำว่าแก้ตามที่สั่งไปจริงไหม -->
-                      <span v-else-if="s.rejectFixed" class="badge badge-info badge-soft badge-sm gap-1"
+                      <span v-else-if="s.rejectFixed"
+                        class="badge badge-info badge-soft badge-sm gap-1 whitespace-nowrap"
                         title="ผู้ขอแก้ข้อมูลตามที่ตีกลับไปแล้ว - ตรวจซ้ำก่อนออกเลข">
-                        <Icon icon="mdi:check-decagram-outline" class="size-3.5" />
+                        <Icon icon="mdi:check-decagram-outline" class="size-3.5 shrink-0" />
                         แก้ไขแล้ว
                       </span>
                     </div>
@@ -1030,8 +1140,7 @@ onUnmounted(() => {
            ปิดงาน = ใบจบ แก้อะไรไม่ได้อีก / แจ้งตีกลับ = ส่งงานกลับไปให้ผู้ขอแก้ ใบยังอยู่ -->
       <footer class="mt-6 flex flex-wrap items-center justify-end gap-3 pb-10">
         <button type="button" class="btn btn-ghost" @click="leave">ออก</button>
-        <button type="button" class="btn" :class="willReject ? 'btn-warning' : 'btn-primary'"
-          :disabled="!canConfirm"
+        <button type="button" class="btn" :class="willReject ? 'btn-warning' : 'btn-primary'" :disabled="!canConfirm"
           :title="!editable
             ? 'ต้องเป็นผู้ที่กำลังแก้ไขใบนี้จึงจะกดได้'
             : header.pendingAssets > 0
@@ -1068,7 +1177,7 @@ onUnmounted(() => {
                 </span>
               </div>
               <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                <span class="badge badge-neutral badge-soft badge-sm gap-1 font-mono">
+                <span class="badge badge-ghost badge-sm gap-1 font-mono">
                   <Icon icon="mdi:file-document-outline" class="size-3.5" />#{{ header.requestId }}
                 </span>
                 <span class="badge badge-soft badge-sm gap-1 font-mono">
@@ -1091,6 +1200,10 @@ onUnmounted(() => {
 
         <!-- ── เนื้อหา (ส่วนที่เลื่อนได้) -->
         <div class="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div v-if="saveError" role="alert" class="alert alert-error alert-soft">
+            <Icon icon="mdi:alert-circle-outline" class="size-5 shrink-0" />
+            <span class="text-sm">{{ saveError }}</span>
+          </div>
           <!-- ไม่ได้ถือ lock = กล่องนี้เป็นโหมดอ่านอย่างเดียว ต้องบอกในกล่องด้วย ไม่ใช่แค่บนหน้า
                (คนเปิดกล่องมาแล้วเห็นปุ่มจางโดยไม่มีคำอธิบายจะนึกว่าระบบพัง) -->
           <div v-if="!editable" role="alert" class="alert alert-warning alert-soft items-start">
@@ -1154,8 +1267,8 @@ onUnmounted(() => {
               <!-- ออกเลข = ช่องเลข / ตีกลับกับปิดถาวร = ช่องเหตุผล (บังคับกรอกทั้งคู่)
                    ปลดการปิดไม่ต้องกรอกอะไร เป็นการย้อนคำสั่งเดิม ไม่ใช่คำสั่งใหม่ -->
               <fieldset class="fieldset mt-1">
-                <AssetNumberInput v-if="action === 'register'" v-model="assetNumber"
-                  :disabled="saving || !editable" @enter="onSave" />
+                <AssetNumberInput v-if="action === 'register'" v-model="assetNumber" :disabled="saving || !editable"
+                  @enter="onSave" />
                 <template v-else-if="action !== 'uncancel'">
                   <textarea v-model="reason" class="textarea w-full"
                     :class="action === 'cancel' ? 'textarea-error' : 'textarea-warning'" rows="3" maxlength="500"
@@ -1235,10 +1348,6 @@ onUnmounted(() => {
             </ul>
           </div>
 
-          <div v-if="saveError" role="alert" class="alert alert-error alert-soft">
-            <Icon icon="mdi:alert-circle-outline" class="size-5 shrink-0" />
-            <span class="text-sm">{{ saveError }}</span>
-          </div>
         </div>
 
         <!-- ── แถวปุ่ม (ตรึงล่าง) - เหลือแต่ปุ่มที่เปลี่ยนสถานะจริง
@@ -1258,6 +1367,51 @@ onUnmounted(() => {
       </div>
       <form method="dialog" class="modal-backdrop">
         <button @click="target = null">close</button>
+      </form>
+    </dialog>
+
+    <!-- ── โน้ตรายชิ้น - โครงเดียวกับโน้ตในหน้า Create New Asset (ดู noteTarget ใน RequestTable)
+         กล่องเดียวใช้ร่วมทุกแถว · modal-bottom บนมือถือ / กลางจอบนเดสก์ท็อป ตามแพตเทิร์น daisyUI
+         ★ เนื้อหาต้องครบสามอย่างในกล่องเดียว: ต่างจาก SAP เท่าไร · ใครแจ้ง · เพราะอะไร
+           คนที่กดเข้ามาคือคนที่กำลังจะออกเลขให้ชิ้นนี้ ถ้าต้องไปหาต่อที่อื่นเขาจะไม่หา -->
+    <dialog class="modal modal-bottom sm:modal-middle" :class="{ 'modal-open': noteTarget !== null }">
+      <div v-if="noteTarget" class="modal-box text-left">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="badge badge-warning badge-soft badge-sm gap-1">
+            <Icon icon="mdi:account-edit-outline" class="size-3.5" />
+            ผู้ขอแจ้งเพิ่มเอง
+          </span>
+          <span class="font-mono text-sm text-base-content/60">
+            ชิ้นที่ {{ noteTarget.slot.poLine }}.{{ noteTarget.slot.unitNo }}
+          </span>
+          <span class="font-mono text-sm text-base-content/60">· {{ noteTarget.grpoNo }}</span>
+        </div>
+
+        <p class="mt-3 text-sm">
+          ชิ้นนี้เกินจากจำนวนที่ SAP รับมาในรอบนี้ ไม่มีเอกสารรับของรองรับ
+          ผู้ขอเป็นคนแจ้งเพิ่มเข้ามาเอง ตรวจเหตุผลข้างล่างก่อนออกเลข
+        </p>
+
+        <div class="mt-3 space-y-2 rounded-box bg-base-200 p-3 text-sm">
+          <div>
+            <span class="font-mono">PO Line {{ noteTarget.notice.poLine }}</span>
+            · {{ noteTarget.notice.description }}
+          </div>
+          <div>
+            SAP รับมา <span class="font-mono">{{ noteTarget.notice.receivedQty }}</span>
+            → แจ้ง <span class="font-mono font-medium">{{ noteTarget.notice.declaredQty }}</span> ชิ้น
+          </div>
+          <div>แจ้งโดย: {{ noteTarget.notice.by }}</div>
+          <!-- whitespace-pre-wrap: เหตุผลที่ผู้ขอพิมพ์มาอาจขึ้นบรรทัดใหม่เอง -->
+          <div class="whitespace-pre-wrap">เหตุผล: {{ noteTarget.notice.reason }}</div>
+        </div>
+
+        <div class="modal-action">
+          <button type="button" class="btn" @click="noteTarget = null">ปิด</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button type="button" @click="noteTarget = null">close</button>
       </form>
     </dialog>
 
@@ -1306,7 +1460,7 @@ onUnmounted(() => {
 
       <div class="flex min-h-0 flex-1 items-center justify-center">
         <span v-if="invoiceLoading" class="loading loading-spinner loading-lg text-white" />
-        <div v-else-if="invoiceError" role="alert" class="alert alert-error max-w-sm" @click.stop>
+        <div v-else-if="invoiceError" role="alert" class="alert alert-error alert-soft max-w-sm" @click.stop>
           <Icon icon="mdi:alert-circle-outline" class="size-5 shrink-0" />
           <span class="text-sm">{{ invoiceError }}</span>
         </div>

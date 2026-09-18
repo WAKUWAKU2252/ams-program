@@ -237,30 +237,62 @@ const masterMissing = computed(() => !props.locations.length)
 const hasImage = computed(() => !!uploadedImageId.value || !!form.value.imageId)
 
 /**
- * ช่องบังคับของ "ของใหม่" - คืนข้อความชี้ช่องแรกที่ยังไม่ครบ ('' = ครบแล้ว)
+ * "ชิ้นนี้เคยมีอะไรอยู่แล้วบ้าง" ณ ตอนเปิดกล่อง - ใช้ตัดสินว่าอะไร "ถอดออกไม่ได้"
  *
- * ห้อง + หมุด + รูป บังคับตอนสร้างตั้งแต่กติกาใหม่ (createAssetBody บังคับอีกชั้นที่ backend)
+ * ★ ต้องเป็น snapshot ของค่าที่โหลดมา ไม่ใช่อ่านจาก form - form เปลี่ยนตามที่ผู้ใช้กด
+ *   ถ้าอ่านจาก form พอกดล้างหมุดปุ๊บ had.pin จะกลายเป็น false เอง แล้วด่านก็ยอมให้ล้าง
+ *   (บั๊กเดิมในรูปแบบใหม่)
+ *
+ * ★ ตั้งใหม่ทุกครั้งที่เปิดกล่อง/สลับชิ้น - ค่าค้างจากชิ้นก่อนจะทำให้ด่านบังคับผิดชิ้น
+ */
+const originalHas = ref({ image: false, room: false, pin: false })
+
+/**
+ * ช่องบังคับ - คืนข้อความชี้ช่องแรกที่ยังไม่ครบ ('' = ผ่าน)
+ *
+ * ห้อง + หมุด + รูป บังคับตอนสร้าง (createAssetBody บังคับอีกชั้นที่ backend)
  * ของที่ไม่มีห้องและไม่มีหมุดคือของที่คนเดินตรวจนับหาไม่เจอ ส่วนรูปคือสิ่งเดียวที่คนหน้างาน
  * ใช้ยืนยันว่าของตรงหน้าคือชิ้นเดียวกับในทะเบียน
  *
- * ★ เช็ค isEdit ก่อนเสมอ - บังคับเฉพาะของใหม่ ของเก่าที่บันทึกไว้ก่อนกติกานี้ (และของที่
- *   sync มาจาก SAP) ต้องแก้ช่องอื่นได้โดยไม่ถูกล็อกให้ไปเติมสามช่องนี้ก่อน หลักเดียวกับ
- *   ที่ missingPin เขียนไว้: กติกาใหม่มีไว้กันของใหม่ ไม่ใช่ย้อนไปบังคับของเดิม
+ * ── ★ ตอน "แก้ไข" บังคับเฉพาะสิ่งที่ชิ้นนี้เคยมีแล้ว ไม่ใช่บังคับทั้งสามช่อง
+ *
+ * บั๊กเดิม: บรรทัดแรกเป็น `if (isEdit) return ''` ซึ่งปล่อยทุกอย่างผ่านตอนแก้ไข ผู้ใช้จึง
+ * กดลบรูป/ล้างหมุดของชิ้นที่เคยมีครบแล้วบันทึกได้ (และ backend ก็ล้างคอลัมน์เป็น NULL จริง)
+ * แล้วส่งใบต่อได้ด้วย ทั้งที่ของแบบนั้นสร้างใหม่ไม่ได้ตั้งแต่แรก
+ *
+ * ที่ถูกคือแยกสองเคสออกจากกัน:
+ *   ของใหม่          → บังคับครบทั้งสามช่อง
+ *   แก้ของเดิม       → ห้าม "ถอด" สิ่งที่เคยมี (เทียบกับ original ที่โหลดมา) แต่ของเก่าที่
+ *                      ไม่เคยมีตั้งแต่ต้น (แถวก่อนมีกติกา / ของที่ sync จาก SAP) ต้องแก้ช่อง
+ *                      อื่นได้ต่อไปโดยไม่ถูกล็อกให้ไปเติมก่อน
  *
  * ★ เรียงตามลำดับที่ผู้ใช้ต้องไปทำจริง (สถานที่ -> ห้อง -> หมุด -> รูป) บอกทีละช่อง
  *   ไม่ใช่รวบว่า "กรอกไม่ครบ" - คนกดต้องรู้ว่าต้องไปมองตรงไหนต่อ
  */
-const missingForCreate = computed(() => {
-  if (isEdit.value) return ''
+const missingRequired = computed(() => {
   const f = form.value
   // locationId เป็น FK NOT NULL ที่ DB และ backend บังคับ minimum: 1 อยู่แล้ว
   if (f.locationId <= 0) return 'ต้องเลือกสถานที่ (Location) ก่อนจึงจะบันทึกได้'
+
+  const had = originalHas.value
   // สถานที่นอกผังไม่มีห้องให้เลือกและไม่มีจุดให้ปัก — ข้ามสองด่านนี้ไป (ดู outPlan)
   if (!outPlan.value) {
-    if (f.subLocationId <= 0) return 'ต้องเลือกห้องจากผังก่อนจึงจะบันทึกได้'
-    if (f.posX == null || f.posY == null) return 'ต้องปักหมุดตำแหน่งบนผังก่อนจึงจะบันทึกได้'
+    if ((!isEdit.value || had.room) && f.subLocationId <= 0) {
+      return isEdit.value
+        ? 'ชิ้นนี้เคยระบุห้องไว้แล้ว ล้างห้องออกไม่ได้ - ย้ายไปห้องอื่นได้'
+        : 'ต้องเลือกห้องจากผังก่อนจึงจะบันทึกได้'
+    }
+    if ((!isEdit.value || had.pin) && (f.posX == null || f.posY == null)) {
+      return isEdit.value
+        ? 'ชิ้นนี้เคยปักหมุดไว้แล้ว ถอดหมุดออกไม่ได้ - ย้ายหมุดไปจุดใหม่ได้'
+        : 'ต้องปักหมุดตำแหน่งบนผังก่อนจึงจะบันทึกได้'
+    }
   }
-  if (!hasImage.value) return 'ต้องแนบรูปถ่ายของชิ้นนี้ก่อนจึงจะบันทึกได้'
+  if ((!isEdit.value || had.image) && !hasImage.value) {
+    return isEdit.value
+      ? 'ชิ้นนี้เคยมีรูปแล้ว ถอดรูปออกไม่ได้ - เปลี่ยนเป็นรูปใหม่ได้'
+      : 'ต้องแนบรูปถ่ายของชิ้นนี้ก่อนจึงจะบันทึกได้'
+  }
   return ''
 })
 
@@ -272,7 +304,7 @@ const canSave = computed(() => {
   // ปล่อยให้กดได้ทั้งที่ยังไม่ครบ = ได้ 422 กลับมาแทนที่จะกันไว้ตั้งแต่ปุ่ม
   // ค้างห้อง/หมุดไว้กับสถานที่นอกผัง = backend ปฏิเสธแน่นอน กันที่ปุ่มดีกว่าปล่อยไปเจอ 400
   if (outPlanConflict.value) return false
-  if (missingForCreate.value) return false
+  if (missingRequired.value) return false
   return true
 })
 
@@ -287,14 +319,14 @@ const saveHint = computed(() => {
   if (loadingDetail.value) return 'กำลังโหลดข้อมูลเดิม - รอสักครู่ก่อนบันทึก'
   if (isUploadingImage.value) return 'กำลังอัปโหลดรูป'
   if (outPlanConflict.value) return 'สถานที่นี้อยู่นอกพื้นที่ผัง ต้องล้างห้องและหมุดที่ผูกไว้ก่อน'
-  if (missingForCreate.value) return missingForCreate.value
+  if (missingRequired.value) return missingRequired.value
   return isEdit.value ? 'บันทึกการแก้ไขของชิ้นนี้' : 'บันทึกรายละเอียดของชิ้นนี้'
 })
 
 /** ป้ายบนหัวกล่อง - บอกว่ากล่องนี้กำลังทำอะไรอยู่ (สร้าง/แก้ไข/อ่านอย่างเดียว) */
 const modeBadge = computed(() => {
   if (!props.editable)
-    return { label: 'อ่านอย่างเดียว', icon: 'lucide:lock', class: 'badge-neutral badge-soft' }
+    return { label: 'อ่านอย่างเดียว', icon: 'lucide:lock', class: 'badge-ghost' }
   return isEdit.value
     ? { label: 'แก้ไข', icon: 'mdi:pencil-outline', class: 'badge-info badge-soft' }
     : { label: 'กรอกใหม่', icon: 'mdi:plus-circle-outline', class: 'badge-primary badge-soft' }
@@ -336,6 +368,8 @@ watch(
     }
     syncCostText()
     pickedRoom.value = null
+    // ของใหม่ยังไม่เคยมีอะไรเลย - ตั้งเป็น false ก่อนเสมอ แล้วโหมดแก้ไขค่อยเติมจากของจริง
+    originalHas.value = { image: false, room: false, pin: false }
 
     if (target.assetId == null) return
 
@@ -366,6 +400,12 @@ watch(
         warrantyEndDate: toDateInput(detail.warrantyEndDate),
         departmentId: detail.departmentId ?? 0,
         imageId: detail.imageId ?? '',
+      }
+      // snapshot ของ "เคยมีอะไรอยู่แล้ว" - อ่านจาก detail ที่โหลดมา ไม่ใช่จาก form
+      originalHas.value = {
+        image: detail.imageId != null,
+        room: detail.subLocationId != null,
+        pin: detail.posX != null && detail.posY != null,
       }
       syncCostText()
       pickedRoom.value = detail.subLocation
@@ -598,7 +638,7 @@ async function onSave() {
         ? subLocationId <= 0 && posX == null && posY == null
         : subLocationId > 0 && posX != null && posY != null
       if (locationId <= 0 || !placeOk || !imageId) {
-        error.value = missingForCreate.value || 'กรอกข้อมูลที่จำเป็นให้ครบก่อนบันทึก'
+        error.value = missingRequired.value || 'กรอกข้อมูลที่จำเป็นให้ครบก่อนบันทึก'
         return
       }
       await createAsset({
@@ -656,7 +696,7 @@ async function onSave() {
               <!-- ป้ายอ้างอิงชุดเดียวกับกล่องของบัญชี - เลขใบ/รอบรับของ/ชิ้นที่ อ่านตรงกันทั้งสองฝั่ง
                    เวลาคุยกันว่า "ชิ้น 3.2 ของ GRPO ไหน" จะได้ชี้ที่เดียวกัน -->
               <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                <span class="badge badge-neutral badge-soft badge-sm gap-1 font-mono">
+                <span class="badge badge-ghost badge-sm gap-1 font-mono">
                   <Icon icon="mdi:file-document-outline" class="size-3.5" />#{{ requestId }}
                 </span>
                 <span class="badge badge-soft badge-sm gap-1 font-mono">
@@ -673,9 +713,13 @@ async function onSave() {
             <Icon icon="mdi:close" class="size-5" />
           </button>
         </div>
-
+        
         <!-- ── เนื้อหา (ส่วนที่เลื่อนได้) -->
         <div class="flex-1 space-y-4 overflow-y-auto px-5 py-4 text-left">
+                    <div v-if="error" role="alert" class="alert alert-error alert-soft items-start">
+            <Icon icon="lucide:circle-alert" class="size-5 shrink-0" />
+            <span class="text-sm">{{ error }}</span>
+          </div>
           <!-- แก้ไม่ได้ = ต้องบอกในกล่อง ไม่ใช่แค่ทำให้ช่องจาง - คนเห็นช่องจางโดยไม่มีคำอธิบาย
                จะนึกว่าระบบพัง แล้วกดซ้ำ/รีเฟรชหน้าไปเรื่อย ๆ -->
           <div v-if="!editable" role="alert" class="alert alert-warning alert-soft items-start">
@@ -725,12 +769,18 @@ async function onSave() {
             <div class="flex flex-col rounded-box border border-base-300 bg-base-200/60 p-3 md:col-span-3">
               <div class="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase opacity-60">
                 <Icon icon="lucide:camera" class="size-4" />
-                รูปถ่าย<span v-if="!isEdit" class="ml-0.5 text-error">*</span>
+                <!-- ดาวแดง = ช่องนี้บังคับ (ตอนแก้ไขบังคับเฉพาะชิ้นที่เคยมีรูป ดู missingRequired) -->
+                รูปถ่าย<span v-if="!isEdit || originalHas.image" class="ml-0.5 text-error">*</span>
               </div>
 
-              <!-- ยังไม่มีรูป: โซนลากวาง -->
+              <!-- ยังไม่มีรูป: โซนลากวาง
+                   ★ ขอบแดงอยู่ที่ "โซนที่ยังว่าง" ไม่ใช่ที่รูปที่แนบแล้ว — เดิมผูก
+                     'border-2 border-error' ไว้กับปุ่มพรีวิวรูปด้วยเงื่อนไข !isEdit ผลคือ
+                     แนบรูปอะไรก็ตามตอนสร้างชิ้นใหม่ รูปนั้นจะขึ้นขอบแดงทันที ทั้งที่เพิ่ง
+                     ทำสิ่งที่ถูกต้องเสร็จ (แดง = ยังขาด ไม่ใช่ = ช่องนี้บังคับ) -->
               <div v-if="!hasImage"
-                class="mt-2 flex-1 rounded-box border-2 border-dashed border-base-content/20 bg-base-100 transition-colors hover:border-primary/50 hover:bg-primary/5"
+                class="mt-2 flex-1 rounded-box border-2 border-dashed bg-base-100 transition-colors hover:border-primary/50 hover:bg-primary/5"
+                :class="isEdit && !originalHas.image ? 'border-base-content/20' : 'border-error/60'"
                 @dragover="handleDragOver" @drop="handleDrop">
                 <label
                   class="flex h-full min-h-44 cursor-pointer flex-col items-center justify-center gap-2 p-4 text-center">
@@ -749,7 +799,6 @@ async function onSave() {
                 <div class="relative min-h-44 flex-1 overflow-hidden rounded-box bg-base-300">
                   <button v-if="imagePreview" type="button"
                     class="group absolute inset-0 block h-full w-full cursor-zoom-in" title="กดเพื่อดูรูปเต็มจอ"
-                    :class="{ 'border-2 border-error': !isEdit }"
                     @click="lightboxOpen = true">
                     <img :src="imagePreview" alt="รูปสินทรัพย์"
                       class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
@@ -885,7 +934,7 @@ async function onSave() {
                 <AppEmployeeSelect v-model="form.employeeId" :disabled="!editable" />
                 <p class="label flex items-start gap-1.5 whitespace-normal">
                   <Icon icon="mdi:information-outline" class="mt-0.5 size-4 shrink-0" />
-                  <span>เว้นว่างได้ถ้าเป็นของกลางที่ไม่มีเจ้าของประจำ</span>
+                  <span>เว้นว่างได้ถ้าเป็นของกลางที่ไม่มีผู้ครอบครอง</span>
                 </p>
               </fieldset>
             </div>
@@ -979,10 +1028,7 @@ async function onSave() {
             </div>
           </div>
 
-          <div v-if="error" role="alert" class="alert alert-error alert-soft items-start">
-            <Icon icon="lucide:circle-alert" class="size-5 shrink-0" />
-            <span class="text-sm">{{ error }}</span>
-          </div>
+
         </div>
 
         <!-- ── แถวปุ่ม (ตรึงล่าง) - บันทึกต้องกดได้ตลอดโดยไม่ต้องเลื่อนกลับลงมาสุด

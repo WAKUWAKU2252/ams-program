@@ -20,6 +20,7 @@ import FloorPlanRoomSelect from './components/FloorPlanRoomSelect.vue';
 import FloorPlanRoomDetail from './components/FloorPlanRoomDetail.vue';
 import FloorPlanAssetList from './components/FloorPlanAssetList.vue';
 import AssetDetailModal from '@/shared/components/AssetDetailModal.vue';
+import TopicCard from '@/shared/components/TopicCard.vue';
 
 // ลิสต์ของในห้อง - หน้านี้สั่งให้มันโหลดใหม่เองได้ (ดูเหตุผลที่ AssetDetailModal ท้ายไฟล์)
 const assetListRef = useTemplateRef<{ reload: () => Promise<void> }>('assetListRef');
@@ -113,12 +114,13 @@ onMounted(async () => {
        viewport พอดี - แผนที่มี min-h-[26rem] กินไปเกือบหมด ลิสต์เหลือความสูงไม่ถึง 100px
        แล้วเลื่อนดูของทั้งห้องในช่องแค่นั้น (อาการเดียวกับที่เจอในหน้า Audit)
        บนมือถือปล่อยให้หน้ายาวแล้วเลื่อนทั้งหน้าตามปกติ - เป็นท่าที่คนใช้มือถือคุ้นอยู่แล้ว -->
-  <div class="flex min-h-0 flex-col gap-4 bg-base-100 px-4 py-6 md:px-10 lg:h-[calc(100dvh-3.5rem)] lg:min-h-[34rem] lg:px-20">
+  <!-- ★ px-20 ขยับไปเริ่มที่ xl ไม่ใช่ lg - หน้านี้แบ่งสองคอลัมน์ตั้งแต่ lg (1024px) ซึ่งบน
+       iPad แนวนอนเหลือเนื้อที่จริงแค่ 768px หลังหัก drawer ที่เปิดค้าง (w-64) ขอบซ้ายขวา
+       ข้างละ 5rem จึงกินไป 160px จากนั้นอีก 480px เป็นของคอลัมน์ขวา เหลือให้ผัง ~110px
+       ที่ xl (1280px) ขึ้นไปยังกว้างเหลือเฟือ ขอบกว้างจึงยังอ่านสบายเหมือนเดิม -->
+  <div class="flex min-h-0 flex-col gap-4 bg-base-100 px-4 py-6 md:px-10 lg:h-[calc(100dvh-3.5rem)] lg:min-h-[34rem] xl:px-20">
     <div class="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-semibold sm:text-4xl">Asset Location Map</h1>
-        <p class="text-base-content/70">แผนผังโรงงานเลือกห้องจากลิสต์หรือคลิกบนผัง</p>
-      </div>
+      <TopicCard value="floor-plan" />
 
       <div v-if="plans.length" role="tablist" class="tabs tabs-box">
         <button v-for="plan in plans" :key="plan.planKey" role="tab" class="tab w-[80px]"
@@ -133,12 +135,25 @@ onMounted(async () => {
       <span class="loading loading-spinner loading-lg"></span>
     </div>
 
-    <div v-else-if="error" role="alert" class="alert alert-error">
+    <div v-else-if="error" role="alert" class="alert alert-error alert-soft">
       <span>{{ error }}</span>
     </div>
 
-    <div v-else class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1fr_30rem] mt-6">
-      <div class="flex min-h-0 flex-col gap-3">
+    <!-- ★ **ต้องเป็น minmax(0,1fr) ห้ามเขียน 1fr เฉย ๆ**
+         `1fr` ย่อมาจาก `minmax(auto,1fr)` = "ห้ามเล็กกว่าเนื้อหาข้างใน" ผังเป็นรูปที่มี
+         ความกว้างขั้นต่ำของตัวเอง คอลัมน์ซ้ายจึงไม่ยอมหดตามจอ แต่ไปดันให้ทั้ง grid ล้น
+         ออกนอกกรอบแทน (อาการ "ลดจอแล้วฝั่งซ้ายไม่ลดตาม") minmax(0,…) ปลดพื้นนั้นทิ้ง
+         แล้วคอลัมน์ถึงจะหดได้จริง - min-w-0 ที่ลูกทั้งสองตัวคือด่านเดียวกันอีกชั้น
+         เพราะ flex/grid item มี min-width:auto เป็นค่าตั้งต้นเหมือนกัน
+
+         ★ ความกว้างคอลัมน์ขวาไล่เป็นสามขั้น ไม่ใช่ 30rem ตายตัวตั้งแต่ lg - 30rem บนจอ
+           1024px คือ 2 ใน 3 ของเนื้อที่ทั้งหมด เหลือให้ "ผังชั้น" ซึ่งเป็นของหลักของหน้านี้
+           แคบกว่าลิสต์ที่อยู่ข้าง ๆ มัน -->
+    <div
+      v-else
+      class="mt-6 grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_26rem] 2xl:grid-cols-[minmax(0,1fr)_30rem]"
+    >
+      <div class="flex min-h-0 min-w-0 flex-col gap-3">
         <!-- มือถือ: ความสูงคงที่ 60% ของจอ (พอเห็นผังแต่ยังเหลือที่ให้ของข้างล่าง)
              lg: กลับไปกินที่ที่เหลือทั้งหมดเหมือนเดิม -->
         <div class="h-[60dvh] min-h-[20rem] lg:h-auto lg:min-h-[26rem] lg:flex-1">
@@ -160,7 +175,7 @@ onMounted(async () => {
            คลิกหมุด → activeAssetId เปลี่ยน → ลิสต์เลื่อนไปหาและไฮไลต์ให้เอง
            คลิกการ์ด → เปิด modal รายละเอียด (คนละคำสั่งกัน กดหมุดไม่เปิด modal
            เพราะบนผังคนกำลังกวาดหาของ การเด้ง modal ทุกครั้งที่แตะหมุดจะขวางมากกว่าช่วย) -->
-      <div class="flex min-h-0 flex-col gap-3">
+      <div class="flex min-h-0 min-w-0 flex-col gap-3">
         <FloorPlanRoomSelect
           :rooms="activePlan?.rooms ?? []"
           :selected-id="selectedId"
@@ -190,6 +205,8 @@ onMounted(async () => {
       :item="detailItem"
       editable-location
       editable-image
+      editable-holder
+      editable-warranty
       @updated="assetListRef?.reload()"
     />
   </div>

@@ -32,6 +32,7 @@ import type { MyAssetItem } from '@/shared/services/asset.service'
 import { fileBlobUrl } from '@/shared/services/attachment.service'
 import { ApiError } from '@/shared/services/httpClient'
 import { formatMoney } from '@/shared/utils/money'
+import TopicCard from '@/shared/components/TopicCard.vue'
 
 const items = ref<MyAssetItem[]>([])
 const linkedToEmployee = ref(true)
@@ -149,10 +150,7 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
 <template>
   <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
     <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-      <div>
-        <h1 class="text-3xl font-semibold sm:text-4xl">My Assets</h1>
-        <p class="text-base-content/70">สินทรัพย์ในความดูแลของฉัน</p>
-      </div>
+      <TopicCard value="MyAssets" />
 
       <!-- สรุปสามตัว - ไม่ใช้ daisyUI `stats` เพราะมันเป็นแถวเดียวที่ล้นออกนอกจอแคบ
            (มี overflow-x ในตัว = ต้องปัดข้างเพื่ออ่านตัวเลขตัวที่สาม ซึ่งไม่มีใครทำ)
@@ -176,7 +174,7 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
       <span class="loading loading-spinner loading-lg" />
     </div>
 
-    <div v-else-if="loadError" role="alert" class="alert alert-error mt-6">
+    <div v-else-if="loadError" role="alert" class="alert alert-error alert-soft mt-6">
       <Icon icon="mdi:alert-circle-outline" class="size-5" />
       <span>{{ loadError }}</span>
       <button class="btn btn-sm" @click="load">ลองใหม่</button>
@@ -191,7 +189,7 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
       </span>
     </div>
 
-    <div v-else-if="!items.length" class="mt-16 text-center text-base-content/60">
+    <div v-else-if="!items.length" class="mt-50 text-center text-base-content/60">
       <Icon icon="mdi:package-variant" class="mx-auto size-14 opacity-40" />
       <p class="mt-3">ยังไม่มีสินทรัพย์ในความดูแลของคุณ</p>
     </div>
@@ -280,5 +278,5 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
 
        ★ ตัวเลขที่ถูกถอดออกจากการ์ด (ราคาทุน ค่าเสื่อมสะสม แถบความคืบหน้า มูลค่าซาก)
          ไม่ได้หายไปจากระบบ - มันอยู่ครบใน modal นี้ พร้อมป้ายปีบัญชีของตัวเอง -->
-  <AssetDetailModal v-model="detailOpen" :item="selected" :qr-code="selected?.qrCode" editable-location editable-image />
+  <AssetDetailModal v-model="detailOpen" :item="selected" :qr-code="selected?.qrCode" editable-location editable-image editable-warranty editable-holder />
 </template>

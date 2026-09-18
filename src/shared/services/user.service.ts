@@ -44,3 +44,70 @@ export const userService = {
     })
   },
 }
+// ── หน้า Manage role (ADMIN) ───────────────────────────────────────────────
+
+/** หนึ่งแถวในตารางจัดการสิทธิ์ - backend ประกอบชื่อ role/แผนกมาให้แล้ว ไม่ต้อง join เอง */
+export interface UserListItem {
+  id: number
+  username: string
+  displayName: string | null
+  isActive: boolean
+  roleId: number
+  roleName: string
+  /** null = บัญชีที่ไม่ผูกพนักงาน (service account) */
+  employeeId: number | null
+  employeeName: string | null
+  departmentId: number | null
+  departmentName: string | null
+  companyCode: string | null
+  /**
+   * เป็นหัวหน้าของแผนกใดแผนกหนึ่งอยู่
+   *
+   * ★ ต้องโชว์ให้เห็นก่อนแก้สิทธิ์ - ลด role ของคนนี้ให้ต่ำกว่า MANAGER/FINANCE/ADMIN
+   *   เมื่อไหร่ ใบคำขอของแผนกที่เขาคุมจะส่งไม่ออกทันที และไม่มี error ตรงไหนบอกเลย
+   */
+  isDepartmentManager: boolean
+}
+
+export interface UserListResult {
+  data: UserListItem[]
+  total: number
+  page: number
+  limit: number
+}
+
+/** GET /users - ADMIN เท่านั้น */
+export function listUsers(
+  params: {
+    search?: string
+    roleId?: number
+    /** บริษัทของ "แผนกที่สังกัด" - บัญชีที่ไม่ผูกพนักงานจะหายไปเมื่อกรอง */
+    companyCode?: string
+    page?: number
+    limit?: number
+  } = {},
+): Promise<UserListResult> {
+  const query = new URLSearchParams()
+  if (params.search?.trim()) query.set('search', params.search.trim())
+  if (params.roleId) query.set('roleId', String(params.roleId))
+  if (params.companyCode) query.set('companyCode', params.companyCode)
+  if (params.page) query.set('page', String(params.page))
+  if (params.limit) query.set('limit', String(params.limit))
+
+  const qs = query.toString()
+  return request<UserListResult>(`/users${qs ? `?${qs}` : ''}`, { method: 'GET' })
+}
+
+/**
+ * PATCH /users/:id/role - เปลี่ยนสิทธิ์
+ *
+ * ⚠️ เขียนลงฐานจริง · ผู้ใช้ที่ล็อกอินค้างอยู่จะยังถือ role เดิมจนกว่า token จะหมดอายุ
+ *    หรือล็อกอินใหม่ (role ฝังอยู่ใน JWT)
+ */
+export function updateUserRole(id: number, roleId: number): Promise<User> {
+  return request<User>(`/users/${id}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roleId }),
+  })
+}

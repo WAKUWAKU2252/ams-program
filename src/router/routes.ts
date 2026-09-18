@@ -135,13 +135,28 @@ export const routes: RouteRecordRaw[] = [
         path: "audit",
         name: "audit",
         component: () => import("@/pages/audit/AuditPage.vue"),
-        meta: { requiresAuth: true, title: "Audit", roles: ["FINANCE", "ADMIN"] },
+        meta: { requiresAuth: true, title: "Audit", roles: ["FINANCE", "ADMIN", "AUDIT"] },
       },
       {
         path: "my-assets",
         name: "my-assets",
         component: () => import("@/pages/my-assets/MyAssetsPage.vue"),
         meta: { requiresAuth: true, title: "My Assets" },
+      },
+      {
+        // รายงานสรุปรายชั้นบัญชี (ชีต Asset-สรุป / DEP-สรุป ของ finance)
+        //
+        // ★★ จำกัด FINANCE/ADMIN ทั้งสามชั้น ต้องตรงกันเสมอ:
+        //      1. meta.roles ตรงนี้        — กันไม่ให้ router พาเข้าหน้า
+        //      2. roles ใน sidebar-menu.ts — ไม่ขึ้นเมนูให้กด
+        //      3. requireRole ที่ GET /dashboard/asset-summary — **ตัวกั้นจริง**
+        //
+        //   ข้อ 1-2 เป็นแค่การไม่ชวนให้กด คนพิมพ์ URL เองยังเข้าถึงหน้าได้ ตัวที่กันข้อมูล
+        //   คือข้อ 3 เท่านั้น (บทเรียนจาก /audit ที่ซ่อนเมนูแต่ route กับ API ไม่ได้กั้น)
+        path: "asset-summary",
+        name: "asset-summary",
+        component: () => import("@/pages/asset-summary/AssetSummaryPage.vue"),
+        meta: { requiresAuth: true, title: "Asset Summary", roles: ["FINANCE", "ADMIN"] },
       },
       {
         // ทะเบียนสินทรัพย์ทั้งบริษัท - ไม่มี meta.roles โดยตั้งใจ ทุก role ค้นได้
@@ -162,7 +177,7 @@ export const routes: RouteRecordRaw[] = [
         // roles ใน meta ให้ router guard กันไว้ก่อน - ตัวบังคับจริงยังอยู่ที่ backend
         path: "users/admin",
         name: "admin",
-        component: () => import("@/pages/admin/CreateUserPage.vue"),
+        component: () => import("@/pages/admin/AdminPage.vue"),
         meta: { requiresAuth: true, title: "Admin", roles: ["ADMIN"] },
       },
 

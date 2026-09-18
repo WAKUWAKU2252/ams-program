@@ -28,18 +28,32 @@ import type {
 } from '@/shared/services/dashboard.service'
 import { ApiError } from '@/shared/services/httpClient'
 import { formatMoney } from '@/shared/utils/money'
+import { formatDate } from '@/shared/utils/date'
 import CompanySharePie from './components/CompanySharePie.vue'
 import CompanySummaryTable from './components/CompanySummaryTable.vue'
-import CompanyValueStackBar from './components/CompanyValueStackBar.vue'
-import DepartmentSharePie from './components/DepartmentSharePie.vue'
-import DepartmentValueRankBar from './components/DepartmentValueRankBar.vue'
+import CompanyDepreciationRunoffLine from './components/CompanyDepreciationRunoffLine.vue'
+import CompanyDepreciationTrendLine from './components/CompanyDepreciationTrendLine.vue'
+import DepreciationChartToggle from './components/DepreciationChartToggle.vue'
+import type { DepreciationChartMode } from './components/DepreciationChartToggle.vue'
+import KpiDelta from './components/KpiDelta.vue'
+import AssetClassSharePie from './components/AssetClassSharePie.vue'
+import AssetClassValueRankBar from './components/AssetClassValueRankBar.vue'
 import DepartmentTable from './components/DepartmentTable.vue'
-import DepreciationSplitDonut from './components/DepreciationSplitDonut.vue'
 import RemainingLifeChart from './components/RemainingLifeChart.vue'
+import TopicCard from '@/shared/components/TopicCard.vue'
 
 const data = ref<DashboardOverview | null>(null)
 const loading = ref(false)
 const loadError = ref('')
+
+/**
+ * "ยอดเงินบนการ์ดเป็นของ ณ วันไหน" - ว่างเมื่อยังไม่มีข้อมูลค่าเสื่อมรายงวดเลย
+ *
+ * SAP ลงค่าเสื่อมเดือนละครั้งตอนปิดงวด ยอดจึงนิ่งทั้งเดือนแล้วกระโดดทีเดียวตอนต้นเดือนถัดไป
+ * - ไม่ใช่ค่อย ๆ ไหลลงทุกวัน ป้ายนี้คือสิ่งเดียวที่ทำให้ "เลขไม่ขยับ" อ่านออกว่าปกติ
+ *
+ * แสดงเป็นช่วงเมื่อสองค่าไม่เท่ากัน = กำลังดูรวมหลายบริษัทที่ปิดงวดคนละเวลา
+ */
 
 const selectedDepartmentId = ref<string>('')
 const departmentOptions = ref<DepartmentSummary[]>([])
@@ -47,6 +61,17 @@ const departmentOptions = ref<DepartmentSummary[]>([])
 /** '' = ทุกบริษัท - ตรงกับ scope.companyCode === null ที่ backend ตอบกลับ */
 const selectedCompanyCode = ref<string>('')
 const companyOptions = ref<CompanySummary[]>([])
+
+/**
+ * กราฟไหนกำลังโชว์อยู่บนการ์ดค่าเสื่อมรายบริษัท (ดู DepreciationChartToggle)
+ *
+ * ★ ตั้งต้นที่ 'trend' - ค่าเสื่อมสะสมปีนี้เป็นตัวที่เปิดดูทุกเดือนตอนปิดงวด ส่วน runoff
+ *   เป็นกราฟวางแผนที่เปิดปีละไม่กี่ครั้ง
+ *
+ * ★ ไม่ล้างค่าตอนเปลี่ยนตัวกรอง - การ์ดนี้โผล่เฉพาะมุมมอง "ทุกบริษัท/ทุกแผนก" อยู่แล้ว
+ *   คนที่กดไป runoff แล้วกดดูแผนกหนึ่งแล้วกดกลับมา ควรเจอกราฟเดิมที่ตัวเองเลือกไว้
+ */
+const depreciationChart = ref<DepreciationChartMode>('trend')
 
 async function load() {
   loading.value = true
@@ -58,14 +83,32 @@ async function load() {
       companyCode: selectedCompanyCode.value || undefined,
     })
     data.value = res
-    departmentPage.value = 1
+    summaryPage.value = 1
 
     if (res.scope.departmentId === null && res.scope.kind === 'ALL') {
       // เอาเฉพาะแถวที่มี id จริง - ชิ้นที่ยังไม่ระบุแผนก (id เป็น null) กรองด้วย API ไม่ได้
       departmentOptions.value = res.byDepartment.filter((d) => d.departmentId !== null)
     }
 
-    companyOptions.value = res.byCompany
+    /**
+     * ตัวเลขในวงเล็บของช่องเลือกบริษัท ต้องเป็นยอด "ทั้งบริษัท" เสมอ ไม่ใช่ยอดที่ถูกกรอง
+     *
+     * ★ byCompany ที่ backend ส่งมาถูกกรองด้วยแผนกที่เลือกอยู่ (ดู summarizeByCompany ที่
+     *   รับ scope.departmentId) — พออัปเดตลิสต์ทุกรอบ พอเลือกแผนกปุ๊บ ช่องบริษัทจะกลาย
+     *   เป็น "บริษัทที่เลือก (ยอดของแผนกนั้น)" ส่วนบริษัทอื่นเป็น (0) ทั้งแถว ทั้งที่
+     *   บริษัทพวกนั้นมีของเป็นพัน ๆ ชิ้น — ตัวเลขในวงเล็บของ dropdown ตอบคำถามว่า
+     *   "ถ้ากดสลับไปบริษัทนี้จะเห็นกี่ชิ้น" การกรองด้วยแผนกจึงผิดความหมายทั้งตัว
+     *
+     * ★ กติกาเดียวกับ departmentOptions ข้างบน แต่เงื่อนไข "กลับด้าน" โดยตั้งใจ:
+     *     บริษัท → แผนก  = การจำกัดขอบเขต ลิสต์แผนกจึงต้องแคบลงตามบริษัทที่เลือก
+     *     แผนก  → บริษัท = ไม่ใช่การจำกัดขอบเขต แผนกเป็นของบริษัทเดียวอยู่แล้ว (0024)
+     *                       ลิสต์บริษัทจึงต้องไม่ขยับตามแผนก
+     *
+     * ★ ยึด departmentId ที่ "ส่งไป" ไม่ใช่ scope.departmentId ที่ backend ตอบกลับ —
+     *   พนักงานทั่วไปถูกล็อกแผนกจาก role โดยไม่ได้เลือกเอง (scope.departmentId ไม่ null
+     *   ตั้งแต่รอบแรก) ถ้าเช็คจากค่าที่ตอบกลับ ลิสต์บริษัทของเขาจะว่างเปล่าถาวร
+     */
+    if (departmentId === undefined) companyOptions.value = res.byCompany
 
     const effective = res.scope.departmentId
     selectedDepartmentId.value = effective === null ? '' : String(effective)
@@ -125,6 +168,22 @@ const activeRing = computed(() => Math.round(data.value?.status.activePercent ??
 
 const percent = (value: number | null) => (value === null ? '-' : `${value.toFixed(1)}%`)
 
+/**
+ * ประโยคที่ประกาศให้ screen reader ฟังเมื่อชุดตัวเลขเปลี่ยนขอบเขต
+ *
+ * ★ คืนค่าว่างระหว่างโหลด ไม่ใช่คงค่าเดิมไว้ - live region อ่านเฉพาะตอน "ข้อความเปลี่ยน"
+ *   ถ้าค้างค่าเดิมไว้แล้วขอบเขตใหม่บังเอิญได้ยอดเท่าเดิม จะไม่มีการประกาศเลย
+ *
+ * ★ ประกอบจาก scope ที่ backend ตอบ ไม่ใช่จากช่องเลือก (กติกาข้อ 1 บนหัวไฟล์) -
+ *   สิ่งที่ประกาศออกไปต้องเป็นเรื่องเดียวกับตัวเลขที่แสดง ไม่ใช่สิ่งที่ผู้ใช้ขอ
+ */
+const liveSummary = computed(() => {
+  const res = data.value
+  if (loading.value || !res) return ''
+  const where = [res.scope.companyName ?? 'ทุกบริษัท', scopeLabel.value].filter(Boolean).join(' · ')
+  return `${where} · มูลค่าคงเหลือ ${formatMoney(res.totals.netBookValue)} บาท`
+})
+
 /** สัดส่วนความกว้างของแท่งในรายการสถานะ - 0 ชิ้นไม่มีทางเกิดเพราะ breakdown ตัดออกแล้ว */
 function statusWidth(count: number): string {
   const total = data.value?.totals.assets ?? 0
@@ -138,7 +197,7 @@ const STATUS_LABEL: Record<AssetStatus, string> = {
 
 // สีของแท่ง/จุดต่อสถานะ - มีสองค่าเท่านั้นตาม SAP (ดู shared/utils/asset-status.ts)
 const STATUS_TONE: Record<AssetStatus, string> = {
-  Active: 'bg-success',
+  Active: 'bg-accent',
   Inactive: 'bg-base-content/30',
 }
 
@@ -178,102 +237,216 @@ const activeByCompany = computed(() =>
  */
 const departmentLocked = computed(() => selectedCompanyCode.value === '')
 
-// ── แบ่งหน้าตารางสรุปรายแผนก ────────────────────────────────────────────────
-const DEPARTMENT_PAGE_SIZE = 10
-const departmentPage = ref(1)
+// ── ตารางสรุป: สลับแกนระหว่าง "แผนก" กับ "ชั้นบัญชี" ─────────────────────────
+//
+// การ์ดนี้โผล่เฉพาะตอนเลือกบริษัทแล้ว (ตอนดูทั้งเครือเป็น CompanySummaryTable แทน)
+// สองแกนตอบคนละคำถามจากข้อมูลชุดเดียวกัน:
+//   แผนก     - "ของกองอยู่ที่หน่วยงานไหน" ใช้ตามหาเจ้าของ/ผู้รับผิดชอบ
+//   ชั้นบัญชี  - แกนเดียวกับที่รายงานของ finance แบ่ง เอาไปกระทบยอดได้ทีละชั้น
+//
+// ★ ไม่ต้องยิง API เพิ่ม - `byDepartment` กับ `byAssetClass` มาในก้อนเดียวกันตั้งแต่แรก
+//   และ backend กรองด้วยบริษัท/แผนกที่เลือกให้ทั้งคู่แล้ว (`summarizeByAssetClass` รับ
+//   `scope.companyCode` ตัวเดียวกับ `summarizeByDepartment`) การสลับจึงเป็นเรื่องฝั่งจอล้วน
+//   - กดสลับแล้วตัวเลขไม่กะพริบ ไม่มี loading และไม่เพิ่มภาระฝั่ง DB
+//
+// ★ ไม่แยกเป็นสองตาราง - คอลัมน์ตัวเลขเหมือนกันเป๊ะทั้งสองแกน ต่างแค่ชื่อแถว
+//   ถ้าเขียนแยกกันสองชุด วันที่เพิ่ม/แก้คอลัมน์จะมีที่ให้ลืมแก้หนึ่งที่เสมอ
+type SummaryAxis = 'department' | 'assetClass'
+const summaryAxis = ref<SummaryAxis>('assetClass')
 
-const pagedDepartments = computed(() => {
-  const rows = data.value?.byDepartment ?? []
-  const start = (departmentPage.value - 1) * DEPARTMENT_PAGE_SIZE
-  return rows.slice(start, start + DEPARTMENT_PAGE_SIZE)
+/** แถวที่ normalize แล้ว - ตารางเดียววาดได้ทั้งสองแกนโดยไม่ต้องรู้ว่ากำลังดูแกนไหน */
+type SummaryRow = {
+  key: string
+  /**
+   * รหัสที่เขียนนำหน้าชื่อ - มีเฉพาะแกนชั้นบัญชี (`null` = ไม่มีรหัสให้เขียน)
+   *
+   * ★ แยกเป็นคนละช่องกับ `label` ไม่ใช่ต่อสตริงเดียวกัน - จะได้ทำให้รหัสจางกว่าชื่อและ
+   *   ใช้ `tabular-nums` ให้หลักตรงกันทุกแถว ซึ่งเป็นเหตุผลเดียวที่เอารหัสมาไว้ข้างหน้า:
+   *   กวาดตาหาแถวที่ตรงกับรายงานของ finance ซึ่งเรียงด้วยรหัสบัญชีเหมือนกัน
+   * ★ แกนแผนกเป็น null เสมอ - `departmentId` เป็น id ภายในของ AMS ไม่ใช่รหัสที่คนใช้
+   *   อ้างถึงแผนก เขียนนำหน้าไปก็ไม่มีใครเอาไปเทียบกับอะไรได้
+   */
+  code: string | null
+  label: string
+  /** แถว "ยังไม่ระบุ" - ไม่ใช่หน่วยงาน/ชั้นบัญชีจริง จึงทำให้จางลงเหมือนเดิม */
+  unassigned: boolean
+  assets: number
+  active: number
+  bookedCost: number | null
+  accumulatedDepreciation: number | null
+  netBookValue: number | null
+}
+
+/**
+ * ดัน "ยังไม่ระบุ" ไปท้ายสุดเสมอ - ไม่ใช่ปล่อยให้มันเรียงตามมูลค่าเหมือนแถวอื่น
+ *
+ * backend เรียงด้วยมูลค่าคงเหลือ มาก→น้อย แล้ว `nulls last` (ดู summarizeByAssetClass)
+ * ทุกวันนี้แถว "ยังไม่ระบุ" ของ UBA บังเอิญไปท้ายอยู่แล้วเพราะ 35 ชิ้นนั้นไม่มีตัวเลขบัญชี
+ * เลยสักชิ้น → มูลค่าเป็น null → ตกไปท้ายตาม nulls last
+ *
+ * ★ แต่มันเป็นเรื่องบังเอิญ ไม่ใช่กติกา วันที่สินทรัพย์ที่ยังไม่ระบุชั้นบัญชีมีตัวเลขบัญชี
+ *   ติดมาด้วย (ของที่ลงทะเบียนผ่าน AMS แล้วบัญชีเพิ่งออกยอดให้ แต่ยังไม่ผูกชั้นบัญชี)
+ *   แถวนั้นจะเด้งไปแทรกกลางตารางทันทีโดยไม่มีอะไรเปลี่ยนในโค้ด - ตรงนี้ทำให้เป็นกติกา
+ *
+ * ★ filter สองรอบแทน sort - Array.filter รักษาลำดับเดิม ลำดับของแถวที่เหลือจึงยังเป็น
+ *   ของ backend เป๊ะ ๆ ถ้าใช้ sort ต้องเขียน comparator ที่จำลองการเรียงของ backend
+ *   ให้ตรงด้วย แล้ววันที่ backend เปลี่ยนเกณฑ์ สองที่จะเพี้ยนจากกันเงียบ ๆ
+ */
+function unassignedLast(rows: SummaryRow[]): SummaryRow[] {
+  return [...rows.filter((row) => !row.unassigned), ...rows.filter((row) => row.unassigned)]
+}
+
+const summaryRows = computed<SummaryRow[]>(() => {
+  if (!data.value) return []
+
+  if (summaryAxis.value === 'assetClass') {
+    return unassignedLast(data.value.byAssetClass.map((row) => ({
+      key: row.assetClass ?? 'none',
+      code: row.assetClass,
+      // ★ ยังไม่มีชื่อบัญชีแต่มีรหัส = ปล่อยว่าง ห้ามเขียน "ไม่ระบุ" - รหัสข้างหน้าอ่านออก
+      //   และเอาไปเทียบกับรายงานของ finance ได้อยู่แล้ว ส่วนคำว่า "ไม่ระบุ" ต่อท้ายรหัส
+      //   จะอ่านเหมือนข้อมูลหาย ทั้งที่แค่ยังไม่ได้ import ชื่อของรหัสนั้น
+      //   (ตอนนี้ UBP/MIG ยังไม่มีชื่อสักรหัส - ทั้งคอลัมน์จะเป็นรหัสล้วนจนกว่าจะ import)
+      // ★ "ยังไม่ระบุชั้นบัญชี" ใช้เฉพาะตอนไม่มีรหัสจริง ๆ ซึ่งเป็นคนละเรื่อง
+      label: row.assetClass === null ? 'ยังไม่ระบุชั้นบัญชี' : (row.accountName ?? ''),
+      unassigned: row.assetClass === null,
+      assets: row.assets,
+      active: row.active,
+      bookedCost: row.bookedCost,
+      accumulatedDepreciation: row.accumulatedDepreciation,
+      netBookValue: row.netBookValue,
+    })))
+  }
+
+  return unassignedLast(data.value.byDepartment.map((row) => ({
+    key: String(row.departmentId ?? 'none'),
+    code: null,
+    label: departmentName(row),
+    unassigned: row.departmentId === null,
+    assets: row.assets,
+    active: row.active,
+    bookedCost: row.bookedCost,
+    accumulatedDepreciation: row.accumulatedDepreciation,
+    netBookValue: row.netBookValue,
+  })))
 })
 
-const departmentRange = computed(() => {
-  const total = data.value?.byDepartment.length ?? 0
+// ── แบ่งหน้าตารางสรุป ───────────────────────────────────────────────────────
+const SUMMARY_PAGE_SIZE = 10
+const summaryPage = ref(1)
+
+const pagedSummary = computed(() => {
+  const start = (summaryPage.value - 1) * SUMMARY_PAGE_SIZE
+  return summaryRows.value.slice(start, start + SUMMARY_PAGE_SIZE)
+})
+
+/** หน่วยนับต่อท้ายช่วง - ต้องเปลี่ยนตามแกน ไม่งั้นจะอ่านว่า "12 แผนก" ทั้งที่กำลังดูชั้นบัญชี */
+const summaryUnit = computed(() => (summaryAxis.value === 'assetClass' ? 'ชั้นบัญชี' : 'แผนก'))
+
+const summaryRange = computed(() => {
+  const total = summaryRows.value.length
   if (total === 0) return ''
-  const start = (departmentPage.value - 1) * DEPARTMENT_PAGE_SIZE + 1
-  return `${start}–${Math.min(start + DEPARTMENT_PAGE_SIZE - 1, total)} จาก ${total} แผนก`
+  const start = (summaryPage.value - 1) * SUMMARY_PAGE_SIZE + 1
+  return `${start}–${Math.min(start + SUMMARY_PAGE_SIZE - 1, total)} จาก ${total} ${summaryUnit.value}`
+})
+
+// สลับแกนแล้วต้องเด้งกลับหน้า 1 - สองแกนมีจำนวนแถวไม่เท่ากัน (UBA: 40 แผนก vs 54 ชั้นบัญชี)
+// ถ้าค้างอยู่หน้า 4 แล้วสลับไปแกนที่มีแค่ 2 หน้า ตารางจะว่างเปล่าโดยไม่มีอะไรบอกว่าทำไม
+watch(summaryAxis, () => {
+  summaryPage.value = 1
 })
 </script>
 
 <template>
-<div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
-    <div class="flex flex-wrap items-start justify-between gap-4 text-left">
-      <div>
-        <h1 class="text-3xl font-semibold sm:text-4xl">Dashboard</h1>
-        <p class="text-base-content/70">ภาพรวมทะเบียนสินทรัพย์และมูลค่าทางบัญชี</p>
+  <div class="min-h-screen bg-base-100 px-4 py-6 md:px-10 lg:px-20">
+    <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-4 text-left">
+      <!-- หัวเรื่อง + ป้ายบอกขอบเขต อยู่ในก้อนเดียวกัน - ป้ายเป็นคำขยายของ "ภาพรวมของใคร"
+           ไม่ใช่แถบเครื่องมือของตัวเอง เดิมมันกินความกว้างทั้งหน้าเป็นแถบที่สามคั่นระหว่าง
+           ช่องเลือกกับตัวเลข ทั้งที่พูดเรื่องเดียวกับหัวเรื่อง
+           ★ ข้อความยังอ่านจาก scope ที่ backend ตอบ ไม่ใช่จากช่องเลือก (ดูข้อ 1 บนหัวไฟล์) -->
+      <div class="min-w-0">
+        <TopicCard value="dashboard" />
+
+        <div v-if="data && data.scope.kind !== 'UNLINKED'" class="mt-2 flex flex-wrap items-center gap-2">
+          <span class="badge badge-ghost gap-1">
+            <Icon icon="lucide:filter" class="size-3.5" />
+            {{ scopeLabel }}
+          </span>
+          <span v-if="selectedCompanyCode" class="badge badge-ghost gap-1">
+            <Icon icon="lucide:building-2" class="size-3.5" />
+            {{ selectedCompanyCode }}
+          </span>
+          <span v-if="loading" class="loading loading-spinner loading-xs" />
+        </div>
       </div>
 
       <div class="flex w-full flex-wrap gap-3 sm:w-auto">
-      <!-- ช่องเลือกบริษัท - วางก่อนช่องแผนกตามลำดับที่คนอ่าน: บริษัทเป็นขอบเขตที่กว้างกว่า
+        <!-- ช่องเลือกบริษัท - วางก่อนช่องแผนกตามลำดับที่คนอ่าน: บริษัทเป็นขอบเขตที่กว้างกว่า
            ★ ถูกล็อกตาม role ได้เหมือนแผนกแล้ว (companyLocked) - บริษัทเป็นแกนของสิทธิ์
              ตัวที่สอง ไม่ใช่แค่ตัวกรองเพื่อความสะดวกอีกต่อไป (ดู DashboardScope) -->
-      <label class="form-control w-full max-w-xs text-left sm:w-30">
-        <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/60">
-          <Icon icon="lucide:building-2" class="size-3.5" />
-          บริษัท
-          <Icon
-            v-if="data?.scope.companyLocked"
-            icon="lucide:lock"
-            class="size-3.5"
-            title="คุณเห็นข้อมูลได้เฉพาะบริษัทของตัวเอง"
-          />
-        </span>
-        <select
-          v-model="selectedCompanyCode"
-          class="select w-full"
-          :disabled="loading || !!data?.scope.companyLocked"
-        >
-          <!-- ถูกล็อก = มีทางเลือกเดียวจริง ๆ จึงไม่ใส่ "ทั้งหมด" ที่กดแล้วไม่มีผล
+        <!-- ★ กว้างพอให้อ่านชื่อบริษัทจบ - เดิม sm:w-30 (120px) ตัดทุกตัวเลือกทิ้งตั้งแต่กลางชื่อ
+             ทั้งที่ตัวเลือกคือ "ชื่อบริษัท (จำนวนชิ้น)" ซึ่งตัวเลขท้ายคือส่วนที่ถูกตัดก่อนเสมอ -->
+        <label class="form-control w-full max-w-xs text-left sm:w-56">
+          <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/70">
+            <Icon icon="lucide:building-2" class="size-3.5" />
+            บริษัท
+            <Icon v-if="data?.scope.companyLocked" icon="lucide:lock" class="size-3.5"
+              title="คุณเห็นข้อมูลได้เฉพาะบริษัทของตัวเอง" />
+          </span>
+          <select v-model="selectedCompanyCode" class="select h-11 w-full sm:h-10"
+            :disabled="loading || !!data?.scope.companyLocked">
+            <!-- ถูกล็อก = มีทางเลือกเดียวจริง ๆ จึงไม่ใส่ "ทั้งหมด" ที่กดแล้วไม่มีผล
                ★ backend กรอง byCompany ให้เหลือบริษัทเดียวแล้วตอนล็อก จึงวนลิสต์เดิมได้เลย
                  ไม่ต้องมี branch แยกแบบช่องแผนก (ของแผนกต้องแยกเพราะ departmentOptions
                  ถูกเติมเฉพาะรอบที่ไม่กรอง ซึ่งพนักงานทั่วไปไม่เคยได้) -->
-          <option v-if="!data?.scope.companyLocked" value="">ทั้งหมด</option>
-          <option v-for="c in companyOptions" :key="c.companyCode" :value="c.companyCode">
-            {{ c.companyName }} ({{ c.assets.toLocaleString('th-TH') }})
-          </option>
-        </select>
-      </label>
+            <option v-if="!data?.scope.companyLocked" value="">ทั้งหมด</option>
+            <option v-for="c in companyOptions" :key="c.companyCode" :value="c.companyCode">
+              {{ c.companyName }} ({{ c.assets.toLocaleString('th-TH') }})
+            </option>
+          </select>
+        </label>
 
-      <!-- ช่องเลือกแผนก - ปิดไว้เมื่อ backend ล็อกขอบเขต (พนักงานทั่วไป)
+        <!-- ช่องเลือกแผนก - ปิดไว้เมื่อ backend ล็อกขอบเขต (พนักงานทั่วไป)
            ป้ายข้างล่างบอกตรง ๆ ว่าเห็นได้แค่แผนกตัวเอง จะได้ไม่คิดว่าระบบเสีย -->
-      <label class="form-control w-full max-w-xs text-left sm:w-64">
-        <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/60">
-          <Icon icon="lucide:filter" class="size-3.5" />
-          แผนก
-          <Icon
-            v-if="data?.scope.locked"
-            icon="lucide:lock"
-            class="size-3.5"
-            title="คุณเห็นข้อมูลได้เฉพาะแผนกของตัวเอง"
-          />
-        </span>
-        <select 
-          v-model="selectedDepartmentId"
-          class="select w-full"
-          :disabled="loading || !!data?.scope.locked || departmentLocked"
-          :title="departmentLocked ? 'เลือกบริษัทก่อนจึงจะเลือกแผนกได้' : ''"
-        >
-          <!-- ถูกล็อก = มีทางเลือกเดียวจริง ๆ จึงใส่แค่แผนกตัวเอง ไม่ใช่ลิสต์ที่กดไม่ได้
+        <label class="form-control w-full max-w-xs text-left sm:w-64">
+          <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/70">
+            <Icon icon="lucide:filter" class="size-3.5" />
+            แผนก
+            <Icon v-if="data?.scope.locked" icon="lucide:lock" class="size-3.5"
+              title="คุณเห็นข้อมูลได้เฉพาะแผนกของตัวเอง" />
+          </span>
+          <select v-model="selectedDepartmentId" class="select h-11 w-full sm:h-10"
+            :disabled="loading || !!data?.scope.locked || departmentLocked">
+            <!-- ถูกล็อก = มีทางเลือกเดียวจริง ๆ จึงใส่แค่แผนกตัวเอง ไม่ใช่ลิสต์ที่กดไม่ได้
                ★ ต้องมี option นี้เสมอ ไม่งั้นช่องจะโชว์ว่างทั้งที่ v-model มีค่าอยู่
                  (พนักงานไม่เคยได้ผลลัพธ์รอบไม่กรอง departmentOptions จึงว่างตลอด) -->
-          <template v-if="data?.scope.locked">
-            <option v-if="data.scope.departmentId !== null" :value="String(data.scope.departmentId)">
-              {{ data.scope.departmentName }}
-            </option>
-          </template>
-          <template v-else>
-            <option value="">ทุกแผนก</option>
-            <option
-              v-for="d in departmentOptions"
-              :key="d.departmentId!"
-              :value="String(d.departmentId)"
-            >
-              {{ departmentName(d) }} ({{ d.assets }})
-            </option>
-          </template>
-        </select>
-      </label>
+            <template v-if="data?.scope.locked">
+              <option v-if="data.scope.departmentId !== null" :value="String(data.scope.departmentId)">
+                {{ data.scope.departmentName }}
+              </option>
+            </template>
+            <!-- ★ ยังไม่เลือกบริษัท = โชว์ตัวเลือกเดียวที่บอกว่าต้องทำอะไรก่อน
+                 ห้ามโชว์ลิสต์แผนกทั้ง 40 ตัวในช่องที่กดไม่ได้ - ตัวเลือกที่เลือกไม่ได้
+                 ไม่ควรมีอยู่ให้เห็นตั้งแต่แรก มันอ่านเป็น "ระบบเสีย" ไม่ใช่ "ยังไม่ถึงคิว" -->
+            <template v-else-if="departmentLocked">
+              <option value="">เลือกบริษัทก่อน</option>
+            </template>
+            <template v-else>
+              <option value="">ทุกแผนก</option>
+              <option v-for="d in departmentOptions" :key="d.departmentId!" :value="String(d.departmentId)">
+                {{ departmentName(d) }} ({{ d.assets }})
+              </option>
+            </template>
+          </select>
+
+          <!-- ★ เหตุผลของการล็อกต้องเป็นตัวหนังสือที่มองเห็น ไม่ใช่ title บน select ที่ disabled
+               control ที่ disabled หลุดจาก tab order ทั้งหมด และ title บนมันไม่ถูก AT ประกาศ
+               กับ hover ก็ไม่ขึ้นแน่นอนบน Chrome - ที่ผ่านมาจึงเท่ากับไม่มีคำอธิบายเลย
+               วางไว้ใน <label> เดียวกัน ข้อความจึงถูกอ่านรวมเป็นชื่อของช่องนี้ด้วย -->
+          <span v-if="departmentLocked" class="mt-1 text-xs text-base-content/70">
+            เลือกบริษัทก่อนจึงจะเลือกแผนกได้
+          </span>
+        </label>
       </div>
     </div>
 
@@ -281,10 +454,10 @@ const departmentRange = computed(() => {
       <span class="loading loading-spinner loading-lg" />
     </div>
 
-    <div v-else-if="loadError" role="alert" class="alert alert-error mt-6">
+    <div v-else-if="loadError" role="alert" class="alert alert-error alert-soft mt-6">
       <Icon icon="mdi:alert-circle-outline" class="size-5" />
       <span>{{ loadError }}</span>
-      <button class="btn btn-sm" @click="load">ลองใหม่</button>
+      <button class="btn btn-sm h-11 sm:h-8" @click="load">ลองใหม่</button>
     </div>
 
     <!-- ยังไม่ผูกพนักงาน ≠ ไม่มีของ - ต้องให้ผู้ดูแลระบบไปแก้ ไม่ใช่ผู้ใช้รอเฉย ๆ
@@ -297,93 +470,197 @@ const departmentRange = computed(() => {
       </span>
     </div>
 
-    <template v-else-if="data">
-      <div class="mt-4 flex flex-wrap items-center gap-2 text-left">
-        <span class="badge badge-ghost gap-1">
-          <Icon icon="lucide:building-2" class="size-3.5" />
-          {{ scopeLabel }}
-        </span>
-          <span v-if="selectedCompanyCode" class="badge badge-ghost gap-1">
-            
-          {{ selectedCompanyCode}}
-        </span>
-        <span v-if="loading" class="loading loading-spinner loading-xs" />
-      </div>
-      
+    <!-- ── ก้อนตัวเลขทั้งหมด ───────────────────────────────────────────────────
+         ★ เป็น <div> ไม่ใช่ <template> เพราะต้องมีที่แขวน aria-busy กับสถานะจาง
+           ระหว่างโหลด - ตัวกรองหนึ่งครั้งสลับพร้อมกันสี่ส่วน (แถวกราฟ ตารางซ้าย
+           การ์ดสถานะขวา และ DepartmentTable) โดยที่สัญญาณเดียวคือ spinner เล็ก ๆ
+           มุมซ้ายบน ซึ่งอยู่คนละมุมกับช่องที่ผู้ใช้เพิ่งกด
+         ★ จางทั้งก้อนระหว่างโหลด = แยกออกว่าตัวเลขที่เห็นเป็นของเก่าที่ยังไม่ถูกแทน -->
+    <div v-else-if="data" :aria-busy="loading" class="transition-opacity" :class="loading ? 'opacity-60' : ''">
+      <!-- ★ ประกาศผลลัพธ์ที่ "ลงตัวแล้ว" ให้ screen reader - ว่างระหว่างโหลดโดยตั้งใจ
+           เพื่อให้ค่าที่เซ็ตกลับมาตอนโหลดเสร็จนับเป็นการเปลี่ยนแปลง แล้ว AT จึงอ่านออกมา
+           ถ้าไม่มีบรรทัดนี้ คนใช้ screen reader เปลี่ยนบริษัทแล้วทั้งหน้ากลายเป็นตัวเลข
+           ชุดใหม่โดยไม่มีเสียงอะไรเลย -->
+      <p class="sr-only" role="status" aria-live="polite">{{ liveSummary }}</p>
 
-      <!-- ── ตัวเลขหลัก 5 ช่อง ─────────────────────────────────────────────────
-           แยกเป็นกล่องละ stat ไม่ใช่ stats เดียวยาว ๆ - ยอดเงินระดับบริษัทยาวหลักสิบตัวอักษร
-           ถ้ารวมอยู่กล่องเดียวกันจะบีบกันจนอ่านไม่ออกบนจอแคบ
+      <!-- ── ตัวเลขหลัก - สองก้อนตาม "ชนิดของคำถาม" ไม่ใช่ห้าช่องเท่ากัน ──────────
+           ซ้าย (2/3) เงิน   : ราคาทุน − ค่าเสื่อมสะสม = มูลค่าคงเหลือ สามตัวนี้เป็นสมการเดียว
+                              อยู่กล่องเดียวกันตามลำดับผลลัพธ์ก่อนแล้วตามด้วยที่มา
+           ขวา (1/3) ทะเบียน : จำนวนชิ้น + สัดส่วนที่ยังใช้งานอยู่ - เป็นเรื่องของ "ของ" ไม่ใช่ "เงิน"
 
-           ★ ห้ามเพิ่มเป็น 5 คอลัมน์ก่อน 2xl - พื้นที่ที่เหลือหลังหัก Sidebar ที่ 1280px
-             ทำให้ได้ช่องละ ~157px ซึ่งสั้นกว่ายอดอย่าง 487,215,903.44 แล้วเลขจะถูกตัดขึ้น
-             บรรทัดใหม่กลางจำนวน (วัดจริงบนหน้านี้แล้ว) -->
-      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-        <div class="stats border border-base-300 shadow-sm">
-          <div class="stat">
-            <div class="stat-figure text-base-content/30">
-              <Icon icon="lucide:boxes" class="size-8" />
-            </div>
-            <div class="stat-title">Total fixed asset</div>
-            <div class="stat-value text-3xl tabular-nums">
-              {{ data.totals.assets.toLocaleString('th-TH') }}
-            </div>
-            <div class="stat-desc">ชิ้นที่อยู่ในทะเบียนแล้ว</div>
-          </div>
-        </div>
+           ★ ห้ามกลับไปเป็นห้าช่องเท่ากัน สาเหตุคือลำดับชั้นกลับหัว: ช่องที่ตัวหนังสือใหญ่สุด
+             คือจำนวนชิ้น (text-3xl) ส่วนมูลค่าคงเหลือซึ่งเป็นตัวที่คนเปิดหน้านี้มาดูจริง ๆ
+             เป็นช่องที่สี่ด้วยขนาด text-xl - เล็กกว่าตัวที่ไม่ใช่พระเอกเกือบครึ่ง และที่ lg
+             ห้าช่องในสามคอลัมน์ตกเป็น 3+2 ทำให้มันไปโผล่หัวแถวที่สองแบบไม่ได้ตั้งใจ
 
-        <div class="stats border border-base-300 shadow-sm">
-          <div class="stat">
-            <div class="stat-title">ราคาทุนทั้งหมด</div>
-            <div class="stat-value text-xl tabular-nums whitespace-nowrap 2xl:text-2xl">
-              {{ formatMoney(data.totals.bookedCost) }}
-            </div>
-            <div class="stat-desc">บาท (ราคาทุนทางบัญชี)</div>
-          </div>
-        </div>
+           ★ ยอดเงินทุกตัวยังต้อง whitespace-nowrap - ยอดระดับบริษัทยาวหลักสิบตัวอักษร
+             (487,215,903.44) ตัดขึ้นบรรทัดใหม่กลางจำนวนเมื่อไหร่คืออ่านผิดทันที
+             โครงนี้ให้ที่กับยอดกว้างขึ้นกว่าเดิมมาก จึงไม่ต้องมีเพดาน 2xl แบบห้าช่องอีก -->
+      <!-- ★ แยกสองคอลัมน์ที่ xl ไม่ใช่ lg - ที่ 1280px sidebar (w-64) กินไป 256 เหลือให้เนื้อหา
+           864px กล่องเงินได้ 2/3 = 565px ซึ่งพอกับยอดยาวสุดสบาย ๆ ส่วนที่ lg (1024px)
+           เหลือแค่ 608px คอลัมน์ 1/3 จะเหลือ ~192px แล้วหัวข้อ 'Total fixed asset' ตัดสองบรรทัด
+           (วัดจริงแล้ว) ต่ำกว่า xl จึงให้ซ้อนกันเต็มความกว้างแทน -->
+      <div class="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <!-- ── เงิน - กล่องเดียวในหน้าที่ยกระดับด้วยเงา (ไม่ใช่แค่เส้นขอบเหมือนที่เหลือ) -->
+        <div class="card min-w-0 border border-base-300 bg-base-100 shadow-lg xl:col-span-2">
+          <div class="card-body justify-between gap-0 text-left">
+            <div>
+              <!-- ตัวเลขที่คนเปิดหน้านี้มาดูจริง ๆ - ที่เดียวในหน้าที่ใช้สี primary
+                   ★ เป็น <h2> ไม่ใช่ <p> - การ์ดนี้คือส่วนแรกของหน้า ถ้าไม่มี h2 ตรงนี้
+                     heading ตัวถัดไปที่เอกสารเจอคือ <h3> ของแถบความสด = กระโดดจาก h1
+                     ข้ามชั้นไป h3 (คลาสเดิมทุกตัว หน้าตาไม่เปลี่ยนสักพิกเซล) -->
+              <h2 class="text-sm font-medium text-base-content/70">Net Book Value</h2>
+              <!-- ★ ส่วนต่างวางข้างตัวเลข ไม่ใช่บรรทัดใหม่ - ตัวเลขหลักต้องยังเป็นสิ่งแรกที่สายตาเจอ
+                   ★★ ตัวเลขต้องมี grow-0 เสมอ — daisyUI ตั้ง flex-grow: 1 ให้ทุกย่อหน้าที่อยู่ใน
+                     card-body ("card-body :where(p)") พอเอาย่อหน้ามาเป็น flex item มันจึงยืดเต็ม
+                     แถวแล้วดันส่วนต่างไปชิดขอบขวา ห่างจากตัวเลขที่มันขยายอยู่จนอ่านไม่ออกว่าคู่กัน
+                     (วัดจริงก่อนแก้: ย่อหน้ากว้าง 562px ทั้งที่ตัวหนังสือกว้าง 257px)
+                   ★ NBV ไม่มีเก็บใน snapshot (กติกาเดียวกับ asset_accounting) จึงลบเอาเองจาก
+                     ราคาทุน − ค่าเสื่อมสะสม ของเดือนนั้น -->
+              <div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+                <p class="grow-0 text-3xl font-bold whitespace-nowrap text-primary tabular-nums sm:text-4xl 2xl:text-5xl">
+                  {{ formatMoney(data.totals.netBookValue) }}
+                </p>
+                <KpiDelta v-if="data.previousTotals" unit="money" :since="data.previousTotals.periodMonth"
+                  :current="data.totals.netBookValue"
+                  :previous="data.previousTotals.bookedCost === null || data.previousTotals.accumulatedDepreciation === null
+                    ? null
+                    : data.previousTotals.bookedCost - data.previousTotals.accumulatedDepreciation" />
+              </div>
+              <p class="mt-3 text-xs text-base-content/70">
+                บาท (มูลค่าคงเหลือ)
+                <!-- ★ ป้ายนี้ห้ามตัดทิ้ง - SAP ลงค่าเสื่อมเดือนละครั้งตอนปิดงวด ยอดจึงนิ่งทั้ง
+                     เดือนแล้วกระโดดทีเดียวตอนต้นเดือนถัดไป ไม่บอกวันที่ = คนเห็นเลขไม่ขยับ
+                     สามสัปดาห์แล้วอ่านว่าระบบค้าง ทั้งที่ตัวเลขถูกอยู่
+                     ★ แสดงเป็นช่วงเมื่อสองค่าไม่เท่ากัน - แต่ละบริษัทปิดงวดคนละเวลา
+                       (14 ก.ย. 2569: UBA/UBP ถึง 31 ส.ค. แต่ MIG ถึงแค่ 31 ม.ค.) ตอนดูรวม
+                       ทุกบริษัทยอดก้อนนี้จึงเป็นส่วนผสมของหลายวัน บอกตรง ๆ ดีกว่าเลือกมาวันเดียว -->
+              </p>
 
-        <div class="stats border border-base-300 shadow-sm">
-          <div class="stat">
-            <div class="stat-title">ค่าเสื่อมสะสม</div>
-            <div class="stat-value text-xl tabular-nums whitespace-nowrap 2xl:text-2xl">
-              {{ formatMoney(data.totals.accumulatedDepreciation) }}
-            </div>
-            <div class="stat-desc">บาท (ค่าเสื่อมราคาสะสม)</div>
-          </div>
-        </div>
+              <!-- ── ฐานที่ยอดข้างบนนับมา (หัวไฟล์ข้อ 2) ──────────────────────────
+                   ★★ แยกสองสาเหตุเสมอ ห้ามรวมเป็น "ยังไม่ถูกนับ N ชิ้น" ก้อนเดียว
 
-        <!-- ตัวเลขที่คนเปิดหน้านี้มาดูจริง ๆ - ที่เดียวในหน้าที่ใช้สี primary -->
-        <div class="stats border border-primary/30 shadow-sm">
-          <div class="stat">
-            <div class="stat-title">มูลค่าคงเหลือ</div>
-            <div class="stat-value text-primary text-xl tabular-nums whitespace-nowrap 2xl:text-2xl">
-              {{ formatMoney(data.totals.netBookValue) }}
-            </div>
-            <div class="stat-desc">บาท (ราคาทุน − ค่าเสื่อมสะสม)</div>
-          </div>
-        </div>
+                     ค้างปีเก่า      = มีตัวเลขอยู่ แต่เป็นของปีก่อน **ไม่ใช่งานค้าง**
+                                      ของที่ SAP เลิกส่งตัวเลขใหม่ (ส่วนใหญ่ตัดจำหน่ายแล้ว)
+                     ยังไม่มีข้อมูล  = รอ SAP ส่งตัวเลขมา **อันนี้คืองานค้างจริง**
 
-        <div class="stats border border-base-300 shadow-sm">
-          <div class="stat">
-            <div class="stat-figure">
-              <div
-                class="radial-progress text-success"
-                :style="`--value:${activeRing}; --size:3.5rem; --thickness:5px;`"
-                :aria-valuenow="activeRing"
-                role="progressbar"
-              >
-                <span class="text-xs text-base-content">{{ activeRing }}%</span>
+                     วัด 2026-09-16 ที่ UBA: 703 = ค้างปีเก่า 668 + ยังไม่มีข้อมูล 35
+                     เขียนรวมเป็น 703 ทำให้อ่านเหมือนมีงานค้าง 703 รายการ ทั้งที่มี 35
+
+                   ★ อ่านจาก totals.* ห้ามคำนวณเองจาก freshness.* — สองชุดตอบคนละคำถาม
+                     (freshness ตอบเรื่องความสดของข้อมูล ส่วน totals ตอบว่ายอดเงินบนการ์ด
+                     ขาดไปกี่ชิ้น) และ noDataCount นับเฉพาะ "ไม่มีแถวเลย" ซึ่งแคบกว่า
+                     unvaluedMissing ที่รวมแถวปีล่าสุดที่ยอดไม่ครบด้วย
+
+                   ★ แต่ละก้อนซ่อนเองเมื่อเป็น 0 - บริษัทที่ข้อมูลครบจะเหลือบรรทัดเดียว
+                     หรือไม่มีบรรทัดนี้เลย บรรทัดนี้มีไว้เตือนเฉพาะตอนมีของตกหล่นจริง -->
+              <p v-if="data.totals.unvalued" class="mt-1 text-xs text-base-content/70">
+                นับจาก {{ data.totals.valued.toLocaleString('th-TH') }} ชิ้นที่มีตัวเลขบัญชีครบ
+                <template v-if="data.totals.unvaluedStale">
+                  · ตัวเลขค้างปีเก่า {{ data.totals.unvaluedStale.toLocaleString('th-TH') }} ชิ้น
+                </template>
+                <template v-if="data.totals.unvaluedMissing">
+                  · ยังไม่มีข้อมูล {{ data.totals.unvaluedMissing.toLocaleString('th-TH') }} ชิ้น
+                </template>
+              </p>
+
+              <!-- ที่มาของยอดข้างบน - เรียงตามสมการ (ตั้งต้น แล้วหักออก) ไม่ใช่เรียงตามขนาดยอด
+                   ★ ซ้อนกันบนจอมือถือ - สองคอลัมน์ที่ 375px ทำให้ป้าย 'Accumulated Depreciation'
+                     ตัดสองบรรทัดฝั่งเดียว แล้วยอดสองตัวหลุดจากเส้นฐานเดียวกันจนดูเหมือน
+                     คนละระดับชั้น ทั้งที่เป็นของคู่กัน -->
+              <div class="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-base-200 pt-4 sm:grid-cols-2">
+                <div class="min-w-0">
+                  <p class="text-xs text-base-content/70">Total Acquisition Cost</p>
+                  <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+                    <p class="grow-0 text-base font-medium whitespace-nowrap tabular-nums sm:text-lg">
+                      {{ formatMoney(data.totals.bookedCost) }}
+                    </p>
+                    <KpiDelta v-if="data.previousTotals" unit="money" :since="data.previousTotals.periodMonth"
+                      :current="data.totals.bookedCost" :previous="data.previousTotals.bookedCost" />
+                  </div>
+                  <p class="mt-0.5 text-xs text-base-content/70">บาท (ราคาทุนทั้งหมด)</p>
+                </div>
+                <div class="min-w-0">
+                  <p class="text-xs text-base-content/70">Accumulated Depreciation</p>
+                  <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+                    <p class="grow-0 text-base font-medium whitespace-nowrap tabular-nums sm:text-lg">
+                      {{ formatMoney(data.totals.accumulatedDepreciation) }}
+                    </p>
+                    <KpiDelta v-if="data.previousTotals" unit="money" :since="data.previousTotals.periodMonth"
+                      :current="data.totals.accumulatedDepreciation"
+                      :previous="data.previousTotals.accumulatedDepreciation" />
+                  </div>
+                  <p class="mt-0.5 text-xs text-base-content/70">บาท (ค่าเสื่อมราคาสะสม)</p>
+                </div>
               </div>
             </div>
-            <div class="stat-title">Active / Inactive</div>
-            <div class="stat-value text-2xl tabular-nums">
-              {{ percent(data.status.activePercent) }}
+
+            <!-- ── ความสดของตัวเลขบัญชี - ย้ายมาจากการ์ดสถานะมุมขวาล่าง ───────────
+                 มันตอบคำถามว่า "ยอดข้างบนเป็นข้อมูลของปีไหน" ซึ่งคือยอดในกล่องนี้ ไม่ใช่
+                 แท่งสถานะที่มันไปอยู่ด้วย - อยู่ห่างจากสิ่งที่ตัวเองขยายสองส่วนเต็ม ๆ
+                 (ดูหัวไฟล์ข้อ 2: ข้อจำกัดของยอดเงินต้องอยู่ติดกับตัวเลข) -->
+            
+          </div>
+        </div>
+
+        <!-- ── ทะเบียน - จำนวนชิ้นนำ สัดส่วนที่ยังใช้งานอยู่เป็นแถบท้ายการ์ด
+             แถบท้ายวางตรงกับแถบ "ข้อมูลตัวเลขทางบัญชี" ของกล่องเงิน สองการ์ดจึงจบด้วย
+             จังหวะเดียวกันแทนที่จะปล่อยการ์ดนี้สั้นกุดแล้วเหลือช่องว่างค้างในกริด -->
+        <div class="card min-w-0 border border-base-300 bg-base-100 shadow-sm">
+          <div class="card-body gap-0 text-left">
+            <!-- ★ ทิศทางสลับตามความกว้างที่การ์ดได้จริง ไม่ใช่ตามขนาดจอเฉย ๆ:
+                   ต่ำกว่า sm  = การ์ดแคบ    → เรียงลงล่าง เส้นคั่นแนวนอน
+                   sm ถึง xl   = การ์ดเต็มแถว → เรียงข้างกัน เส้นคั่นแนวตั้ง (ไม่งั้นเหลือที่ว่างครึ่งแถว)
+                   xl ขึ้นไป   = การ์ดเป็นคอลัมน์ 1/3 → กลับมาเรียงลงล่าง โดยดันก้อนล่างไปชิดฐาน
+                                ให้จบระดับเดียวกับแถบ 'ข้อมูลตัวเลขทางบัญชี' ของกล่องเงิน -->
+            <div class="flex h-full flex-col justify-between sm:flex-row sm:items-stretch sm:justify-start
+              xl:flex-col xl:justify-between">
+              <div class="flex items-center justify-left gap-5 sm:flex-1 xl:flex-none">
+                <Icon icon="lucide:boxes" class="size-16 shrink-0 text-primary" aria-hidden="true " />
+                <div class="min-w-0">
+                  <h2 class="text-sm font-medium text-base-content/70"> Total fixed asset</h2>
+                  <div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+                    <p class="grow-0 text-4xl font-bold tabular-nums">
+                      {{ data.totals.assets.toLocaleString('th-TH') }}
+                    </p>
+                    <KpiDelta v-if="data.previousTotals" unit="count" :since="data.previousTotals.periodMonth"
+                      :current="data.totals.assets" :previous="data.previousTotals.assets" />
+                  </div>
+                  <p class="mt-1.5 text-xs text-base-content/70">ชิ้นที่อยู่ในทะเบียนแล้ว</p>
+                </div>
+                
+              </div>
+
+              <div class="mt-5 flex items-center justify-between gap-3 border-t border-base-200 pt-3
+                sm:mt-0 sm:ml-6 sm:flex-1 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-6
+                xl:mt-5 xl:ml-0 xl:flex-none xl:border-t xl:border-l-0 xl:pt-3 xl:pl-0">
+                <div class="min-w-0">
+                  <p id="ams-active-ratio-label" class="text-xs font-medium text-base-content/70">
+                    Active / Inactive
+                  </p>
+                  <p class="mt-0.5 text-lg font-medium tabular-nums">
+                    {{ percent(data.status.activePercent) }}
+                  </p>
+                </div>
+                <!-- ★ วงแหวนขึ้นเฉพาะตอนคิดเปอร์เซ็นต์ได้จริง
+                     activeRing บีบ null เป็น 0 (ต้องบีบ เพราะ --value รับแต่ 0-100) ผลคือ
+                     ตอนขอบเขตไม่มีของเลย ตัวหนังสือขึ้น '-' แต่วงแหวนข้าง ๆ ขึ้น '0%'
+                     อย่างมั่นใจ - สองอันนี้ขัดกันเองในระยะ 40px และ screen reader จะได้ยิน
+                     ว่า 0 ทั้งที่คำตอบจริงคือ "ตอบไม่ได้"
+
+                     ★ aria-labelledby ชี้ป้ายที่มีอยู่แล้ว ไม่ตั้งชื่อใหม่ - ไม่งั้นชื่อที่
+                       ประกาศกับชื่อที่เห็นบนจอจะ drift กันวันหลัง -->
+                <div v-if="data.status.activePercent !== null" class="radial-progress shrink-0 text-success"
+                  :style="`--value:${activeRing}; --size:3.5rem; --thickness:5px;`" role="progressbar"
+                  :aria-valuenow="activeRing" aria-valuemin="0" aria-valuemax="100"
+                  aria-labelledby="ams-active-ratio-label">
+                  <span class="text-xs text-base-content">{{ activeRing }}%</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- ── ข้อจำกัดของยอดเงิน - ต้องอยู่ติดกับตัวเลข ไม่ใช่ซ่อนใน tooltip (ดูหัวไฟล์ข้อ 2) -->
 
 
       <!-- ── กราฟสองตัวนี้อ่านจาก byDepartment ก้อนเดียวกับตารางข้างล่าง ────────────
@@ -407,75 +684,136 @@ const departmentRange = computed(() => {
              อันดับ 7-8 คือ 'Supply Chain Mangement ( SCM )' ของ UBA กับ
              'Supply Chain Mangement' ของ MIG ยอดต่างกัน 1% แยกด้วยตาไม่ได้
              การสลับทั้งแถวแก้เรื่องนี้โดยโครงสร้าง ไม่ต้องไปไล่เติมรหัสบริษัทในกราฟ -->
-      <div v-if="!selectedDepartmentId && !selectedCompanyCode" class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <CompanySharePie class="lg:col-span-1" :rows="data.byCompany" />
-        <CompanyValueStackBar class="lg:col-span-2" :rows="data.byCompany" />
+      <div v-if="!selectedDepartmentId && !selectedCompanyCode" class="mt-10 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <CompanySharePie class="xl:col-span-1" :rows="data.byCompany" />
+        <!-- ── การ์ดค่าเสื่อมรายบริษัท: สองกราฟสลับกันด้วยปุ่มในหัวการ์ด ──────────
+             ★ v-if/v-else ไม่ใช่ v-show - สองกราฟนี้เป็น ApexCharts คนละตัวที่ผูก
+               ResizeObserver ระดับ window ไว้ (ดู AppApexChart) การซ่อนด้วย CSS จะทิ้ง
+               กราฟที่มองไม่เห็นไว้กินทรัพยากรและวัดความกว้างจากกล่องที่กว้าง 0
+             ★ ทั้งสองก้อนเป็น null พร้อมกันเสมอ (backend กั้นด้วยเงื่อนไขเดียวกันเป๊ะ)
+               กดสลับแล้วจึงไม่มีทางเจอการ์ดว่างข้างเดียว -->
+        <CompanyDepreciationTrendLine v-if="depreciationChart === 'trend'" class="xl:col-span-2"
+          :data="data.depreciationTrend">
+          <template #toggle>
+            <DepreciationChartToggle v-model="depreciationChart" />
+          </template>
+        </CompanyDepreciationTrendLine>
+        <CompanyDepreciationRunoffLine v-else class="xl:col-span-2" :data="data.depreciationRunoff">
+          <template #toggle>
+            <DepreciationChartToggle v-model="depreciationChart" />
+          </template>
+        </CompanyDepreciationRunoffLine>
       </div>
-      <div v-else-if="!selectedDepartmentId" class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <DepartmentSharePie :rows="data.byDepartment" class="lg:col-span-1" />
-        <DepartmentValueRankBar :rows="data.byDepartment" class="lg:col-span-2" />
+      <div v-else-if="!selectedDepartmentId" class="mt-10 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <!-- ★ แกนเป็นชั้นบัญชี ไม่ใช่แผนก - เป็นแกนเดียวกับที่รายงานของ finance แบ่ง
+             จึงเอาตัวเลขไปเทียบกับชีต Asset-สรุป ได้ทีละชั้น ส่วนมุมมองรายแผนก
+             ยังอยู่ครบในตารางสรุปใต้หน้านี้ -->
+        <AssetClassSharePie :rows="data.byAssetClass" class="xl:col-span-1" />
+        <AssetClassValueRankBar :rows="data.byAssetClass" class="xl:col-span-2" />
       </div>
-      <div v-else  class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <DepreciationSplitDonut
-          class="lg:col-span-1"
-          :totals="data.totals"
+      <div v-else class="mt-10 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <!-- ★ การ์ดใบเดียวกับมุมมอง "เลือกบริษัทแล้ว" ข้างบน ต่างแค่ส่ง departmentName เพิ่ม
+             - byAssetClass ถูก backend กรองด้วยแผนกที่เลือกอยู่แล้ว (ดู summarizeByAssetClass)
+             ตัวเลขจึงเป็นของแผนกนั้นโดยไม่ต้องทำอะไรเพิ่ม
+             ★ เคยเป็นโดนัท "สัดส่วนมูลค่า" คนละไฟล์ที่โครงเหมือนกันเกือบทั้งดุ้น ต่างแค่
+             วัดด้วยเงินแทนจำนวนชิ้น - ยุบมาใช้ใบเดียวกันเมื่อ 2026-09-16 -->
+        <AssetClassSharePie
+          class="xl:col-span-1"
+          :rows="data.byAssetClass"
           :department-name="scopeLabel"
         />
-        <RemainingLifeChart
-          class="lg:col-span-2"
-          :data="data.remainingLife"
-          :department-name="scopeLabel"
-        />
+        <RemainingLifeChart class="xl:col-span-2" :data="data.remainingLife" :department-name="scopeLabel"
+          :as-of-date="data.totals.asOfDateLatest" />
       </div>
 
-      <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div class="mt-10 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <!-- ── สรุปรายบริษัท (เฉพาะตอนดูทุกบริษัท) ───────────────────────────
              เปลี่ยน "แกน" ไม่ใช่เติมคอลัมน์บริษัทลงตารางรายแผนก - เหตุผลเต็มอยู่ในไฟล์
              CompanySummaryTable (สรุป: ตอนดูทั้งเครือ คำถามคือ "บริษัทไหนเป็นยังไง") -->
-        <CompanySummaryTable
-          v-if="!selectedCompanyCode"
-          class="lg:col-span-2"
-          :rows="data.byCompany"
-        />
+        <CompanySummaryTable v-if="!selectedCompanyCode" class="xl:col-span-2" :rows="data.byCompany" />
 
         <!-- ── สรุปรายแผนก ──────────────────────────────────────────────────── -->
-        <div v-else class="card border border-base-300 bg-base-100 shadow-sm lg:col-span-2">
+        <div v-else class="card border border-base-300 bg-base-100 shadow-sm xl:col-span-2">
           <div class="card-body gap-3 text-left">
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 class="card-title text-base">
-                สรุปรายแผนก
-                <span class="badge badge-ghost badge-sm">{{ data.byDepartment.length }}</span>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 id="ams-department-summary-title" class="card-title text-base">
+                {{ summaryAxis === 'assetClass' ? 'สรุปรายหมวดหมู่ทางบัญชี' : 'สรุปรายแผนก' }}
+                <span class="badge badge-ghost badge-sm">{{ summaryRows.length }}</span>
               </h2>
-              <!-- บอกว่ากำลังดูช่วงไหนของทั้งหมด - ตารางนี้ไม่ได้แสดงครบทุกแผนกในหน้าเดียว
-                   ถ้าไม่บอก คนจะบวกเฉพาะแถวที่เห็นแล้วสรุปว่ายอดข้างบนผิด -->
-              <span class="text-xs text-base-content/60">{{ departmentRange }}</span>
+
+              <div class="flex flex-wrap items-center gap-3">
+                <!-- บอกว่ากำลังดูช่วงไหนของทั้งหมด - ตารางนี้ไม่ได้แสดงครบในหน้าเดียว
+                     ถ้าไม่บอก คนจะบวกเฉพาะแถวที่เห็นแล้วสรุปว่ายอดข้างบนผิด -->
+                <span class="text-xs text-base-content/70">{{ summaryRange }}</span>
+
+                <!-- ── สลับแกนของตาราง ────────────────────────────────────────
+                     ★ ใช้ role="group" + aria-pressed ไม่ใช่ tab - สองปุ่มนี้เปลี่ยน
+                       "วิธีจัดกลุ่มข้อมูลในตารางเดียวกัน" ไม่ได้สลับแผงเนื้อหาคนละชุด
+                       ถ้าประกาศเป็น tablist screen reader จะรอ panel ที่ไม่มีอยู่จริง
+                     ★ ปุ่มที่เลือกอยู่ต้องต่างจากอีกปุ่มด้วย "สี" ไม่ใช่แค่ความเข้ม -
+                       badge-ghost ทั้งคู่แบบร่างเดิมแยกด้วยตาไม่ออกว่าอันไหนกำลังใช้ -->
+                <div class="join" role="group" aria-label="แกนของตารางสรุป">
+
+                  <button
+                    type="button"
+                    class="btn btn-xs join-item"
+                    :class="summaryAxis === 'assetClass' ? 'btn-accent' : 'btn-ghost'"
+                    :aria-pressed="summaryAxis === 'assetClass'"
+                    @click="summaryAxis = 'assetClass'"
+                  >
+                    Asset Class
+                  </button>
+                                    <button
+                    type="button"
+                    class="btn btn-xs join-item"
+                    :class="summaryAxis === 'department' ? 'btn-accent' : 'btn-ghost'"
+                    :aria-pressed="summaryAxis === 'department'"
+                    @click="summaryAxis = 'department'"
+                  >
+                    Department
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div class="overflow-x-auto">
-              <table class="table table-sm table-pin-rows table-freeze-first">
+              <table class="table table-sm table-pin-rows table-freeze-first" aria-labelledby="ams-department-summary-title">
                 <thead>
                   <tr>
-                    <th class="freeze-col">แผนก</th>
-                    <th class="text-center">ชิ้น</th>
-                    <th class="text-right">Active</th>
-                    <th class="text-right">ราคาทุน</th>
-                    <th class="text-right">ค่าเสื่อมสะสม</th>
-                    <th class="text-right">มูลค่าคงเหลือ</th>
+                    <th scope="col" class="freeze-col">
+                      {{ summaryAxis === 'assetClass' ? 'ชั้นบัญชี' : 'แผนก' }}
+                    </th>
+                    <th scope="col" class="text-center">ชิ้น</th>
+                    <th scope="col" class="text-right">Active</th>
+                    <th scope="col" class="text-right">ราคาทุน</th>
+                    <th scope="col" class="text-right">ค่าเสื่อมสะสม</th>
+                    <th scope="col" class="text-right">มูลค่าคงเหลือ</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <!-- แผนกที่ยังไม่มีของ จางลงทั้งแถว - ให้กวาดตาหาแผนกที่มีของได้เร็ว
-                       แต่ยังอ่านออกว่ามีแผนกนี้อยู่ (ซึ่งคือเหตุผลที่เอามันมาแสดงตั้งแต่แรก) -->
-                  <tr
-                    v-for="row in pagedDepartments"
-                    :key="row.departmentId ?? 'none'"
-                    class="hover:bg-base-200"
-                    :class="row.assets === 0 ? 'text-base-content/45' : ''"
-                  >
+                  <!-- แถวที่ยังไม่มีของ จางลงทั้งแถว - ให้กวาดตาหาแถวที่มีของได้เร็ว
+                       แต่ยังอ่านออกว่ามีแผนก/ชั้นบัญชีนี้อยู่ (ซึ่งคือเหตุผลที่เอามันมาแสดง) -->
+                  <tr v-for="row in pagedSummary" :key="row.key" class="hover:bg-base-200"
+                    :class="row.assets === 0 ? 'text-base-content/45' : ''">
                     <td class="freeze-col">
-                      <span :class="row.departmentId === null ? 'text-base-content/50 italic' : ''">
-                        {{ departmentName(row) }}
-                      </span>
+                      <!-- รหัสบัญชีนำหน้า จางกว่าชื่อและใช้ tabular-nums ให้หลักตรงกันทุกแถว
+                           - มีไว้ให้กวาดตาเทียบกับรายงานของ finance ที่เรียงด้วยรหัส
+                           เหมือนกัน ไม่ได้มีไว้อ่านเป็นเนื้อความ จึงไม่ควรเด่นเท่าชื่อ
+                           ★★ ไม่ตัดบรรทัดเลย - ปล่อยให้ชื่อบัญชีดันความกว้างของคอลัมน์ออกไป
+                             แล้วคอลัมน์ตัวเลขถูกดันตามไปทางขวา (ตารางมี overflow-x-auto อยู่แล้ว)
+                             เคยให้ตัดบรรทัด แต่ชื่อบัญชีเป็นสตริงที่ขีดคั่นเป็นท่อน ๆ
+                             ('เครื่องจักร และอุปกรณ์-สำนักงาน-ตลาดต่างประเทศจีน') พอตัดกลางท่อน
+                             แล้วอ่านไม่ออกว่าท่อนไหนต่อท่อนไหน - เลื่อนแนวนอนอ่านง่ายกว่า -->
+                      <div class="flex gap-2 whitespace-nowrap">
+                        <span v-if="row.code" class="shrink-0 text-base-content/55 tabular-nums">
+                          {{ row.code }}
+                        </span>
+                        <!-- v-if เพราะแถวที่มีรหัสแต่ยังไม่มีชื่อบัญชีจะปล่อย label ว่างไว้
+                             (ดู summaryRows) - ไม่งั้นได้ span เปล่าที่ดันช่องไฟเกินมา -->
+                        <span v-if="row.label" :class="row.unassigned ? 'text-base-content/50 italic' : ''">
+                          {{ row.label }}
+                        </span>
+                      </div>
                     </td>
                     <td class="text-center tabular-nums ">
                       <span v-if="row.assets === 0" class="badge badge-ghost badge-sm">ยังไม่มีของ</span>
@@ -493,8 +831,8 @@ const departmentRange = computed(() => {
                     </td>
                   </tr>
 
-                  <tr v-if="!data.byDepartment.length">
-                    <td colspan="6" class="py-10 text-center text-base-content/50">
+                  <tr v-if="!summaryRows.length">
+                    <td colspan="6" class="py-10 text-center text-base-content/70">
                       ยังไม่มีสินทรัพย์ในขอบเขตนี้
                     </td>
                   </tr>
@@ -503,19 +841,14 @@ const departmentRange = computed(() => {
             </div>
 
             <!-- ซ่อนตัวเองเมื่อมีหน้าเดียว (AppPagination จัดการให้แล้ว) -->
-            <AppPagination
-              class="mt-1"
-              :page="departmentPage"
-              :total="data.byDepartment.length"
-              :limit="DEPARTMENT_PAGE_SIZE"
-              @update:page="departmentPage = $event"
-            />
+            <AppPagination class="mt-1" :page="summaryPage" :total="summaryRows.length"
+              :limit="SUMMARY_PAGE_SIZE" @update:page="summaryPage = $event" />
           </div>
         </div>
 
-        
+
         <!-- ── สถานะรายชิ้น ─────────────────────────────────────────────────── -->
-        <div class="card border border-base-300 bg-base-100 shadow-sm lg:col-span-1">
+        <div class="card border border-base-300 bg-base-100 shadow-sm xl:col-span-1">
           <div class="card-body gap-3 text-left">
             <h2 class="card-title text-base">
               {{ selectedCompanyCode ? 'สถานะสินทรัพย์' : 'สัดส่วนที่ยังใช้งานอยู่' }}
@@ -528,32 +861,32 @@ const departmentRange = computed(() => {
                  แยกรายบริษัทแล้วความต่างนั้นโผล่ทันที ซึ่งเป็นสิ่งเดียวที่ทำอะไรต่อได้
                  ★ ใช้ภาษาภาพเดิม (จุดสี + แถบ + ตัวเลข) ไม่ต้องเรียนรู้อะไรใหม่ -->
             <template v-if="!selectedCompanyCode">
-              <p v-if="!activeByCompany.length" class="text-sm text-base-content/60">
+              <p v-if="!activeByCompany.length" class="text-sm text-base-content/70">
                 ยังไม่มีสินทรัพย์ในขอบเขตนี้
               </p>
 
               <div v-for="row in activeByCompany" :key="row.companyCode" class="space-y-1">
                 <div class="flex items-baseline justify-between gap-2 text-sm">
                   <span class="flex items-center gap-2">
-                    <span class="size-2.5 rounded-full bg-success" />
+                    <span class="size-2.5 rounded-full bg-accent" />
                     {{ row.label }}
                   </span>
                   <span class="tabular-nums text-base-content/70">
                     {{ row.percent.toFixed(1) }}%
-                    <span class="text-base-content/50">
+                    <span class="text-base-content/70">
                       ({{ row.active.toLocaleString('th-TH') }}/{{ row.assets.toLocaleString('th-TH') }})
                     </span>
                   </span>
                 </div>
                 <div class="h-1.5 w-full overflow-hidden rounded-full bg-base-200">
-                  <div class="h-full rounded-full bg-success" :style="{ width: `${row.percent}%` }" />
+                  <div class="h-full rounded-full bg-accent" :style="{ width: `${row.percent}%` }" />
                 </div>
               </div>
             </template>
 
             <!-- ── บริษัทเดียว/แผนกเดียว: แยกทีละสถานะเหมือนเดิม ──────────────── -->
             <template v-else>
-              <p v-if="!data.status.breakdown.length" class="text-sm text-base-content/60">
+              <p v-if="!data.status.breakdown.length" class="text-sm text-base-content/70">
                 ยังไม่มีสินทรัพย์ในขอบเขตนี้
               </p>
 
@@ -568,37 +901,11 @@ const departmentRange = computed(() => {
                   </span>
                 </div>
                 <div class="h-1.5 w-full overflow-hidden rounded-full bg-base-200">
-                  <div
-                    class="h-full rounded-full"
-                    :class="STATUS_TONE[row.status]"
-                    :style="{ width: statusWidth(row.count) }"
-                  />
+                  <div class="h-full rounded-full" :class="STATUS_TONE[row.status]"
+                    :style="{ width: statusWidth(row.count) }" />
                 </div>
               </div>
             </template>
-
-            <!-- ความสดของตัวเลขบัญชี - ตอบคำถาม "ยอดข้างบนเป็นข้อมูลของปีไหน" -->
-            <div class="mt-2 border-t border-base-200 pt-3 text-sm">
-              <h3 class="mb-1 font-medium">ข้อมูลตัวเลขทางบัญชี</h3>
-              <div class="flex justify-between gap-2 py-0.5">
-                <span class="text-base-content/60">ข้อมูลปี {{ data.freshness.fiscalYear }}</span>
-                <span class="tabular-nums">
-                  {{ data.freshness.currentYearCount.toLocaleString('th-TH') }}
-                </span>
-              </div>
-              <div class="flex justify-between gap-2 py-0.5">
-                <span class="text-base-content/60">ข้อมูลปีเก่า</span>
-                <span class="tabular-nums" :class="data.freshness.staleCount ? 'text-warning' : ''">
-                  {{ data.freshness.staleCount.toLocaleString('th-TH') }}
-                </span>
-              </div>
-              <div class="flex justify-between gap-2 py-0.5">
-                <span class="text-base-content/60">ยังไม่มีข้อมูลบัญชี</span>
-                <span class="tabular-nums">
-                  {{ data.freshness.noDataCount.toLocaleString('th-TH') }}
-                </span>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -609,13 +916,8 @@ const departmentRange = computed(() => {
       <!-- ★ ต้องส่ง company-code ลงไปด้วย ไม่ใช่แค่ department-id - ไม่งั้นการ์ดสรุปข้างบน
            บอกยอดของ UBP แต่ตารางข้างล่างไล่ของ UBA มาให้ดู
            ชื่อบริษัทอ่านจาก scope ที่ backend ตอบ ไม่ใช่จากค่าที่หน้าจอส่งไป (ดูข้อ 1 บนหัวไฟล์) -->
-      <DepartmentTable v-if="selectedCompanyCode"
-        class="mt-8"
-        :department-id="selectedDepartmentId"
-        :department-name="scopeLabel"
-        :company-code="selectedCompanyCode"
-        :company-name="data.scope.companyName"
-      />
-    </template>
+      <DepartmentTable v-if="selectedCompanyCode" class="mt-10" :department-id="selectedDepartmentId"
+        :department-name="scopeLabel" :company-code="selectedCompanyCode" :company-name="data.scope.companyName" />
+    </div>
   </div>
 </template>
