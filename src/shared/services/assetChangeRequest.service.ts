@@ -27,19 +27,15 @@ export interface ChangeRequestRow {
   toLocationId: number | null
   fromEmployeeId: number | null
   toEmployeeId: number | null
-  /** null บนใบชนิด HOLDER */
-  toLocationName: string | null
   /**
-   * รหัส OLCT ที่บัญชีต้องพิมพ์ลงช่อง Location ของ OITM
+   * ชื่อสถานที่ปลายทาง - null บนใบชนิด HOLDER
    *
-   * ★ ต้องโชว์คู่กับชื่อเสมอ ไม่ใช่ชื่ออย่างเดียว - ไม่งั้นบัญชีต้องเปิด SAP หาเองทุกใบ
-   *   ซึ่งเป็นงานที่คิวนี้ตั้งใจจะตัดออกตั้งแต่ต้น
+   * ★ มีแค่ชื่อ ไม่มีรหัส SAP โดยตั้งใจ - บัญชีเลือกจากชื่อในหน้าจอ SAP ไม่ได้คีย์รหัส
+   *   (เคยส่งรหัสมาด้วยเพราะเข้าใจผิด แล้วไม่มีใครใช้)
    */
-  toLocationSapId: number | null
+  toLocationName: string | null
   /** null บนใบ LOCATION **และ** บนใบ HOLDER ที่ขอให้ว่าง - แยกกันที่ `kind` */
   toEmployeeName: string | null
-  /** รหัส OHEM ที่บัญชีพิมพ์ลงช่อง Employee ของ OITM */
-  toEmployeeOwnerCode: number | null
 }
 
 export interface SubmitBody {

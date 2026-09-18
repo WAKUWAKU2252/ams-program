@@ -689,7 +689,7 @@ async function onConfirmRemove() {
         :options="DRAFT_SORT_OPTIONS"
         default-label="เรียงตาม"
       />
-            <button class="btn btn-primary btn-md sm:order-2" @click="onCreate">
+            <button class="btn btn-primary btn-sm sm:order-2" @click="onCreate">
         <Icon icon="lucide:plus" />Create
       </button>
       <span class="ml-auto text-sm text-base-content/60">{{ range }}</span>
