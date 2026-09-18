@@ -43,6 +43,21 @@ const total = ref(0)
 const page = ref(1)
 const loadingList = ref(false)
 const listError = ref('')
+/**
+ * โหลดสำเร็จไปแล้วอย่างน้อยหนึ่งรอบ - ตัวแยก "ยังไม่มีอะไรให้ดู" ออกจาก "กำลังโหลดของชุดใหม่"
+ *
+ * ★ ถ้าไม่มีตัวนี้ ทุกครั้งที่เปลี่ยนหน้าตารางจะถูกถอดออกแล้วเอา spinner มาแทน ความสูงกล่อง
+ *   ยุบแล้วขยายกลับ = กระตุกทุกคลิก (และ scroll เด้งกลับบนสุดด้วย)
+ */
+const loadedOnce = ref(false)
+
+/**
+ * ตัวกันผลเก่ามาทับผลใหม่
+ *
+ * ★ พิมพ์เร็ว ๆ หรือกดข้ามหน้ารัว ๆ แล้ว response ของคำขอเก่ามาถึงทีหลัง จะเขียนทับแถว
+ *   ของคำขอล่าสุด - ผู้ใช้เห็นหน้า 2 ทั้งที่กดหน้า 3 ไปแล้ว (ทรงเดียวกับ AppEmployeeSelect)
+ */
+let requestSeq = 0
 
 /** ชิ้นที่เลือก - null = ยังอยู่ขั้นค้นหา */
 const picked = ref<InventoryItem | null>(null)
@@ -51,6 +66,7 @@ const pickedDetail = ref<{ locationId: number; employeeId: number | null } | nul
 const loadingDetail = ref(false)
 
 async function loadList() {
+  const seq = ++requestSeq
   loadingList.value = true
   listError.value = ''
   try {
@@ -59,12 +75,15 @@ async function loadList() {
       page: page.value,
       limit: PAGE_SIZE,
     })
+    if (seq !== requestSeq) return // มีคำขอใหม่กว่าเกิดขึ้นระหว่างรอ - ทิ้งผลนี้
     rows.value = res.data
     total.value = res.total
+    loadedOnce.value = true
   } catch (e) {
+    if (seq !== requestSeq) return
     listError.value = e instanceof ApiError ? e.message : 'ค้นหาสินทรัพย์ไม่สำเร็จ'
   } finally {
-    loadingList.value = false
+    if (seq === requestSeq) loadingList.value = false
   }
 }
 
@@ -157,6 +176,8 @@ watch(
   () => props.open,
   (isOpen) => {
     if (!isOpen) return
+    loadedOnce.value = false
+    rows.value = []
     search.value = ''
     page.value = 1
     unpick()
@@ -190,7 +211,7 @@ async function save() {
 
 <template>
   <dialog class="modal" :open="open" @close="close">
-    <div class="modal-box max-w-3xl">
+    <div class="modal-box max-w-4xl">
       <h3 class="flex items-center gap-2 text-base font-semibold">
         <Icon icon="lucide:file-pen-line" class="text-lg" />
         สร้างคำขอใหม่
@@ -212,16 +233,24 @@ async function save() {
           {{ listError }}
         </div>
 
-        <div v-else-if="loadingList" class="py-10 text-center">
+        <!-- ★ spinner เต็มพื้นที่เฉพาะรอบแรกเท่านั้น - รอบถัด ๆ ไปคาตารางไว้แล้วหรี่แทน
+             (ดูเหตุผลที่ loadedOnce) -->
+        <div v-else-if="loadingList && !loadedOnce" class="py-10 text-center">
           <span class="loading loading-spinner"></span>
         </div>
 
-        <p v-else-if="!rows.length" class="py-10 text-center text-sm text-base-content/60">
+        <p v-else-if="loadedOnce && !rows.length" class="py-10 text-center text-sm text-base-content/60">
           ไม่พบสินทรัพย์ที่ตรงกับคำค้น
         </p>
 
-        <div v-else class="mt-3 overflow-x-auto rounded-box border border-base-300">
-          <table class="table table-sm">
+        <!-- ★ min-h ล็อกความสูงไว้เท่าหน้าเต็ม - หน้าสุดท้ายมีแถวน้อยกว่า ถ้าไม่ล็อก
+             กล่องจะหดตอนกดไปหน้านั้นแล้วขยายกลับตอนถอยออกมา -->
+        <div v-else
+          class="relative mt-3 min-h-[19rem] overflow-x-auto rounded-box border border-base-300"
+          :class="loadingList ? 'opacity-50 transition-opacity' : ''">
+          <span v-if="loadingList"
+            class="loading loading-spinner loading-sm absolute right-3 top-3 z-10"></span>
+          <table class="table table-sm" :class="loadingList ? 'pointer-events-none' : ''">
             <thead>
               <tr>
                 <th>เลขสินทรัพย์</th>

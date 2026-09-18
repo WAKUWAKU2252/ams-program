@@ -83,30 +83,20 @@ function go(item: NotificationItem) {
 
 <template>
   <details id="ams-notification-dropdown" class="dropdown dropdown-end" @toggle="onToggle">
-    <summary
-      class="btn btn-ghost btn-square relative"
-      :aria-label="store.unread > 0 ? `การแจ้งเตือน ${store.unread} รายการที่ยังไม่อ่าน` : 'การแจ้งเตือน'"
-    >
+    <summary class="btn btn-ghost btn-square relative"
+      :aria-label="store.unread > 0 ? `การแจ้งเตือน ${store.unread} รายการที่ยังไม่อ่าน` : 'การแจ้งเตือน'">
       <Icon icon="lucide:bell" class="text-xl" />
-      <span
-        v-if="store.unread > 0"
-        class="badge badge-error badge-xs absolute right-1 top-1 px-1 font-medium"
-      >
+      <span v-if="store.unread > 0" class="badge badge-error badge-xs absolute right-1 top-1 px-1 font-medium">
         {{ badge }}
       </span>
     </summary>
 
     <div
-      class="dropdown-content z-[60] mt-2 max-h-[70vh] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-box border border-base-300 bg-base-100 shadow-lg"
-    >
+      class="dropdown-content z-[60] mt-2 max-h-[70vh] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-box border border-base-300 bg-base-100 shadow-lg">
       <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
-        <span class="text-sm font-semibold"><Icon icon="lucide:bell" class="text-xl" />การแจ้งเตือน</span>
-        <button
-          v-if="store.unread > 0"
-          type="button"
-          class="btn btn-ghost btn-xs"
-          @click="store.markAll()"
-        >
+        <span class="text-sm font-semibold">
+          การแจ้งเตือน</span>
+        <button v-if="store.unread > 0" type="button" class="btn btn-ghost btn-xs" @click="store.markAll()">
           อ่านทั้งหมด
         </button>
       </div>
@@ -125,17 +115,10 @@ function go(item: NotificationItem) {
 
       <ul v-else class="divide-y divide-base-300">
         <li v-for="item in store.items" :key="item.id">
-          <button
-            type="button"
-            class="flex w-full gap-3 px-4 py-3 text-left hover:bg-base-200"
-            :class="item.readAt === null ? 'bg-base-200/60' : ''"
-            @click="go(item)"
-          >
-            <Icon
-              :icon="iconOf(item.kind)"
-              class="mt-0.5 shrink-0 text-lg"
-              :class="TONE[item.kind] ?? 'text-base-content/60'"
-            />
+          <button type="button" class="flex w-full gap-3 px-4 py-3 text-left hover:bg-base-200"
+            :class="item.readAt === null ? 'bg-base-200/60' : ''" @click="go(item)">
+            <Icon :icon="iconOf(item.kind)" class="mt-0.5 shrink-0 text-lg"
+              :class="TONE[item.kind] ?? 'text-base-content/60'" />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-sm" :class="item.readAt === null ? 'font-medium' : ''">
                 {{ item.title }}

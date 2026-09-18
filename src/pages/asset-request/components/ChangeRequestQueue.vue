@@ -34,6 +34,13 @@ const page = ref(1)
 const limit = 10
 const loading = ref(false)
 const loadError = ref('')
+/**
+ * โหลดสำเร็จไปแล้วอย่างน้อยหนึ่งรอบ - ตัวแยก "ยังไม่มีอะไร" ออกจาก "กำลังโหลดชุดใหม่"
+ *
+ * ★ ถ้าไม่มี ทุกครั้งที่เปลี่ยนหน้า/ตัวกรอง ตารางจะถูกถอดออกแล้วเอา spinner มาแทน
+ *   ความสูงยุบแล้วขยายกลับ = กระตุกทุกคลิก และ scroll เด้งกลับบนสุด
+ */
+const loadedOnce = ref(false)
 
 /** id ของใบที่กำลังยิงอยู่ - ล็อกปุ่มเฉพาะแถวนั้น ไม่ใช่ล็อกทั้งตาราง */
 const busyId = ref<number | null>(null)
@@ -48,6 +55,7 @@ async function load() {
     const res = await listChangeRequestQueue({ kind: props.kind, page: page.value, limit })
     rows.value = res.data
     total.value = res.total
+    loadedOnce.value = true
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : 'โหลดคิวไม่สำเร็จ'
   } finally {
@@ -107,20 +115,28 @@ onMounted(load)
       {{ loadError }}
     </div>
 
-    <div v-else-if="loading" class="py-10 text-center">
+    <!-- ★ spinner เต็มพื้นที่เฉพาะรอบแรก - รอบถัดไปคาตารางไว้แล้วหรี่ ไม่งั้นกดข้ามหน้า
+         แล้วตารางถูกถอดออก ความสูงยุบแล้วขยายกลับ = กระตุกทุกคลิก -->
+    <div v-else-if="loading && !loadedOnce" class="py-10 text-center">
       <span class="loading loading-spinner"></span>
     </div>
 
-    <div v-else-if="!rows.length" class="mt-4 rounded-box border border-base-300 py-12 text-center">
+    <div v-else-if="loadedOnce && !rows.length"
+      class="mt-4 rounded-box border border-base-300 py-12 text-center">
       <Icon icon="lucide:check-check" class="mx-auto text-3xl text-base-content/30" />
       <p class="mt-2 text-sm text-base-content/60">ไม่มีคำขอรอดำเนินการ</p>
     </div>
 
-    <div v-else class="mt-4 overflow-x-auto rounded-box border border-base-300">
-      <table class="table table-sm">
+    <div v-else class="relative mt-4 overflow-x-auto rounded-box border border-base-300"
+      :class="loading ? 'opacity-50 transition-opacity' : ''">
+      <span v-if="loading" class="loading loading-spinner loading-sm absolute right-3 top-3 z-10"></span>
+      <table class="table table-sm" :class="loading ? 'pointer-events-none' : ''">
         <thead>
+          <!-- ★ จำนวน th ต้องเท่ากับ td ของ tbody เสมอ - ขาดไปช่องเดียวคอลัมน์เหลื่อม
+               ทั้งตารางโดยที่ไม่มี error อะไรฟ้อง (เคยขาดมาแล้วตอนถอดคอลัมน์รหัส SAP ออก) -->
           <tr>
             <th>สินทรัพย์</th>
+            <th>{{ isMove ? 'ย้ายไป' : 'ผู้ครอบครองใหม่' }}</th>
             <th>เหตุผล</th>
             <th>ส่งเมื่อ</th>
             <th class="text-right">ดำเนินการ</th>
@@ -156,7 +172,7 @@ onMounted(load)
               </td>
             </tr>
             <tr v-if="rowError?.id === row.id">
-              <td colspan="6" class="bg-error/10 text-sm text-error">{{ rowError.message }}</td>
+              <td colspan="5" class="bg-error/10 text-sm text-error">{{ rowError.message }}</td>
             </tr>
           </template>
         </tbody>

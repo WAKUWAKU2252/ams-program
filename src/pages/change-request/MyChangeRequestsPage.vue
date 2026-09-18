@@ -6,8 +6,9 @@
  *   ส่วนบัญชีสนใจ "เหลืออะไรให้ทำบ้าง" - ตารางเดียวกันตอบสองคำถามนี้พร้อมกันไม่ได้
  *   (ผู้ขอไม่ต้องเห็นรหัส SAP ส่วนบัญชีไม่ต้องเห็นว่าใบไหนของใคร)
  *
- * ★ ไม่มีปุ่มสร้างคำขอที่นี่ - คำขอเกิดจาก "ตัวชิ้น" เสมอ จึงเปิดจากกล่องรายละเอียดสินทรัพย์
- *   (Asset Inventory / My Assets / ผัง) ที่ซึ่งคนเห็นของแล้วรู้ว่าอยากขออะไร
+ * ★★ จุดเริ่มของคำขอทุกใบอยู่ที่ปุ่ม "สร้างคำขอ" ในหน้านี้ที่เดียว - ค้นหาสินทรัพย์ในกล่อง
+ *   ที่เปิดขึ้นมา ไม่ได้เริ่มจากกล่องรายละเอียดสินทรัพย์แล้ว (ทางเข้าสองทางแปลว่าต้อง
+ *   ดูแลกติกา "ชิ้นนี้มีใบค้างอยู่แล้วหรือยัง" สองที่)
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
@@ -29,6 +30,13 @@ const page = ref(1)
 const limit = 10
 const loading = ref(false)
 const loadError = ref('')
+/**
+ * โหลดสำเร็จไปแล้วอย่างน้อยหนึ่งรอบ - ตัวแยก "ยังไม่มีอะไร" ออกจาก "กำลังโหลดชุดใหม่"
+ *
+ * ★ ถ้าไม่มี ทุกครั้งที่เปลี่ยนหน้า/ตัวกรอง ตารางจะถูกถอดออกแล้วเอา spinner มาแทน
+ *   ความสูงยุบแล้วขยายกลับ = กระตุกทุกคลิก และ scroll เด้งกลับบนสุด
+ */
+const loadedOnce = ref(false)
 
 /** '' = ทุกชนิด/ทุกสถานะ - ค่ามาจากปุ่ม จึงเก็บเป็น string แล้วแปลงตอนส่งที่เดียว */
 const kind = ref<'' | ChangeKind>('')
@@ -65,6 +73,7 @@ async function load() {
     })
     rows.value = res.data
     total.value = res.total
+    loadedOnce.value = true
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : 'โหลดรายการไม่สำเร็จ'
   } finally {
@@ -88,7 +97,9 @@ function onCreated() {
   void load()
 }
 
-const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.length === 0)
+const isEmpty = computed(
+  () => loadedOnce.value && !loadError.value && rows.value.length === 0,
+)
 </script>
 
 <template>
@@ -122,12 +133,14 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
           <Icon icon="lucide:plus" class="size-4" />
           สร้างคำขอ
         </button>
-      <button class="btn btn-info btn-md">สร้าง</button>
+      
       </div>
       
       <div v-if="loadError" role="alert" class="alert alert-error alert-soft">{{ loadError }}</div>
 
-      <div v-else-if="loading" class="py-10 text-center">
+      <!-- ★ spinner เต็มพื้นที่เฉพาะรอบแรก - รอบถัดไปคาตารางไว้แล้วหรี่ ไม่งั้นกดข้ามหน้า
+           แล้วตารางถูกถอดออก ความสูงยุบแล้วขยายกลับ = กระตุกทุกคลิก -->
+      <div v-else-if="loading && !loadedOnce" class="py-10 text-center">
         <span class="loading loading-spinner"></span>
       </div>
 
@@ -135,12 +148,14 @@ const isEmpty = computed(() => !loading.value && !loadError.value && rows.value.
         <Icon icon="lucide:inbox" class="mx-auto text-3xl text-base-content/30" />
         <p class="mt-2 text-sm text-base-content/60">ยังไม่มีคำขอ</p>
         <p class="mt-1 text-xs text-base-content/50">
-          เปิดคำขอได้จากกล่องรายละเอียดสินทรัพย์ในหน้าทะเบียนหรือผังชั้น
+          กดปุ่ม "สร้างคำขอ" ด้านบนเพื่อเริ่ม แล้วค้นหาสินทรัพย์ในกล่อง
         </p>
       </div>
-      
-      <div v-else class="mt-2 overflow-x-auto rounded-box border border-base-300">
-        <table class=" table table-sm">
+
+      <div class="relative mt-2 overflow-x-auto rounded-box border border-base-300"
+        v-else :class="loading ? 'opacity-50 transition-opacity' : ''">
+        <span v-if="loading" class="loading loading-spinner loading-sm absolute right-3 top-3 z-10"></span>
+        <table class="table table-sm" :class="loading ? 'pointer-events-none' : ''">
           <thead>
             <tr>
               <th>สินทรัพย์</th>
