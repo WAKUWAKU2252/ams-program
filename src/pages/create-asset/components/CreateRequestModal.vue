@@ -25,6 +25,7 @@ import {
 } from '@/shared/services/purchaseOrder.service'
 import { listCompanies, type CompanyOption } from '@/shared/services/master.service'
 import { createDraft } from '@/shared/services/assetRequest.service'
+import { ApiError } from '@/shared/services/httpClient'
 import { useAuthStore } from '@/shared/stores/auth'
 import { getTokenRole } from '@/shared/services/auth.token'
 import { canPickCompany } from '@/shared/utils/role-scope'
@@ -119,7 +120,7 @@ async function load() {
   } catch (e) {
     if (seq !== requestSeq) return
     console.error('โหลดรายการ PO ไม่สำเร็จ:', e)
-    loadError.value = 'โหลดรายการ PO ไม่สำเร็จ กรุณาลองใหม่'
+    loadError.value = e instanceof ApiError ? e.message : 'โหลดรายการ PO ไม่สำเร็จ กรุณาลองใหม่'
     rows.value = []
     total.value = 0
   } finally {
@@ -179,11 +180,20 @@ async function onCreateClick() {
 
   try {
     const { requestId } = await createDraft(selectedPO.value.poNumber)
+    // ★ ต้องปลดตรงนี้ ไม่ใช่รอ finally - close() มีด่าน `if (creating.value) return` กันปิดกล่อง
+    //   ระหว่างยิงอยู่ ถ้ายังไม่ปลด close() จะ return เปล่า ๆ: กล่องไม่ปิด PO ที่เลือกไม่ถูกล้าง
+    //   และ update:open/close ไม่เคยยิงออกไปเลย (ที่ยังไม่เห็นอาการเพราะ parent เปลี่ยนหน้าไป
+    //   หน้าฟอร์มพอดี หน้าเดิมเลยถูกทิ้งทั้งหน้า - ใช้กล่องนี้แบบไม่เปลี่ยนหน้าเมื่อไหร่จะค้างทันที)
+    //   ถึงตรงนี้คำขอจบไปแล้ว ไม่ใช่ "กำลังยิงอยู่" อีกต่อไป ด่านนั้นจึงไม่มีอะไรให้กันแล้ว
+    creating.value = false
     emit('created', requestId)
     close()
   } catch (e) {
     console.error('สร้าง draft ไม่สำเร็จ:', e)
-    detailError.value = 'สร้างคำขอไม่สำเร็จ กรุณาลองใหม่'
+    // ★ ข้อความจาก backend ตรงกว่าเสมอ - 403 ของบัญชีที่ไม่มีสังกัดบอกวิธีแก้ไว้ให้ด้วย
+    //   ('ติดต่อผู้ดูแลระบบ') ซึ่งผู้ใช้แก้เองไม่ได้ กลืนทิ้งแล้วบอกแค่ "ลองใหม่" คือส่งเขาไป
+    //   กดซ้ำเปล่า ๆ ตลอด (แพตเทิร์นเดียวกับอีก 48 จุดในหน้าอื่น)
+    detailError.value = e instanceof ApiError ? e.message : 'สร้างคำขอไม่สำเร็จ กรุณาลองใหม่'
   } finally {
     creating.value = false
   }
@@ -286,6 +296,22 @@ function formatDate(v: string | null): string {
               <option v-for="c in companies" :key="c.code" :value="c.code">{{ c.name }}</option>
             </select>
 
+            <!-- ★ ป้ายนี้ไม่ใช่ของประดับ - ตารางถูก backend กรองเหลือบริษัทเดียวอยู่แล้ว ถ้าไม่มี
+                 อะไรบอก คนที่หาใบของอีกบริษัทไม่เจอจะอ่านว่า "ไม่มีใบนั้นในระบบ" แทนที่จะเป็น
+                 "ใบนั้นไม่ใช่ของบริษัทฉัน" ซึ่งพาไปตามหาผิดที่
+                 ★ v-if แยก ไม่ใช่ v-else ของ select - อีกเงื่อนไขคือ "รู้บริษัทแล้ว" ซึ่งมาจาก
+                   /auth/me คนละจังหวะกับ canPick ที่อ่านจาก token ได้ตั้งแต่เฟรมแรก
+                 ★ บัญชีที่ไม่มีสังกัดตกทั้งสองทาง (ไม่มี select ไม่มีป้าย) - ตั้งใจ เพราะป้ายเปล่า
+                   ตอบอะไรไม่ได้ คนกลุ่มนั้นได้คำอธิบายเต็มในตารางที่ว่างอยู่แล้ว (ดู noOwnCompany) -->
+            <div
+              v-if="!canPick && ownCompanyLabel"
+              class="badge badge-ghost h-8 max-w-[14rem] gap-1.5"
+              :title="`กรองไว้ที่บริษัทของคุณแล้ว - สร้างคำขอได้เฉพาะ PO ของ ${ownCompanyLabel}`"
+            >
+              <Icon icon="lucide:building-2" class="size-3.5 shrink-0" />
+              <span class="truncate">{{ ownCompanyLabel }}</span>
+              <Icon icon="lucide:lock" class="size-3 shrink-0 opacity-60" />
+            </div>
 
             <!-- ปุ่มเดียวสลับสองทิศ ไม่ใช่ dropdown — มีแค่สองค่า ทำเป็นตัวเลือกจะเปลืองคลิก -->
             <button
