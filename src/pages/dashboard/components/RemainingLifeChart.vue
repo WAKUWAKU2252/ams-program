@@ -14,7 +14,7 @@ import { Icon } from '@iconify/vue'
 import AppApexChart from '@/pages/dashboard/components/AppApexChart.vue'
 import type { DashboardRemainingLife } from '@/shared/services/dashboard.service'
 import { formatDate } from '@/shared/utils/date'
-import { grid, ink } from './chart-theme'
+import { grid, ink, REMAINING_LIFE_RAMP } from './chart-theme'
 
 const props = defineProps({
   /** null = ยังไม่ได้เลือกแผนก - component จะไม่วาดอะไรเลย */
@@ -68,7 +68,9 @@ const chartOptions = computed(() => {
     legend: { show: false },
     dataLabels: { enabled: false },
     // ★ แท่งแรกคือ "หมดอายุแล้ว" = ของที่ต้องเฝ้า ให้สีเตือน ที่เหลือไล่จากใกล้หมดไปยังไกล
-    colors: ['#dc2626', '#ea9a0b', '#eab308', '#84cc16', '#22c55e', '#16a34a', '#0891b2'],
+    //   สเกลอยู่ที่ chart-theme ไม่ใช่ที่นี่ - จุดยึดของมันคือโทเคน error/warning/success/
+    //   secondary ตรง ๆ (เหตุผลเต็มอยู่ที่นั่น) ห้ามประกาศสีของกราฟไว้ในไฟล์คอมโพเนนต์อีก
+    colors: [...REMAINING_LIFE_RAMP],
     grid: { borderColor: grid.value },
     tooltip: { y: { formatter: (v: number) => `${v.toLocaleString('th-TH')} ชิ้น` } },
   }
@@ -80,7 +82,7 @@ const chartOptions = computed(() => {
   <div v-if="data" class="card min-w-0 border border-base-300 bg-base-100 shadow-sm">
     <div class="card-body gap-3 text-left">
       <div>
-        <h2 class="font-semibold">อายุคงเหลือของสินทรัพย์</h2>
+        <h2 class="card-title text-base">อายุคงเหลือของสินทรัพย์</h2>
         <!-- ★ ป้ายวันที่ห้ามตัดทิ้ง - ตัวเลขนี้เป็นอายุคงเหลือ ณ งวดล่าสุดที่บัญชีปิด
              ไม่ใช่ ณ วันนี้ และไม่ใช่ยอดต้นปีแบบที่ SAP ส่งมาดิบ ๆ (เคยแสดงยอดต้นปี
              ซึ่งสูงเกินจริงถึง 8 เดือน) กติกาเดียวกับการ์ดเงินด้านบนของหน้า -->

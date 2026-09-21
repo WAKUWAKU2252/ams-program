@@ -510,22 +510,24 @@ watch(summaryAxis, () => {
                      heading ตัวถัดไปที่เอกสารเจอคือ <h3> ของแถบความสด = กระโดดจาก h1
                      ข้ามชั้นไป h3 (คลาสเดิมทุกตัว หน้าตาไม่เปลี่ยนสักพิกเซล) -->
               <h2 class="text-sm font-medium text-base-content/70">Net Book Value</h2>
-              <!-- ★ ส่วนต่างวางข้างตัวเลข ไม่ใช่บรรทัดใหม่ - ตัวเลขหลักต้องยังเป็นสิ่งแรกที่สายตาเจอ
-                   ★★ ตัวเลขต้องมี grow-0 เสมอ — daisyUI ตั้ง flex-grow: 1 ให้ทุกย่อหน้าที่อยู่ใน
+              <!-- ★★ ตัวเลขต้องมี grow-0 เสมอ — daisyUI ตั้ง flex-grow: 1 ให้ทุกย่อหน้าที่อยู่ใน
                      card-body ("card-body :where(p)") พอเอาย่อหน้ามาเป็น flex item มันจึงยืดเต็ม
-                     แถวแล้วดันส่วนต่างไปชิดขอบขวา ห่างจากตัวเลขที่มันขยายอยู่จนอ่านไม่ออกว่าคู่กัน
-                     (วัดจริงก่อนแก้: ย่อหน้ากว้าง 562px ทั้งที่ตัวหนังสือกว้าง 257px)
-                   ★ NBV ไม่มีเก็บใน snapshot (กติกาเดียวกับ asset_accounting) จึงลบเอาเองจาก
-                     ราคาทุน − ค่าเสื่อมสะสม ของเดือนนั้น -->
+                     แถว ซึ่งจะดันอะไรก็ตามที่มาวางข้าง ๆ ไปชิดขอบขวาจนอ่านไม่ออกว่าคู่กัน
+                     (วัดจริงตอนที่ยังมีส่วนต่าง: ย่อหน้ากว้าง 562px ทั้งที่ตัวหนังสือกว้าง 257px)
+
+                   ★ **ไม่มีส่วนต่างเทียบเดือนก่อนบนตัวเลขเงินทั้งสามตัวแล้ว (2026-09-21)**
+                     ผู้ใช้อ่านแล้วสับสน และวัดข้อมูลจริงแล้วพบว่าสองในสามไม่ได้บอกอะไรเลย:
+                       ค่าเสื่อมสะสม  ขึ้นราว +1.1 ล้านทุกเดือน แกว่งแค่ ±5% (UBA งวด 1–8/2569)
+                                     = เลขเดิมซ้ำทุกครั้งที่เปิดหน้า
+                       มูลค่าคงเหลือ  เป็นผลรวมของสามเหตุการณ์ที่ไม่เกี่ยวกัน (ซื้อเพิ่ม −
+                                     ค่าเสื่อม − มูลค่าที่ตัดจำหน่าย) อ่านแล้วตอบไม่ได้ว่าเกิดอะไร
+                     ★ ราคาทุนเป็นตัวที่ "มีข่าวจริง" (งวด 8 ซื้อเพิ่ม 1.76 ล้าน = 12 เท่าของงวด 1)
+                       แต่ผู้ใช้ตัดสินใจเอาออกด้วยเพื่อให้การ์ดเงินไม่มีส่วนต่างเลยทั้งกล่อง
+                       จะเอากลับมาเฉพาะตัวนี้ก็ได้ - KpiDelta ยังอยู่ ยังใช้ที่จำนวนชิ้น -->
               <div class="mt-1 flex flex-wrap items-baseline gap-x-2">
                 <p class="grow-0 text-3xl font-bold whitespace-nowrap text-primary tabular-nums sm:text-4xl 2xl:text-5xl">
                   {{ formatMoney(data.totals.netBookValue) }}
                 </p>
-                <KpiDelta v-if="data.previousTotals" unit="money" :since="data.previousTotals.periodMonth"
-                  :current="data.totals.netBookValue"
-                  :previous="data.previousTotals.bookedCost === null || data.previousTotals.accumulatedDepreciation === null
-                    ? null
-                    : data.previousTotals.bookedCost - data.previousTotals.accumulatedDepreciation" />
               </div>
               <p class="mt-3 text-xs text-base-content/70">
                 บาท (มูลค่าคงเหลือ)
@@ -575,8 +577,6 @@ watch(summaryAxis, () => {
                     <p class="grow-0 text-base font-medium whitespace-nowrap tabular-nums sm:text-lg">
                       {{ formatMoney(data.totals.bookedCost) }}
                     </p>
-                    <KpiDelta v-if="data.previousTotals" unit="money" :since="data.previousTotals.periodMonth"
-                      :current="data.totals.bookedCost" :previous="data.previousTotals.bookedCost" />
                   </div>
                   <p class="mt-0.5 text-xs text-base-content/70">บาท (ราคาทุนทั้งหมด)</p>
                 </div>
@@ -586,9 +586,6 @@ watch(summaryAxis, () => {
                     <p class="grow-0 text-base font-medium whitespace-nowrap tabular-nums sm:text-lg">
                       {{ formatMoney(data.totals.accumulatedDepreciation) }}
                     </p>
-                    <KpiDelta v-if="data.previousTotals" unit="money" :since="data.previousTotals.periodMonth"
-                      :current="data.totals.accumulatedDepreciation"
-                      :previous="data.previousTotals.accumulatedDepreciation" />
                   </div>
                   <p class="mt-0.5 text-xs text-base-content/70">บาท (ค่าเสื่อมราคาสะสม)</p>
                 </div>
