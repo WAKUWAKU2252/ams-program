@@ -21,15 +21,15 @@
 // ไปก่อนระหว่างรอ จอจะได้ไม่กระพริบเป็นว่าง (หน้า QR ไม่มีของพวกนี้ ส่งแค่เลขก็พอ)
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { Icon } from '@iconify/vue'
-import QRCode from 'qrcode'
 import AppAssetLocationMap from './AppAssetLocationMap.vue'
 import FloorPlanPickerModal from './FloorPlanPickerModal.vue'
 import AssetImageDialog from './AssetImageDialog.vue'
 import AssetWarrantyDialog from './AssetWarrantyDialog.vue'
-import { getAssetByNumber, updateAssetLocation } from '@/shared/services/asset.service'
+import { getAssetByNumber, openAssetLabel, updateAssetLocation } from '@/shared/services/asset.service'
 import type { AssetByNumberDetail } from '@/shared/services/asset.service'
 import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service'
 import { fileBlobUrl } from '@/shared/services/attachment.service'
+import { getTokenRole } from '@/shared/services/auth.token'
 import { ApiError } from '@/shared/services/httpClient'
 import { formatDate, formatDateTime, formatMonthYear } from '@/shared/utils/date'
 import { formatMoney, formatMonths, showRawMonths } from '@/shared/utils/money'
@@ -57,16 +57,6 @@ const props = withDefaults(
   defineProps<{
     item: AssetRef | null
     /**
-     * URL ที่ฝังใน QR ของสติกเกอร์ชิ้นนี้ - ส่งมาเมื่อหน้านั้นมีค่านี้อยู่แล้ว (My asset)
-     *
-     * ★ วาดจากค่านี้เท่านั้น ห้ามประกอบเองจาก assetNumber - ค่าที่เก็บคือค่าที่ตรงกับ
-     *   สติกเกอร์ที่พิมพ์แปะไปแล้ว ถ้าจอประกอบเอง วันที่โดเมนเปลี่ยน จอจะโชว์ QR ที่พาไป
-     *   คนละที่กับของจริงบนเครื่อง โดยไม่มีอะไรฟ้อง
-     *
-     * ★ หน้าที่เปิดจากการสแกน QR ไม่ต้องส่ง - คนที่มาถึงหน้านั้นสแกนไปแล้ว
-     */
-    qrCode?: string | null
-    /**
      * "ตอนนี้มองเห็นอยู่ไหม" - false = ไม่ต้องโหลดอะไรเลย
      *
      * ★ จำเป็นเพราะ AssetDetailModal ถูก mount ค้างไว้ในทุกหน้าที่ใช้มัน (v-model คุมแค่การแสดงผล)
@@ -83,6 +73,22 @@ const props = withDefaults(
      *                       มือถือเป็นหลัก ผังกว้าง 10rem ข้างรูปนั้นอ่านไม่ออก
      */
     layout?: 'modal' | 'page'
+    /**
+     * โชว์ปุ่ม "พิมพ์สติกเกอร์" หรือไม่ - **ค่าตั้งต้นเป็น true** ต่างจาก editable* ที่เป็น false
+     *
+     * ★ ที่กลับด้านกันเพราะคนละชนิดสิทธิ์: editable* เปิดทางให้ "เขียนทะเบียน" จึงต้องให้
+     *   แต่ละหน้าจงใจเปิดเอง ส่วนอันนี้แค่โหลดไฟล์ของชิ้นที่เขาเปิดดูอยู่แล้ว ซึ่งทุกหน้า
+     *   ในแอปควรทำได้เหมือนกันหมด - ตั้งเป็น false แล้วจะกลายเป็นว่าต้องไล่เปิดทีละหน้า
+     *   แล้วลืมหน้าใดหน้าหนึ่งโดยไม่มีอะไรฟ้อง
+     *
+     * ★ ที่ต้องมี prop นี้เลยคือหน้า QR สาธารณะ (AssetByNumber) ซึ่งเปิดได้โดยไม่ล็อกอิน
+     *   แต่เส้น GET /assets/:id/label อยู่หลัง authGuard - ปุ่มที่นั่นจะกดแล้วได้ 401
+     *
+     * ★ เปิดไว้ไม่ได้แปลว่าปุ่มจะขึ้นเสมอ - role AUDIT ถูกกันอีกชั้นข้างใน (ดู canPrint)
+     *   หน้าที่ฝังคอมโพเนนต์นี้จึงไม่ต้องรู้เรื่อง role เอง
+     */
+    printable?: boolean
+    | 'page'
     /**
      * โชว์ปุ่มแก้ที่ตั้งบนผังหรือไม่ - ต้องเปิดเองรายหน้า
      *
@@ -143,9 +149,9 @@ const props = withDefaults(
     editableHolder?: boolean
   }>(),
   {
-    qrCode: null,
     active: true,
     layout: 'modal',
+    printable: true,
     editableLocation: false,
     editableImage: false,
     editableWarranty: false,
@@ -444,32 +450,46 @@ watch(lightboxOpen, (open) => {
 
 onUnmounted(() => document.removeEventListener('keydown', onLightboxKeydown, true))
 
-// ── QR ของชิ้นที่เปิดดูอยู่ ──────────────────────────────────────────────────
+// ── พิมพ์สติกเกอร์ของชิ้นนี้ ────────────────────────────────────────────────
 //
-// errorCorrectionLevel 'M' (กู้ได้ ~15%) - ต้องเป็นค่าเดียวกันทั้งระบบ (AssetRequestForm
-// ใช้ค่านี้) ไม่งั้น QR ของชิ้นเดียวกันที่วาดจากคนละหน้าจะหน้าตาไม่เหมือนกัน
-const qrDataUrl = ref('')
+// ★ เปิดไฟล์ในแท็บใหม่ ไม่ส่งเมล - ต่างจากตอนออกเลขที่คนกด (บัญชี) กับคนรับสติกเกอร์
+//   (ผู้ขอ) เป็นคนละคน จึงต้องพึ่งอีเมล ส่วนที่นี่คนกดคือคนที่จะเอาไฟล์ไปพิมพ์เอง
+//   การส่งเมลจะช้ากว่าและพังกับพนักงาน 254 จาก 396 คนที่ HR ไม่มีอีเมลให้
+//
+// ★ ไฟล์มาจาก buildAssetLabelPdf ตัวเดียวกับที่แนบไปกับอีเมลตอนออกเลข - สติกเกอร์จาก
+//   สองทางจึงเป็นดวงเดียวกันเป๊ะ
+/**
+ * ผู้ตรวจภายนอก (AUDIT) ไม่เห็นปุ่มนี้ - กดไปก็ได้ 403 อยู่ดี
+ *
+ * ★ backend เป็นคนกันจริง ไม่ใช่บรรทัดนี้: GET /assets/:id/label ไม่อยู่ใน AUDIT_ALLOWED
+ *   ของ auditScopeGuard ตัวนี้จึงเป็นเรื่องหน้าจอล้วน ๆ - ซ่อนปุ่มที่กดแล้วพังทิ้งไป
+ *   ไม่ให้ผู้ตรวจเสียเวลากดแล้วเจอ error ที่แก้อะไรไม่ได้
+ *
+ * ★ ที่เขียนเป็น denylist (`!== 'AUDIT'`) ได้ตรงนี้ เพราะฝั่ง backend ปิดเส้นนี้ไว้แล้วจริง
+ *   ต่างจาก editableLocation ที่ห้ามเขียนแบบนี้เด็ดขาด (เส้น /location เปิดให้ AUDIT อยู่
+ *   ตัวที่กันจึงมีแค่ฝั่งจอ - ดู REGISTRY_EDIT_ROLES ใน AuditPage) ถ้าวันหลังมีใครเปิดเส้น
+ *   label ให้ AUDIT ยิงได้ ต้องกลับมาคิดเงื่อนไขนี้ใหม่
+ *
+ * ★ เช็คที่นี่ไม่ใช่ส่ง prop มาจากหน้า Audit - คอมโพเนนต์นี้ถูกฝังไว้ 8 ที่ ถ้าพึ่ง prop
+ *   ที่ต้องส่งเอง ที่ฝังใหม่ในอนาคตจะโชว์ปุ่มให้ AUDIT โดยที่ไม่มีใครตั้งใจ
+ */
+const canPrint = computed(() => props.printable && getTokenRole() !== 'AUDIT')
 
-watch(
-  () => (props.active ? props.qrCode : null),
-  async (value) => {
-    if (!value) {
-      qrDataUrl.value = ''
-      return
-    }
-    try {
-      qrDataUrl.value = await QRCode.toDataURL(value, {
-        margin: 1,
-        width: 256,
-        errorCorrectionLevel: 'M',
-      })
-    } catch {
-      // วาดไม่ได้ก็ไม่โชว์รูป แต่ข้อความ URL ยังอยู่ให้ก๊อปไปใช้ต่อได้
-      qrDataUrl.value = ''
-    }
-  },
-  { immediate: true },
-)
+const printing = ref(false)
+const printError = ref('')
+
+async function printLabel() {
+  if (!detail.value || printing.value) return
+  printing.value = true
+  printError.value = ''
+  try {
+    await openAssetLabel(detail.value.id)
+  } catch (e) {
+    printError.value = e instanceof Error ? e.message : 'พิมพ์สติกเกอร์ไม่สำเร็จ'
+  } finally {
+    printing.value = false
+  }
+}
 
 // ป้ายสถานะ - ชุดเดียวกับ AssetTable คีย์ต้องตรง enum asset_status ของ DB
 const STATUS_BADGE: Record<string, string> = {
@@ -614,18 +634,34 @@ defineExpose({ reload: load })
 
         <!-- flex-wrap + w-full: ป้ายกางเต็มความกว้างฝั่งขวาแล้วขึ้นบรรทัดใหม่เอง
              ไม่ใช่ไหลออกนอกกรอบเป็นแถวเดียวยาว ๆ อย่างเดิม (ชื่อคน/ชื่อแผนกยาวได้มาก) -->
-        <div class="mt-1.5 flex w-full flex-wrap items-center gap-1.5">
-          <span v-if="head.status" class="badge badge-sm " :class="statusBadge(head.status)">
-            {{ statusLabel(head.status) }}
-          </span>
-          <span v-if="companyLabel" class="badge badge-sm badge-neutral">
-            {{ companyLabel }}
-          </span>
-          <span v-if="detail?.categoryName" class="badge badge-sm badge">
-            {{ detail.categoryName }}
-          </span>
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="mt-1.5 flex w-full flex-wrap items-center gap-1.5">
+              <span v-if="head.status" class="badge badge-sm" :class="statusBadge(head.status)">
+                {{ statusLabel(head.status) }}
+              </span>
+              <span v-if="companyLabel" class="badge badge-sm badge-neutral">
+                {{ companyLabel }}
+              </span>
+              <span v-if="detail?.categoryName" class="badge badge-sm badge">
+                {{ detail.categoryName }}
+              </span>
+            </div>
+          </div>
+          <!-- ── พิมพ์สติกเกอร์ QR ของชิ้นนี้
+               ★ อยู่ท้ายแถวป้าย ไม่ใช่ในก้อน QR แยก - ก้อนนั้นถูกถอดออกแล้ว (มันโชว์ URL
+                 ดิบ ๆ ให้ดูเฉย ๆ ซึ่งไม่มีใครต้องใช้) เหลือแค่ปุ่มที่ทำงานจริง
+               ★ แถวนี้วาดทั้งสอง layout ปุ่มจึงขึ้นทุกที่ที่ฝังคอมโพเนนต์นี้ ต่างจากของเดิม
+                 ที่ผูกกับ prop qrCode ซึ่งมีแค่หน้า My Assets ส่งมา -->
+          <button v-if="canPrint && detail" type="button" class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1" :disabled="printing"
+            aria-label="พิมพ์สติกเกอร์" title="พิมพ์สติกเกอร์" @click="printLabel">
+            <span v-if="printing" class="loading loading-spinner loading-xs"></span>
+            <Icon v-else icon="lucide:printer" class="size-3.5" />
+          </button>
 
         </div>
+
+        <p v-if="printError" role="alert" class="mt-1 text-xs text-error">{{ printError }}</p>
 
         <!-- ── ผู้ครอบครอง (เฉพาะโหมด page) ─────────────────────────────────
              แยกออกจากแถว badge เป็นกล่องของตัวเอง เพราะมันคนละชนิดข้อมูลกับที่เหลือ:
@@ -783,7 +819,7 @@ defineExpose({ reload: load })
                    เป็นเจ้าของและแก้เองได้ทันที -->
               <dd class="min-w-0 truncate">{{ detail.locationName ?? '-' }}</dd>
             </div>
-            <div class="flex justify-between gap-1 ">
+            <div class="flex justify-between gap-1">
               <dt class="text-base-content/60">ระยะประกัน</dt>
               <dd class="flex items-center gap-2">
                 <span>{{ warrantyText }}</span>
@@ -909,34 +945,10 @@ defineExpose({ reload: load })
               </dd>
             </div>
             <div class="flex justify-between gap-3 sm:col-span-2">
-              <dt class="text-primary ">ข้อมูลจาก SAP ล่าสุด</dt>
-              <dd class="text-primary ">{{ formatDateTime(detail.accounting.syncedAt) }}</dd>
+              <dt class="text-primary">ข้อมูลจาก SAP ล่าสุด</dt>
+              <dd class="text-primary">{{ formatDateTime(detail.accounting.syncedAt) }}</dd>
             </div>
           </dl>
-        </section>
-
-        <!-- ── QR สำหรับติดตัวเครื่อง ────────────────────────────────────
-             โผล่เฉพาะหน้าที่ส่ง qrCode เข้ามา และเฉพาะชิ้นที่มีค่านั้นจริง
-             (ไม่มีเลข = ไม่มี QR = ไม่มีอะไรให้ชี้ถึง) -->
-        <section v-if="qrCode"
-          class="flex flex-wrap items-center gap-4 rounded-box border border-base-300 bg-base-200/60 p-3">
-          <img v-if="qrDataUrl" :src="qrDataUrl" :alt="`QR ของ ${detail.assetNumber}`"
-            class="size-28 shrink-0 rounded bg-white p-1" />
-          <!-- วาดไม่สำเร็จก็ยังต้องเห็นว่ามี QR อยู่ และ URL ข้างล่างยังก๊อปไปใช้ต่อได้ -->
-          <div v-else class="grid size-28 shrink-0 place-items-center rounded bg-base-300">
-            <Icon icon="mdi:qrcode-remove" class="size-6 opacity-40" />
-          </div>
-
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase opacity-60">
-              <Icon icon="mdi:qrcode" class="size-4" />
-              QR สำหรับติดตัวเครื่อง
-            </div>
-            <p class="mt-1 font-mono text-xs break-all opacity-80">{{ qrCode }}</p>
-            <p class="mt-1 text-xs opacity-60">
-              สแกนด้วยกล้องมือถือแล้วเปิดหน้าสินทรัพย์ของชิ้นนี้ได้เลย
-            </p>
-          </div>
         </section>
       </div>
     </div>

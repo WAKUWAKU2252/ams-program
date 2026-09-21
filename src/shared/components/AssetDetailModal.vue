@@ -23,8 +23,6 @@ const props = defineProps<{
   modelValue: boolean
   /** แถวที่ถูกกด - ใช้วาดหัวทันทีระหว่างรอผลจาก API */
   item: AssetRef | null
-  /** URL ที่ฝังใน QR ของสติกเกอร์ชิ้นนี้ - ส่งมาเมื่อหน้านั้นมีค่านี้อยู่แล้ว (My asset) */
-  qrCode?: string | null
   /**
    * เปิดปุ่มแก้ที่ตั้งบนผังในกล่องนี้ - ส่งผ่านตรง ๆ ไป AppAssetDetail
    *
@@ -121,7 +119,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           <!-- active ผูกกับ modelValue - ปิดอยู่ = ไม่ยิง API อะไรเลย -->
           <AppAssetDetail
             :item="item"
-            :qr-code="qrCode"
             :active="modelValue"
             :layout="isWide ? 'modal' : 'page'"
             :editable-location="editableLocation"

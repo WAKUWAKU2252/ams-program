@@ -2,7 +2,8 @@
 //
 // เรียก endpoint asset จริงของ Elysia (prefix /assets)
 // หน้าฟอร์มลงทะเบียนใช้ getAssetSlots() เส้นเดียวก็เรนเดอร์ได้ทั้งหน้า (ช่อง + สถานะ + grpoNo ต่อชิ้น)
-import { request } from './httpClient';
+import { request, BASE_URL } from './httpClient';
+import { getToken } from './auth.token';
 import type { AssetRequestStatus } from './assetRequest.service';
 // envelope เดียวกับที่ /master/employees ใช้ - { data, total, page, limit }
 import type { Paginated } from './master.service';
@@ -816,3 +817,49 @@ export function getAssetInventory(params: InventoryParams = {}): Promise<Paginat
  * โดยไม่มีใครตาม key ให้ตรง - ตอนนี้ต้องผ่านใบคำขอที่บัญชีเป็นคนกดหลัง key ที่ SAP แล้ว
  * ดู assetChangeRequest.service.ts (เส้น PATCH /assets/:id/holder ฝั่ง backend ก็ถอดด้วย)
  */
+
+/**
+ * เปิด PDF สติกเกอร์ QR ของชิ้นเดียวในแท็บใหม่
+ *
+ * ★ ใช้ fetch ตรง ไม่ผ่าน request() - ตัวนั้นแปลง response เป็น JSON เสมอ ส่วนเส้นนี้
+ *   คืนไฟล์ไบนารี (แพตเทิร์นเดียวกับ fileBlobUrl ของ attachment.service)
+ *
+ * ★★ ต้องโหลดเป็น blob ก่อน ชี้ <a href> / window.open ไปที่ URL ของ endpoint ตรง ๆ ไม่ได้ -
+ *   เส้นนี้อยู่หลัง authGuard ต้องมี Authorization header ซึ่งการเปิดแท็บธรรมดาไม่ส่งไปให้
+ *   จะได้ 401 กลับมาเป็นหน้าเปล่า
+ *
+ * ★★ เปิดแท็บ "ก่อน" await ไม่ใช่หลัง - window.open ที่เรียกหลัง await หลุดจาก user gesture
+ *   แล้วโดน popup blocker ของ Safari/Firefox บล็อก (Chrome ผ่อนกว่าแต่ก็ไม่การันตี)
+ *   จึงจองแท็บเปล่าไว้ตั้งแต่จังหวะที่คนกด แล้วค่อยยัด URL ตามลงไปทีหลัง
+ *
+ * ★ ปิดแท็บที่จองไว้ถ้าโหลดไม่สำเร็จ - ไม่งั้นคนกดจะเหลือแท็บว่างค้างโดยไม่รู้ว่าเกิดอะไรขึ้น
+ *   (ข้อความ error ไปโผล่ที่หน้าเดิมซึ่งตอนนี้อยู่หลังแท็บใหม่)
+ */
+export async function openAssetLabel(assetId: number): Promise<void> {
+  // ⚠️ ห้ามใส่ 'noopener' ใน features - สเปกบอกว่าถ้า features มี noopener/noreferrer
+  //    window.open จะ **คืน null เสมอ** (จงใจ: ไม่ให้ผู้เรียกถือ reference ของแท็บใหม่)
+  //    ผลคือแท็บใหม่เปิดขึ้นมาจริงแต่ค้างเป็นหน้าว่างตลอดกาล เพราะไม่มี handle ให้ยัด URL
+  //    แล้วโค้ดจะไหลไปทาง fallback ซึ่งพาแท็บ *ปัจจุบัน* ออกจากแอปไปเปิด PDF แทน
+  //    (blob ตัวนี้เป็น same-origin อยู่แล้ว การไม่มี noopener จึงไม่ได้เปิดช่องอะไร)
+  const tab = window.open('', '_blank')
+
+  try {
+    const token = getToken()
+    const res = await fetch(`${BASE_URL}/assets/${assetId}/label`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) throw new Error(`โหลดไฟล์สติกเกอร์ไม่สำเร็จ (${res.status})`)
+
+    const url = URL.createObjectURL(await res.blob())
+    // เปิดแท็บไม่ได้ (โดนบล็อก) = ถอยไปโหลดลงเครื่องแทน ดีกว่าเงียบไปเฉย ๆ
+    if (tab) tab.location.href = url
+    else window.location.href = url
+
+    // ★ หน่วงก่อน revoke - ถ้าเพิกถอนก่อนแท็บใหม่โหลดเสร็จจะได้หน้าว่าง
+    //   (เหตุผลเดียวกับที่ openInvoiceFile หน่วงไว้ 60 วิ)
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (e) {
+    tab?.close()
+    throw e
+  }
+}

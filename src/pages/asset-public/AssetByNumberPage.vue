@@ -63,6 +63,9 @@ const detailRef = ref<InstanceType<typeof AppAssetDetail> | null>(null)
   <div class="mx-auto w-full max-w-3xl px-4 py-6">
     <!-- layout="page" = หัวเรียงบนล่างเมื่อจอแคบ และผังลงไปเต็มความกว้างข้างล่าง
          (modal ในแอปยังเป็นค่าตั้งต้น 'modal' ผังอยู่ข้างรูปเหมือนเดิม) -->
-    <AppAssetDetail ref="detailRef" :item="assetRef" layout="page" />
+    <!-- ★ :printable="false" - หน้านี้เปิดได้โดยไม่ล็อกอิน (ปลายทางของ QR บนสติกเกอร์)
+         แต่เส้นโหลดไฟล์สติกเกอร์อยู่หลัง authGuard ปุ่มที่นี่จึงจะกดแล้วได้ 401
+         คนที่ยืนอยู่หน้าเครื่องจริงก็ไม่ได้มาเพื่อพิมพ์สติกเกอร์ใหม่อยู่แล้ว -->
+    <AppAssetDetail ref="detailRef" :item="assetRef" layout="page" :printable="false" />
   </div>
 </template>
