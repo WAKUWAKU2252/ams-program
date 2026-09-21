@@ -3,6 +3,7 @@ import DateDisplay from './DateDisplay.vue'
 import SyncButton from './SyncButton.vue'
 import { Icon } from '@iconify/vue'
 import NotificationBell from './NotificationBell.vue'
+import ProfileMenu from './ProfileMenu.vue'
 import { useRoute } from 'vue-router'
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -12,10 +13,10 @@ import { onlyPathForRole } from '@/shared/utils/role-scope'
 
 const route = useRoute()
 
-// สถานะธีมมาจาก store ตัวเดียวกับที่กล่องโปรไฟล์ใน Sidebar ใช้ - สองปุ่มนี้สลับของชิ้นเดียวกัน
-// ถ้าต่างคนต่างจำ กดที่หนึ่งแล้วอีกที่จะค้างสถานะเก่า (ดูคอมเมนต์ใน stores/ui.ts)
+// ★ ไม่อ่าน isDarkTheme ที่นี่แล้ว - ปุ่มสลับธีมบน Topbar ถูกถอดออก (2026-09-21)
+//   เหลือที่เดียวคือแถวในกล่องโปรไฟล์ ซึ่งอ่านจาก store ตัวเดียวกันนี้เอง
 const uiStore = useUiStore()
-const { isDarkTheme, isSidebarCollapsed } = storeToRefs(uiStore)
+const { isSidebarCollapsed } = storeToRefs(uiStore)
 
 const canSync = computed(() => onlyPathForRole(getTokenRole()) === null)
 
@@ -98,41 +99,13 @@ const title = computed(
 
         <NotificationBell />
 
-        <!-- ★ ปุ่มสลับธีมอยู่ "ใน" กลุ่มขวา ไม่ใช่ลูกลอยของ navbar - ตอนเป็นลูกตัวที่สาม
-             มันไปกินความกว้างนอกโควตาของสองก้อนแรก ซึ่งเป็นครึ่งหนึ่งของอาการบีบ -->
-        <!-- ★ ห้ามกลับไปใช้ class theme-controller + value="dim" (ของเดิม) - มันสลับธีมด้วย
-             CSS ล้วน จึงข้าม applyTheme() = ไม่มีใครเขียน localStorage (รีโหลดแล้วธีมหาย)
-             และพาไปธีม built-in "dim" ซึ่งเป็นคนละชุดสีกับ amsdark ที่ main.css นิยามไว้
-             ผลคือปุ่มนี้กับปุ่มในกล่องโปรไฟล์ให้ "โหมดมืด" คนละสีกัน -->
-        <label class="toggle mx-2 text-base-content">
-        <input
-          type="checkbox"
-          :checked="isDarkTheme"
-          aria-label="สลับธีมสว่าง/มืด"
-          @change="uiStore.toggleTheme"
-        />
+        <!-- ★ ปุ่มสลับธีมเคยอยู่ตรงนี้ - ถอดออกแล้ว (2026-09-21) เหลือทางเดียวคือแถวใน
+             กล่องโปรไฟล์ ธีมไม่ใช่ของที่คนสลับวันละหลายรอบ การมีสวิตช์ถาวรบน Topbar
+             จึงกินที่ของแถวไอคอนที่ใช้งานจริงทุกวัน (เดิมยังมีสองที่ให้ต้องดูแลให้ตรงกันด้วย)
 
-        <svg aria-label="sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-          <g stroke-linejoin="round" stroke-linecap="round" stroke-width="2" fill="none" stroke="currentColor">
-            <circle cx="12" cy="12" r="4"></circle>
-            <path d="M12 2v2"></path>
-            <path d="M12 20v2"></path>
-            <path d="m4.93 4.93 1.41 1.41"></path>
-            <path d="m17.66 17.66 1.41 1.41"></path>
-            <path d="M2 12h2"></path>
-            <path d="M20 12h2"></path>
-            <path d="m6.34 17.66-1.41 1.41"></path>
-            <path d="m19.07 4.93-1.41 1.41"></path>
-          </g>
-        </svg>
-
-        <svg aria-label="moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" >
-          <g stroke-linejoin="round" stroke-linecap="round" stroke-width="2" fill="none" stroke="currentColor" >
-            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
-          </g>
-        </svg>
-
-        </label>
+             ★ ของที่ย้ายมาแทนคือเมนูบัญชี ซึ่งเดิมเป็นแถบเต็มความกว้างท้าย sidebar -
+             เหตุผลเต็มอยู่ที่หัวไฟล์ ProfileMenu.vue -->
+        <ProfileMenu />
       </div>
     </div>
 

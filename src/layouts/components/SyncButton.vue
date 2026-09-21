@@ -246,7 +246,7 @@ onUnmounted(() => {
       <button
         type="button"
         tabindex="0"
-        class="btn btn-ghost btn-xs gap-1 font-mono"
+        class="btn btn-ghost btn-sm gap-1 font-mono rounded-[4px]"
         :disabled="busy"
         aria-label="เลือกบริษัทที่จะ sync"
       >
@@ -269,7 +269,7 @@ onUnmounted(() => {
 
     <button
       type="button"
-      class="btn btn-ghost btn-sm gap-1.5"
+      class="btn btn-ghost btn-sm gap-1.5 rounded-[4px]"
       :disabled="disabled"
       :title="hint"
       :aria-label="hint"

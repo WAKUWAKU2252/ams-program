@@ -14,8 +14,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import Sidebar from '../components/Sidebar.vue'
 
-// Sidebar เรียก useRouter() เพื่อเฝ้า fullPath (ปิดกล่องโปรไฟล์เมื่อเปลี่ยนหน้า)
-// ที่นี่ไม่ได้ติดตั้ง router จริง — ให้ ref นิ่ง ๆ ไปพอ เทสต์นี้ไม่ได้วัดการเปลี่ยนหน้า
+// SidebarItem เรียก useRoute() เพื่อไฮไลต์เมนูของหน้าปัจจุบัน - ที่นี่ไม่ได้ติดตั้ง router
+// จริง ให้ ref นิ่ง ๆ ไปพอ เทสต์นี้วัดการจัดกลุ่ม ไม่ได้วัดว่าเมนูไหนถูกไฮไลต์
 vi.mock('vue-router', () => ({
   useRouter: () => ({ currentRoute: { value: { fullPath: '/dashboard' } }, push: vi.fn() }),
   useRoute: () => ({ path: '/dashboard', fullPath: '/dashboard' }),
@@ -26,14 +26,6 @@ const getTokenRole = vi.fn<() => string | null>()
 vi.mock('@/shared/services/auth.token', () => ({
   getTokenRole: () => getTokenRole(),
   getToken: () => 'test-token',
-}))
-
-// Sidebar เรียก authStore.getCurrentUser() ตอน mount — ตัดออกไม่ให้ยิง API จริง
-vi.mock('@/shared/services/auth.service', () => ({
-  authService: {
-    login: vi.fn(),
-    getCurrentUser: vi.fn().mockResolvedValue({ id: 1, name: 'ผู้ทดสอบ' }),
-  },
 }))
 
 let wrapper: VueWrapper | null = null
@@ -56,7 +48,6 @@ async function mountAs(role: string) {
   wrapper = mount(Sidebar, {
     global: {
       stubs: {
-        Teleport: true,
         Icon: true,
         RouterLink: { template: '<a><slot /></a>' },
       },

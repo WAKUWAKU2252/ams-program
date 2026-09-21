@@ -27,11 +27,11 @@ export const useConnectionStore = defineStore('connection', {
     statusText: (state): string => {
       switch (state.status) {
         case 'connected':
-          return 'เชื่อมต่อสำเร็จ';
+          return 'Connected';
         case 'connecting':
-          return 'กำลังเชื่อมต่อ...';
+          return 'Connecting...';
         default:
-          return 'การเชื่อมต่อหลุด/เกิดข้อผิดพลาด';
+          return 'Connection Failed';
       }
     },
   },
