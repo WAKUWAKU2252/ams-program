@@ -2,7 +2,13 @@
 // เปลือกของหน้า /login — แผงซ้ายเป็นภาพแบรนด์ แผงขวาเป็นฟอร์ม (router-view)
 import { Icon } from '@iconify/vue'
 import { useUiStore } from '@/shared/stores/ui'
-import login from '@/assets/login.png'
+// ★ เป็น .jpg ไม่ใช่ .png โดยตั้งใจ - เป็นภาพถ่าย (ท้องฟ้า+ตึก) ไม่มีส่วนโปร่งใส
+//   ของเดิมเป็น PNG 3375x3375 = 4.3 MB ซึ่งใหญ่กว่า bundle ทั้งแอปหลายเท่า
+//   ย่อเหลือ 1600px + JPEG q85 = 184 KB (ลด 96%) โดยตาแยกไม่ออกที่ขนาดแสดงจริง
+//   ★ 1600 มาจากการวัด ไม่ใช่เดา: แผงซ้ายกว้าง 726px ที่ viewport 1280 → ราว 1100px
+//     ที่ 1920 คูณ ken-burns ที่ซูมถึง 1.14 เท่า คูณ DPR 1.25 = 1568
+//   ★ ถ้าจะเปลี่ยนรูป อย่าเซฟกลับเป็น PNG - รูปถ่ายใน PNG ที่ขนาดเดียวกันคือ 1.4 MB
+import login from '@/assets/login.jpg'
 
 const uiStore = useUiStore()
 
@@ -21,9 +27,9 @@ const highlights = [
     <!-- แสงพื้นหลังจาง ๆ หลังการ์ด — กันไม่ให้ขอบนอกเป็นเทาเรียบทื่อ
          ★ pointer-events-none จำเป็น: มันคลุมพื้นที่กว้างกว่าการ์ด ถ้าไม่ปิดจะไปกินคลิก
            ของอะไรก็ตามที่วางทับทีหลัง -->
-    <div class="pointer-events-none absolute -left-40 -top-40 size-96 rounded-full blur-3xl bg-primary/20  animate-ambient"
+    <div class="pointer-events-none absolute -left-40 -top-40 size-150 rounded-full blur-3xl bg-accent/20  animate-ambient"
       aria-hidden="true"></div>
-    <div class="pointer-events-none absolute -bottom-48 -right-32 size-[30rem] rounded-full bg-accent/20 blur-3xl animate-float-reverse"
+    <div class="pointer-events-none absolute -bottom-48 -right-32 size-[30rem] rounded-full bg-primary/20 blur-3xl animate-float-reverse"
       aria-hidden="true"></div>
 
     <div class="relative card min-h-[calc(100vh-2rem)] bg-base-100 shadow-xl sm:min-h-[calc(100vh-5rem)]">
