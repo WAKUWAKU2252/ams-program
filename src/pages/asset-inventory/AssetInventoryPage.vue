@@ -30,7 +30,6 @@ import {
   listAssetClasses,
   listCompanies,
   listDepartments,
-  listFiscalYears,
   listLocations,
 } from '@/shared/services/master.service'
 import type {
@@ -70,9 +69,6 @@ const locationId = ref('')
 const status = ref('')
 /** รหัสหมวด = ท่อน 1 ของรหัสบัญชี เช่น '1216301' - '' = ทุกหมวด (ค่าคือ code ไม่ใช่ id) */
 const assetClass = ref('')
-const fiscalYear = ref('')
-const minNbv = ref('')
-const maxNbv = ref('')
 /** '' = เรียงตามเลขสินทรัพย์ (ค่าตั้งต้นของ backend) - ดู ASSET_SORT_OPTIONS */
 const sort = ref('')
 /** มีผลเมื่อเลือก sort แล้วเท่านั้น - ค่าตั้งต้นคือมาก/ใหม่ก่อน */
@@ -81,7 +77,6 @@ const sortDir = ref<SortDirection>('desc')
 const companies = ref<CompanyOption[]>([])
 const departments = ref<DepartmentOption[]>([])
 const locations = ref<MasterOption[]>([])
-const fiscalYears = ref<number[]>([])
 const assetClasses = ref<AssetClassOption[]>([])
 
 /**
@@ -127,9 +122,6 @@ async function load() {
       locationId: num(locationId.value),
       status: status.value || undefined,
       assetClass: assetClass.value || undefined,
-      fiscalYear: num(fiscalYear.value),
-      minNetBookValue: num(minNbv.value),
-      maxNetBookValue: num(maxNbv.value),
       sort: (sort.value || undefined) as InventoryParams['sort'],
       sortDir: sortDir.value,
     })
@@ -170,9 +162,6 @@ function loadFilterOptions() {
   void listLocations()
     .then((rows) => (locations.value = rows))
     .catch(() => {})
-  void listFiscalYears()
-    .then((rows) => (fiscalYears.value = rows))
-    .catch(() => {})
   void loadAssetClasses()
 }
 
@@ -210,7 +199,7 @@ const debouncedLoad = () => {
   }, 350)
 }
 
-watch([searchText, minNbv, maxNbv], debouncedLoad)
+watch(searchText, debouncedLoad)
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -228,7 +217,7 @@ onUnmounted(() => {
 //    → ได้ตารางว่างแวบหนึ่ง แล้วอีกตัวค่อยล้างแผนกจนยิงซ้ำอีกรอบ
 //    (บั๊กเดียวกับที่หน้า Dashboard เคยเจอ - ดู watch ใน DashboardPage.vue)
 watch(
-  [companyCode, departmentId, locationId, status, assetClass, fiscalYear, sort, sortDir],
+  [companyCode, departmentId, locationId, status, assetClass, sort, sortDir],
   ([company], [prevCompany]) => {
     if (company !== prevCompany) {
       // ลิสต์ Asset class แคบตามบริษัท - โหลดใหม่ทุกครั้งที่เปลี่ยน ไม่ว่าจะมีค่าให้ล้างหรือไม่
@@ -263,9 +252,6 @@ function clearFilters() {
   locationId.value = ''
   status.value = ''
   assetClass.value = ''
-  fiscalYear.value = ''
-  minNbv.value = ''
-  maxNbv.value = ''
   // ไม่เรียก load() เอง - watch ทั้งสองชุดข้างบนจับได้ครบทุกช่องอยู่แล้ว
   // เรียกเองจะกลายเป็นยิงซ้อนกับ watch แล้วผลลัพธ์ที่มาทีหลังอาจเป็นของคิวรีเก่า
 }
@@ -290,8 +276,6 @@ const FILTER_FIELDS = [
   { key: 'status', label: 'สถานะ', icon: 'lucide:activity' },
   // ★ ป้ายกับไอคอนต้องตรงกับหน้า Asset summary - เป็นตัวกรองแกนเดียวกัน (ท่อน 1 ของรหัสบัญชี)
   { key: 'assetClass', label: 'Asset class', icon: 'lucide:layers' },
-  { key: 'fiscalYear', label: 'ปีบัญชีของตัวเลข', icon: 'lucide:calendar' },
-  { key: 'netBookValue', label: 'มูลค่าคงเหลือ', icon: 'lucide:coins' },
 ]
 
 const visibleFields = computed(() => {
@@ -312,10 +296,6 @@ function filterHasValue(key: string): boolean {
       return !!status.value
     case 'assetClass':
       return !!assetClass.value
-    case 'fiscalYear':
-      return !!fiscalYear.value
-    case 'netBookValue':
-      return !!minNbv.value.trim() || !!maxNbv.value.trim()
     default:
       return false
   }
@@ -327,11 +307,6 @@ function clearField(key: string) {
   else if (key === 'location') locationId.value = ''
   else if (key === 'status') status.value = ''
   else if (key === 'assetClass') assetClass.value = ''
-  else if (key === 'fiscalYear') fiscalYear.value = ''
-  else if (key === 'netBookValue') {
-    minNbv.value = ''
-    maxNbv.value = ''
-  }
 }
 
 /**
@@ -353,11 +328,9 @@ function toggleValue(key: string, value: string) {
           ? locationId
           : key === 'status'
             ? status
-            : key === 'fiscalYear'
-              ? fiscalYear
-              : key === 'assetClass'
-                ? assetClass
-                : null
+            : key === 'assetClass'
+              ? assetClass
+              : null
   if (!target) return
   target.value = target.value === value ? '' : value
 }
@@ -375,13 +348,6 @@ function fieldValueLabel(key: string): string {
       return STATUS_OPTIONS.find((s) => s.value === status.value)?.label ?? status.value
     case 'assetClass':
       return assetClassLabel(assetClass.value)
-    case 'fiscalYear':
-      return fiscalYear.value
-    case 'netBookValue': {
-      const min = minNbv.value.trim()
-      const max = maxNbv.value.trim()
-      return min && max ? `${min}–${max}` : min ? `≥ ${min}` : `≤ ${max}`
-    }
     default:
       return ''
   }
@@ -540,41 +506,10 @@ const activeFilterChips = computed(() => {
     })
   }
 
-  if (fiscalYear.value) {
-    chips.push({ key: 'year', label: `ปีบัญชี: ${fiscalYear.value}`, clear: () => (fiscalYear.value = '') })
-  }
-
-  // รวมสองช่องเป็น chip เดียว - เป็นช่วงเดียวกัน แยกเป็นสองอันแล้วอ่านไม่ออกว่าคู่กัน
-  const min = minNbv.value.trim()
-  const max = maxNbv.value.trim()
-  if (min || max) {
-    const text = min && max ? `${min}–${max}` : min ? `≥ ${min}` : `≤ ${max}`
-    chips.push({
-      key: 'nbv',
-      label: `มูลค่าคงเหลือ: ${text}`,
-      clear: () => {
-        minNbv.value = ''
-        maxNbv.value = ''
-      },
-    })
-  }
-
   return chips
 })
 
 const hasFilter = computed(() => activeFilterChips.value.length > 0)
-
-/**
- * ช่วงมูลค่าที่กรอกกลับหัว (ต่ำสุด > สูงสุด) - เตือนไว้ ไม่ใช่บล็อก
- *
- * backend ตอบผลว่างซึ่งถูกต้องตามที่ถาม แต่ผู้ใช้จะอ่านว่า "ไม่มีของ" ทั้งที่จริงคือ
- * กรอกสลับกัน ป้ายเตือนบอกให้รู้ว่าทำไมถึงว่าง
- */
-const nbvRangeInvalid = computed(() => {
-  const min = num(minNbv.value)
-  const max = num(maxNbv.value)
-  return min !== undefined && max !== undefined && min > max
-})
 
 // ── กดแถว = เปิด modal ไม่ใช่เด้งออกไปหน้ารายละเอียด ────────────────────────
 //
@@ -841,56 +776,6 @@ const range = computed(() => {
                     </button>
                   </li>
                 </ul>
-
-                <ul v-else-if="f.key === 'fiscalYear'" class="max-h-44 overflow-y-auto">
-                  <li v-for="y in fiscalYears" :key="y">
-                    <button
-                      class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
-                      :class="{ 'bg-primary/10 font-medium': fiscalYear === String(y) }"
-                      @click="toggleValue('fiscalYear', String(y))"
-                    >
-                      <Icon
-                        :icon="fiscalYear === String(y) ? 'lucide:check' : 'lucide:minus'"
-                        class="size-3.5 shrink-0"
-                        :class="fiscalYear === String(y) ? 'text-primary' : 'opacity-0'"
-                      />
-                      {{ y }}
-                    </button>
-                  </li>
-                  <li v-if="!fiscalYears.length" class="px-2 py-2 text-xs text-base-content/50">
-                    ยังไม่มีตัวเลขบัญชีในทะเบียน
-                  </li>
-                </ul>
-
-                <template v-else-if="f.key === 'netBookValue'">
-                  <!-- ★ type="text" ไม่ใช่ type="number" โดยตั้งใจ
-                       v-model บน type="number" ทำให้ Vue แปลงค่าเป็น Number ให้อัตโนมัติ
-                       (vModelText เห็น el.type === 'number' แล้วเรียก looseToNumber)
-                       ref ที่ประกาศเป็น string จึงกลายเป็น number กลางคัน แล้ว .trim() ระเบิด
-                       - เคยพังมาแล้ว ตัวกรองเงียบไปทั้งตัวโดยหน้าจอไม่ฟ้องอะไรเลย
-                       inputmode="decimal" ยังให้แป้นตัวเลขบนมือถือเหมือนเดิม -->
-                  <div class="join w-full">
-                    <input
-                      v-model="minNbv"
-                      type="text"
-                      inputmode="decimal"
-                      class="input input-sm join-item w-full"
-                      :class="{ 'input-error': nbvRangeInvalid }"
-                      placeholder="ต่ำสุด"
-                    />
-                    <input
-                      v-model="maxNbv"
-                      type="text"
-                      inputmode="decimal"
-                      class="input input-sm join-item w-full"
-                      :class="{ 'input-error': nbvRangeInvalid }"
-                      placeholder="สูงสุด"
-                    />
-                  </div>
-                  <p v-if="nbvRangeInvalid" class="mt-1.5 text-left text-xs text-error">
-                    ต่ำสุดมากกว่าสูงสุด จึงไม่มีชิ้นไหนเข้าเงื่อนไข
-                  </p>
-                </template>
               </div>
             </div>
 
@@ -898,16 +783,6 @@ const range = computed(() => {
               ไม่พบตัวกรองที่ตรงกับคำค้น
             </p>
           </div>
-
-          <!-- ★ สองตัวกรองนี้ตัดชิ้นที่ยังไม่มีตัวเลขบัญชีออกจากผลโดยปริยาย (เทียบค่าไม่ได้)
-               ต้องบอกไว้ ไม่งั้นยอดที่หายไปจะดูเหมือนข้อมูลหาย -->
-          <p
-            v-if="fiscalYear || minNbv.trim() || maxNbv.trim()"
-            class="flex items-start gap-1.5 border-t border-base-300 px-3 py-2 text-left text-xs text-base-content/60"
-          >
-            <Icon icon="lucide:info" class="mt-0.5 size-3.5 shrink-0" />
-            กรองด้วยปีบัญชีหรือช่วงมูลค่า จะไม่รวมชิ้นที่ SAP ยังไม่มีตัวเลขบัญชีให้
-          </p>
         </div>
       </div>
 
