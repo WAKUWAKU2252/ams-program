@@ -1,0 +1,33 @@
+# Dockerfile ใช้ `COPY . .` ในชั้น build ไฟล์นี้จึงเป็นตัวเดียวที่กันของไม่จำเป็น
+# (และของที่ไม่ควรหลุดเข้า image) - ไม่มีไฟล์นี้ = ยัด node_modules ของ Windows
+# เข้าไปใน image ลินุกซ์ ซึ่งทั้งช้าและ binary ใช้ไม่ได้
+
+node_modules
+dist
+.git
+.gitignore
+
+# ★ .env ของฝั่งจอมีแค่ VITE_API_BASE_URL ซึ่งถูกฝังตอน build อยู่แล้ว
+#   แต่กันไว้เป็นนิสัย - ค่า env ต้องมาจาก docker-compose ไม่ใช่ไฟล์ที่ติดไปกับ image
+.env
+.env.*
+!.env.example
+
+# ของที่ tooling ของ /impeccable ทิ้งไว้
+#
+# ★★ ต้องเป็น **/ นำหน้า ไม่ใช่ชื่อเปล่า - pattern ของ .dockerignore เทียบกับพาธที่นับจาก
+#    รากของ build context ชื่อเปล่าอย่าง `_critique` จึงกันได้แค่ของที่ราก ไม่กิน
+#    public/_critique ที่ลึกลงไปหนึ่งชั้น และไม่กิน _critique.html ที่คนละชื่อ
+#
+#    ★ เคยพลาดมาแล้ว: public/_critique/ เป็น dump ของหน้า dashboard ที่มีมูลค่าสินทรัพย์
+#      จริงทั้งบริษัท (298 ล้าน แยกรายแผนก) ซึ่ง vite ก๊อปลง dist/ ทั้งดุ้นแล้ว nginx
+#      เสิร์ฟออกไปโดยไม่ต้องล็อกอิน - ลบไฟล์ทิ้งไปแล้ว บรรทัดพวกนี้กันไม่ให้กลับมาอีก
+**/_critique
+_critique.html
+.impeccable
+
+Dockerfile
+.dockerignore
+*.log
+.DS_Store
+Thumbs.db
