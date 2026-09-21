@@ -17,6 +17,7 @@ import {
   markNotificationsRead,
   type NotificationItem,
 } from '@/shared/services/notification.service'
+import { getTokenRole } from '@/shared/services/auth.token'
 
 export const useNotificationStore = defineStore('notification', {
   state: () => ({
@@ -26,6 +27,23 @@ export const useNotificationStore = defineStore('notification', {
     /** ข้อความ error ของการโหลดรายการ - ป้ายตัวเลขล้มเงียบได้ แต่กล่องที่เปิดค้างต้องบอก */
     loadError: '',
   }),
+  getters: {
+    /**
+     * role นี้มีกระดิ่งไหม - ผู้ตรวจภายนอก (AUDIT) ไม่มี
+     *
+     * ★ ทั้ง /notifications และ /notifications/unread-count ไม่อยู่ใน AUDIT_ALLOWED ของ
+     *   auditScopeGuard = role นี้ได้ 403 ทุกเส้นของกระดิ่ง ป้ายจึงค้างที่ 0 ตลอดกาล
+     *   และกดเปิดกล่องทีไรก็เจอแต่ข้อความ error ที่ตัวเองแก้อะไรไม่ได้
+     *
+     * ★ ตัวจริงที่กันคือ backend ตัวนี้เป็นเรื่องหน้าจอล้วน ๆ - ซ่อนของที่ใช้ไม่ได้ทิ้ง
+     *   และหยุดยิงคำขอที่รู้อยู่แล้วว่าจะโดนปฏิเสธ
+     *
+     * ★ อยู่ที่ store ไม่ใช่ที่ NotificationBell เพราะคนยิง refreshUnread มีสามทาง
+     *   (mount ของกระดิ่ง / สัญญาณ SSE / กลับมาเปิดแท็บ) - ดักที่ปลายทางเดียวครอบหมด
+     *   ถ้าดักแค่ในคอมโพเนนต์ การกลับมาโฟกัสแท็บจะยิง 403 ทุกครั้งทั้งที่ไม่มีกระดิ่งให้ดู
+     */
+    enabled: (): boolean => getTokenRole() !== 'AUDIT',
+  },
   actions: {
     /**
      * โหลดเฉพาะตัวเลข - เรียกได้ถี่
@@ -34,6 +52,7 @@ export const useNotificationStore = defineStore('notification', {
      *   ส่วน toast แดงเด้งทุกครั้งที่เน็ตสะดุดคือสิ่งที่ทำให้คนเลิกใช้แอป
      */
     async refreshUnread() {
+      if (!this.enabled) return
       try {
         this.unread = (await fetchUnreadCount()).unread
       } catch {
@@ -43,6 +62,7 @@ export const useNotificationStore = defineStore('notification', {
 
     /** โหลดรายการ - เรียกตอนกดเปิดกล่องเท่านั้น */
     async loadList() {
+      if (!this.enabled) return
       this.loading = true
       this.loadError = ''
       try {
