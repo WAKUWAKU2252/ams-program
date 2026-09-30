@@ -81,8 +81,10 @@ export function listUsers(
   params: {
     search?: string
     roleId?: number
-    /** บริษัทของ "แผนกที่สังกัด" - บัญชีที่ไม่ผูกพนักงานจะหายไปเมื่อกรอง */
+    /** บริษัทที่สังกัดจริง (กติกาเดียวกับ Dashboard) คนละหนึ่งบริษัท - บัญชีที่ไม่ผูกพนักงานจะหายไปเมื่อกรอง */
     companyCode?: string
+    /** เฉพาะบัญชีที่ไม่ผูกพนักงาน - ทางเดียวที่จะหาบัญชีกลุ่มนี้เจอ เพราะไม่มีบริษัทให้กรอง */
+    unlinked?: boolean
     page?: number
     limit?: number
   } = {},
@@ -91,6 +93,7 @@ export function listUsers(
   if (params.search?.trim()) query.set('search', params.search.trim())
   if (params.roleId) query.set('roleId', String(params.roleId))
   if (params.companyCode) query.set('companyCode', params.companyCode)
+  if (params.unlinked) query.set('unlinked', 'true')
   if (params.page) query.set('page', String(params.page))
   if (params.limit) query.set('limit', String(params.limit))
 
@@ -109,5 +112,18 @@ export function updateUserRole(id: number, roleId: number): Promise<User> {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roleId }),
+  })
+}
+
+/**
+ * PATCH /users/:id/password - ADMIN ตั้งรหัสผ่านใหม่ให้ผู้ใช้
+ *
+ * ⚠️ เขียนลงฐานจริง · token ที่ผู้ใช้ถืออยู่ยังใช้ได้จนหมดอายุ (JWT_EXPIRES_IN) ระบบเตะออกไม่ได้
+ */
+export function resetUserPassword(id: number, password: string): Promise<User> {
+  return request<User>(`/users/${id}/password`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
   })
 }

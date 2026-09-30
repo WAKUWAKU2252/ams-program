@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import DateDisplay from './DateDisplay.vue'
 import SyncButton from './SyncButton.vue'
+import AutoSyncToggle from './AutoSyncToggle.vue'
 import { Icon } from '@iconify/vue'
 import NotificationBell from './NotificationBell.vue'
 import ProfileMenu from './ProfileMenu.vue'
@@ -19,6 +20,8 @@ const uiStore = useUiStore()
 const { isSidebarCollapsed } = storeToRefs(uiStore)
 
 const canSync = computed(() => onlyPathForRole(getTokenRole()) === null)
+// สวิตช์ sync อัตโนมัติ - แค่ซ่อนปุ่ม ตัวบังคับจริงคือ requireRole('ADMIN') ของ PUT /sync/schedule
+const isAdmin = computed(() => getTokenRole() === 'ADMIN')
 
 // เดินจาก child ขึ้น parent เอา title ที่ลึกสุดที่กำหนดไว้ (/create/:id ได้ title จาก parent 'create')
 const title = computed(
@@ -81,6 +84,7 @@ const title = computed(
             ซึ่งถูกต้อง - สองที่นั้นเปิดได้โดยไม่ต้องล็อกอิน) -->
       <div class="flex shrink-0 items-center gap-1">
         <SyncButton v-if="canSync" />
+        <AutoSyncToggle v-if="isAdmin" />
         <!-- ★ ซ่อนวันที่/เวลาบนมือถือ - navbar กว้าง 390px ต้องแบ่งให้ปุ่มเมนู
              ชื่อหน้า และปุ่ม sync ก่อน วันที่เวลาเป็นของที่มือถือมีอยู่บนแถบสถานะของเครื่อง
              อยู่แล้ว จึงเป็นตัวแรกที่ควรตัดเมื่อที่ไม่พอ (sm ขึ้นไปยังเหมือนเดิมทุกอย่าง)

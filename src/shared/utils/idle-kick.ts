@@ -25,6 +25,14 @@ import { watch, onUnmounted, type Ref } from 'vue'
 export const IDLE_KICK_MS = 10 * 60 * 1000
 
 /**
+ * ส่ง heartbeat ถี่สุดเท่านี้ — mousemove ยิงหลายสิบครั้งต่อวินาที ห้ามส่งตามทุก event
+ *
+ * ★ IDLE_KICK_MS + ค่านี้ ต้องน้อยกว่า HOLDER_TTL_MS ฝั่ง backend (15 นาที) เสมอ ไม่งั้น
+ *   backend จะตัดคนที่จอยังบอกว่าทำงานอยู่ ซึ่งคือบั๊กที่ heartbeat มีไว้แก้
+ */
+export const HEARTBEAT_INTERVAL_MS = 60 * 1000
+
+/**
  * เหตุการณ์ที่นับว่า "ยังอยู่" — ไม่รวม focus/visibilitychange โดยตั้งใจ
  *
  * แท็บที่เปิดค้างไว้เฉย ๆ แล้วสลับกลับมาดูไม่ใช่การทำงาน ถ้านับด้วย คนที่เปิดใบทิ้งไว้
@@ -37,9 +45,19 @@ const IDLE_EVENTS: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'click
  *
  * @param holdingLock true = ถือ lock อยู่ (presenceState.state === 'editable')
  * @param onKick      สิ่งที่ทำเมื่อหมดเวลา — ปกติคือปิดสาย presence แล้วเด้งกลับหน้าลิสต์
+ * @param onActive    บอก backend ว่า "ยังทำงานอยู่" (ต่ออายุ lock) — ถูกเรียกไม่ถี่กว่า
+ *                    HEARTBEAT_INTERVAL_MS และเฉพาะตอนถือ lock อยู่เท่านั้น
+ *
+ * ★ ใช้ event ชุดเดียวกับที่ตัดสิน idle โดยตั้งใจ — "ยังอยู่" ของจอกับของ backend ต้องเป็น
+ *   นิยามเดียวกัน ถ้าต่างกัน จะมีช่วงที่จอบอกว่าแก้ได้แต่ backend ปัดตก (หรือกลับกัน)
  */
-export function useIdleKick(holdingLock: Ref<boolean>, onKick: () => void): void {
+export function useIdleKick(
+  holdingLock: Ref<boolean>,
+  onKick: () => void,
+  onActive?: () => void,
+): void {
   let timer: ReturnType<typeof setTimeout> | undefined
+  let lastBeat = 0
 
   function reset() {
     if (timer) clearTimeout(timer)
@@ -49,20 +67,31 @@ export function useIdleKick(holdingLock: Ref<boolean>, onKick: () => void): void
     }, IDLE_KICK_MS)
   }
 
+  function onActivity() {
+    reset()
+    const now = Date.now()
+    if (onActive && now - lastBeat >= HEARTBEAT_INTERVAL_MS) {
+      lastBeat = now
+      onActive()
+    }
+  }
+
   function stop() {
     if (timer) {
       clearTimeout(timer)
       timer = undefined
     }
-    IDLE_EVENTS.forEach((e) => window.removeEventListener(e, reset))
+    IDLE_EVENTS.forEach((e) => window.removeEventListener(e, onActivity))
   }
 
   function start() {
     // ★ ถอดก่อนใส่เสมอ — ได้ lock ซ้ำ (reconnect หลังสายหลุด) จะเรียก start() ซ้ำได้
     //   listener ที่ซ้อนกันไม่ทำให้พังทันที แต่จะถอดไม่ครบตอน stop() แล้วค้างบน window
     stop()
-    IDLE_EVENTS.forEach((e) => window.addEventListener(e, reset))
+    IDLE_EVENTS.forEach((e) => window.addEventListener(e, onActivity))
     reset()
+    // เพิ่งได้ lock = backend เพิ่งตั้งเวลาให้ใหม่แล้ว ไม่ต้องส่ง heartbeat ซ้ำทันที
+    lastBeat = Date.now()
   }
 
   // immediate: เผื่อได้ lock ตั้งแต่ event แรกที่ backend ส่งมา ก่อน watch จะถูกตั้ง

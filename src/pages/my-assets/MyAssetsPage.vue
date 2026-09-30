@@ -278,5 +278,5 @@ function isFullyDepreciated(item: MyAssetItem): boolean {
 
        ★ ตัวเลขที่ถูกถอดออกจากการ์ด (ราคาทุน ค่าเสื่อมสะสม แถบความคืบหน้า มูลค่าซาก)
          ไม่ได้หายไปจากระบบ - มันอยู่ครบใน modal นี้ พร้อมป้ายปีบัญชีของตัวเอง -->
-  <AssetDetailModal v-model="detailOpen" :item="selected" editable-location editable-image editable-warranty editable-holder />
+  <AssetDetailModal v-model="detailOpen" :item="selected" editable-location editable-image editable-warranty editable-holder editable-department />
 </template>

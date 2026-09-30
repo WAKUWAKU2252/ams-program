@@ -90,6 +90,37 @@ export function syncDocuments(companyCode: string): Promise<SyncDocumentsResult>
 }
 
 /**
+ * GET/PUT /sync/schedule - sync อัตโนมัติ (scheduler ฝั่ง backend) เปิดอยู่ไหม
+ *
+ * ★ สถานะอยู่ในหน่วยความจำของ backend ไม่ได้ลง DB - restart เมื่อไหร่กลับไปเป็น envDefault
+ *   หน้าจอต้องบอกข้อนี้ไว้เสมอ ไม่งั้นคนที่กดปิดไว้จะนึกว่ามันปิดค้างถาวร
+ */
+export interface AutoSyncState {
+  enabled: boolean;
+  intervalMinutes: number;
+  /** ค่าใน .env (SAP_SYNC_AUTO_ENABLED) - ค่าที่จะกลับไปเป็นเมื่อ backend restart */
+  envDefault: boolean;
+  /** false = .env ตั้งรอบเป็น 0 ไว้ ไม่มีรอบให้เปิด */
+  canToggle: boolean;
+  /** ใครกดล่าสุด - null = ยังไม่มีใครกดตั้งแต่ backend เริ่ม */
+  changedByName: string | null;
+  changedAt: string | null;
+}
+
+export function getAutoSync(): Promise<AutoSyncState> {
+  return request<AutoSyncState>('/sync/schedule', { method: 'GET' });
+}
+
+/** ADMIN เท่านั้น (backend ตอบ 403 ให้ role อื่น) */
+export function setAutoSync(enabled: boolean): Promise<AutoSyncState> {
+  return request<AutoSyncState>('/sync/schedule', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+/**
  * เวลาที่ "ข้อมูลสดถึง" ของบริษัทหนึ่ง - เอาตัวที่ **เก่ากว่า** ระหว่าง PO กับ GRPO
  *
  * ★ ห้ามใช้ตัวใหม่กว่า: ถ้า PO ดึงสำเร็จเมื่อ 1 นาทีที่แล้วแต่ GRPO ค้างมาตั้งแต่เมื่อวาน

@@ -23,6 +23,9 @@ vi.mock('@/shared/services/presence.service', () => ({
     presenceHandlers.onState = handlers.onState
     return { close: vi.fn() }
   },
+  // หน้านี้ส่ง heartbeat ต่ออายุ lock ตอนผู้ใช้ขยับจอ (useIdleKick) - ไม่มีตัวนี้ใน mock
+  // แล้ววันไหนเทสต์ยิง mousemove ขณะถือ lock จะพังด้วยเหตุผลที่ไม่เกี่ยวกับสิ่งที่วัด
+  sendPresenceHeartbeat: vi.fn(),
 }))
 
 const draft = {

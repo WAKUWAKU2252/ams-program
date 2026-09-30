@@ -21,6 +21,13 @@
  * เหตุผลเดียวกับที่นั่น: popover อยู่ top layer จึงไม่ถูก ancestor ที่มี overflow ตัดขอบ
  * (คอลัมน์นี้มี overflow-y-auto ของลิสต์สินทรัพย์อยู่ข้างล่าง) และเป็นรูปแบบเดียวกับ
  * dropdown ตัวอื่นในระบบ ไม่ต้องมีของสามแบบให้ดูแล
+ *
+ * ── "ทุกห้อง" = selectedId เป็น null ไม่ใช่สถานะที่สาม
+ *
+ * ก่อนมีตัวเลือกนี้ null แปลว่า "ยังไม่ได้เลือก" ซึ่งบนผังไม่มีอะไรให้ดูเลย ตอนนี้ null คือ
+ * "ดูหมุดทุกห้องของชั้นนี้" แทน - ถ้าแยกเป็นธงอีกตัว จะมีสถานะ "ไม่ได้เลือกห้อง และไม่ได้
+ * เลือกทุกห้อง" โผล่มาโดยไม่มีความหมายอะไร และทุกทางที่ล้างห้อง (คลิกห้องเดิมซ้ำ / ปุ่มปิด
+ * รายละเอียดห้อง / สลับชั้น) ต้องจำตั้งธงให้ถูกทุกที่
  */
 import { computed, ref, useId } from 'vue';
 import { Icon } from '@iconify/vue';
@@ -29,11 +36,18 @@ import type { FloorPlanRoom } from '@/shared/services/master.service';
 const props = defineProps<{
   rooms: FloorPlanRoom[];
   selectedId: number | null;
+  /** ชื่อชั้นที่ต่อท้าย "ทุกห้อง" - ตัวเลือกนี้ครอบแค่ชั้นที่เปิดอยู่ ไม่ใช่ทั้งไซต์ */
+  floorLabel?: string | null;
 }>();
 
 const emit = defineEmits<{
-  (e: 'select', id: number): void;
+  /** null = ทุกห้องของชั้นนี้ */
+  (e: 'select', id: number | null): void;
 }>();
+
+const allRoomsLabel = computed(() =>
+  props.floorLabel ? `ทุกห้อง · ชั้น ${props.floorLabel}` : 'ทุกห้อง',
+);
 
 const uid = useId();
 const popoverId = `roomselect-${uid}`;
@@ -158,7 +172,7 @@ const grouped = computed<[string, FloorPlanRoom[]][]>(() => {
     .filter(([, list]) => list.length > 0);
 });
 
-function select(id: number) {
+function select(id: number | null) {
   emit('select', id);
   popoverRef.value?.hidePopover();
 }
@@ -191,23 +205,33 @@ function onToggle(e: Event) {
  * ★ ข้ามตึกได้เมื่อเดินจนสุดตึกหนึ่ง: orderedRooms ต่อทุกตึกเรียงกันเป็นเส้นเดียว ปุ่มจึง
  *   พาไล่ได้ครบทั้งชั้นโดยไม่ต้องกลับไปเปิด dropdown เลือกตึกใหม่เอง
  */
+/**
+ * ตำแหน่งในลำดับการเดิน - "ทุกห้อง" (null) นับเป็นช่องที่ -1 หน้าห้องแรก
+ *
+ * ถัดไปจากทุกห้อง = ห้องแรก / ก่อนหน้าห้องแรก = กลับไปทุกห้อง - ตัวเลือกทุกห้องอยู่บนสุด
+ * ของ dropdown อยู่แล้ว ปุ่มคู่นี้จึงเดินตามลำดับเดียวกับที่ตาเห็นในกล่อง
+ */
 const selectedIndex = computed(() =>
   props.selectedId === null ? -1 : orderedRooms.value.findIndex((r) => r.id === props.selectedId),
 );
 
-// ปิดปุ่มที่หัว/ท้ายลิสต์ด้วย ไม่ใช่แค่ตอนยังไม่ได้เลือกห้อง — ปุ่มที่กดได้แต่ไม่เกิดอะไรขึ้น
-// ทำให้คนกดซ้ำเพราะคิดว่าคลิกไม่โดน
-const canPrev = computed(() => selectedIndex.value > 0);
-const canNext = computed(
-  () => selectedIndex.value !== -1 && selectedIndex.value < orderedRooms.value.length - 1,
+// ปิดปุ่มที่หัว/ท้ายลิสต์ด้วย — ปุ่มที่กดได้แต่ไม่เกิดอะไรขึ้นทำให้คนกดซ้ำเพราะคิดว่าคลิกไม่โดน
+// ★ selectedId ที่ไม่มีอยู่ในลิสต์ (findIndex ได้ -1 ทั้งที่ไม่ใช่ null) ห้ามให้ปุ่ม next
+//   พาไปห้องแรกเหมือนตอนอยู่ที่ทุกห้อง - เช็ค null ตรง ๆ ไม่ใช่เช็คแค่ index
+const canPrev = computed(() => props.selectedId !== null && selectedIndex.value >= 0);
+const canNext = computed(() =>
+  props.selectedId === null
+    ? orderedRooms.value.length > 0
+    : selectedIndex.value !== -1 && selectedIndex.value < orderedRooms.value.length - 1,
 );
 
 /** รวมสองทิศไว้ที่เดียว ไม่แยกเป็น nextRoom/prevRoom — กันสองตัวหลุดจากกันเวลาแก้ */
 function step(delta: 1 | -1) {
-  if (selectedIndex.value === -1) return;
-  const target = orderedRooms.value[selectedIndex.value + delta];
-  if (!target) return;
-  select(target.id);
+  if (delta === 1 ? !canNext.value : !canPrev.value) return;
+  const next = selectedIndex.value + delta;
+  if (next === -1) return select(null);
+  const target = orderedRooms.value[next];
+  if (target) select(target.id);
 }
 </script>
 
@@ -240,12 +264,12 @@ function step(delta: 1 | -1) {
       :popovertarget="popoverId"
       :style="{ anchorName }"
     >
-      <Icon icon="lucide:map-pin" class="opacity-60" />
-      <span class="grow truncate" :class="{ 'text-base-content/40': !selectedRoom }">
+      <Icon :icon="selectedRoom ? 'lucide:map-pin' : 'lucide:layers'" class="opacity-60" />
+      <span class="grow truncate">
         <template v-if="selectedRoom">
           {{ selectedRoom.locationName }} · {{ selectedRoom.room ?? selectedRoom.code }}
         </template>
-        <template v-else>เลือกห้อง</template>
+        <template v-else>{{ allRoomsLabel }}</template>
       </span>
       <Icon icon="lucide:chevron-down" class="opacity-60" />
     </button>
@@ -265,6 +289,14 @@ function step(delta: 1 | -1) {
 
       <!-- max-h + overflow: 57 ห้องยาวเกินจอ ปล่อยไว้ popover จะสูงจนล้นออกนอกหน้าต่าง -->
       <ul class="menu menu-sm max-h-80 w-full flex-nowrap overflow-y-auto px-0">
+        <!-- ทุกห้องอยู่บนสุดเสมอ และไม่โดนช่องค้นกรองทิ้ง - เป็นทางถอยออกจากห้อง ไม่ใช่ห้องหนึ่ง -->
+        <li>
+          <button :class="{ 'menu-active': selectedId === null }" @click="select(null)">
+            <Icon icon="lucide:layers" class="size-4 opacity-70" />
+            <span class="truncate">{{ allRoomsLabel }}</span>
+          </button>
+        </li>
+
         <li v-for="[building, list] in grouped" :key="building">
           <h2 class="menu-title">{{ building }} ({{ list.length }})</h2>
 

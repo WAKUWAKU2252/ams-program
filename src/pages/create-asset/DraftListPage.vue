@@ -181,7 +181,7 @@ const scopedCompanyCode = computed(() =>
   canPickAnyCompany.value ? undefined : (ownCompanyCode.value ?? undefined),
 )
 
-// ── ขอซื้อโดย: ค้นที่ฝั่ง server ไม่ใช่โหลดมาทั้งหมดแล้วกรองในเครื่อง ─────────
+// ── ผู้ขอซื้อ: ค้นที่ฝั่ง server ไม่ใช่โหลดมาทั้งหมดแล้วกรองในเครื่อง ─────────
 //
 // พนักงานมีหลักร้อย - ขอทีละ 8 แถวแล้วบอกว่าทั้งหมดมีกี่คน ให้ผู้ใช้พิมพ์ค้นให้แคบลงเอง
 // (กติกาเดียวกับตัวกรองผู้ครอบครองบน Dashboard)
@@ -239,7 +239,7 @@ const panelOpen = ref(false)
 const expandedField = ref('')
 
 const FILTER_FIELDS = [
-  { key: 'owner', label: 'ขอซื้อโดย', icon: 'lucide:user' },
+  { key: 'owner', label: 'ผู้ขอซื้อ', icon: 'lucide:user' },
   { key: 'status', label: 'Status', icon: 'lucide:activity' },
 ]
 
@@ -320,7 +320,7 @@ const activeFilterChips = computed(() => {
     chips.push({ key: 'search', label: `ค้น: ${search}`, clear: () => (searchText.value = '') })
   }
   if (ownerPrId.value) {
-    chips.push({ key: 'owner', label: `ขอซื้อโดย: ${ownerPrName.value}`, clear: clearOwner })
+    chips.push({ key: 'owner', label: `ผู้ขอซื้อ: ${ownerPrName.value}`, clear: clearOwner })
   }
   if (status.value) {
     chips.push({
@@ -725,7 +725,7 @@ async function onConfirmRemove() {
             <th class="freeze-col text-center lg:w-[10%]">Request</th>
             <th class="freeze-col-2 w-[18%] text-center">PO Number</th>
             <th class="w-[18%]">ผู้สร้าง</th>
-            <th class="w-[18%]">ขอซื้อโดย</th>
+            <th class="w-[18%]">ผู้ขอซื้อ</th>
             <th class="w-[18%]">แก้ล่าสุด</th>
             <th class="w-[10%] text-right">Status</th>
             <th class="w-[8%]"></th>
@@ -751,7 +751,7 @@ async function onConfirmRemove() {
                 <span
                   v-if="(d.rejectedAssetCount ?? 0) > 0"
                   class="badge badge-warning badge-soft badge-sm gap-1 whitespace-nowrap"
-                  :title="`บัญชีตีกลับ ${d.rejectedAssetCount} ชิ้น แก้แล้วชิ้นนั้นจะกลับเข้าคิวออกเลขเอง`"
+                  :title="`บัญชีตีกลับ ${d.rejectedAssetCount} ชิ้น `"
                 >
                   <Icon icon="mdi:undo-variant" class="size-3.5" />
                   ตีกลับ {{ d.rejectedAssetCount }} ชิ้น

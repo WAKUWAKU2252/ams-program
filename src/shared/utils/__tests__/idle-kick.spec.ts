@@ -9,14 +9,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
-import { IDLE_KICK_MS, useIdleKick } from '../idle-kick'
+import { HEARTBEAT_INTERVAL_MS, IDLE_KICK_MS, useIdleKick } from '../idle-kick'
 
 /** ห่อ composable ไว้ใน component จริง - onUnmounted ทำงานได้เฉพาะใน setup context */
-function mountIdle(holding: ReturnType<typeof ref<boolean>>, onKick: () => void) {
+function mountIdle(
+  holding: ReturnType<typeof ref<boolean>>,
+  onKick: () => void,
+  onActive?: () => void,
+) {
   return mount(
     defineComponent({
       setup() {
-        useIdleKick(holding as unknown as import('vue').Ref<boolean>, onKick)
+        useIdleKick(holding as unknown as import('vue').Ref<boolean>, onKick, onActive)
         return () => h('div')
       },
     }),
@@ -134,5 +138,53 @@ describe('เก็บกวาด', () => {
     expect(removed + removedAfter).toBeGreaterThanOrEqual(added)
     addSpy.mockRestore()
     removeSpy.mockRestore()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// heartbeat - บอก backend ว่า "ยังทำงานอยู่" เพื่อต่ออายุ lock
+//
+// บั๊กที่ตัวนี้ปิด: backend เคยนับอายุ lock จากตอนได้ lock (15 นาที) คนที่นั่งไล่ตรวจของ
+// ทั้งใบโดยยังไม่กดบันทึกอะไร จะกดปุ่มแรกไม่ผ่านทั้งที่จอบอกว่าแก้ได้
+describe('heartbeat ต่ออายุ lock', () => {
+  it('ถือ lock แล้วขยับจอ = ส่ง heartbeat แต่ไม่ถี่กว่าหนึ่งครั้งต่อช่วง', () => {
+    const onActive = vi.fn()
+    wrapper = mountIdle(ref(true), vi.fn(), onActive)
+
+    // เพิ่งได้ lock - backend เพิ่งตั้งเวลาให้แล้ว ยังไม่ต้องส่ง
+    window.dispatchEvent(new Event('mousemove'))
+    expect(onActive).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS)
+    for (let i = 0; i < 5; i++) window.dispatchEvent(new Event('mousemove'))
+    expect(onActive).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS)
+    window.dispatchEvent(new Event('keydown'))
+    expect(onActive).toHaveBeenCalledTimes(2)
+  })
+
+  it('รอคิวอยู่ (ไม่ได้ถือ lock) = ไม่ส่ง heartbeat', () => {
+    const onActive = vi.fn()
+    wrapper = mountIdle(ref(false), vi.fn(), onActive)
+
+    vi.advanceTimersByTime(HEARTBEAT_INTERVAL_MS * 2)
+    window.dispatchEvent(new Event('mousemove'))
+    expect(onActive).not.toHaveBeenCalled()
+  })
+
+  it('นั่งเฉยไม่แตะอะไร = ไม่ส่ง heartbeat (backend ต้องปล่อยให้หมดอายุได้)', () => {
+    const onActive = vi.fn()
+    wrapper = mountIdle(ref(true), vi.fn(), onActive)
+
+    vi.advanceTimersByTime(IDLE_KICK_MS - 1000)
+    expect(onActive).not.toHaveBeenCalled()
+  })
+
+  it('★ idle kick + ช่วง heartbeat ต้องสั้นกว่าอายุ lock ฝั่ง backend', () => {
+    // HOLDER_TTL_MS ของ presence.service ฝั่ง backend - import ข้ามโปรเจกต์ไม่ได้จึงเขียนเลข
+    // ถ้าแก้ฝั่งใดฝั่งหนึ่งแล้วเทสต์นี้ล้ม = backend จะตัดคนที่จอยังบอกว่าทำงานอยู่ (บั๊กเดิม)
+    const BACKEND_HOLDER_TTL_MS = 15 * 60 * 1000
+    expect(IDLE_KICK_MS + HEARTBEAT_INTERVAL_MS).toBeLessThan(BACKEND_HOLDER_TTL_MS)
   })
 })

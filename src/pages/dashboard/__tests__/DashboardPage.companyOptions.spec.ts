@@ -51,11 +51,13 @@ function overview(opts: {
       kind: 'ALL',
       departmentId: opts.departmentId,
       departmentName: opts.departmentId === null ? null : 'ฝ่ายบัญชี',
-      locked: false,
       companyCode: opts.companyCode,
       companyName: opts.companyCode,
       companyLocked: false,
     },
+    // null = backend ไม่ได้ตั้งแผนกตั้งต้นให้ในรอบนี้ หน้าจอจึงเติมตัวเลือกจาก byDepartment
+    // ตามเส้นทางเดิม ซึ่งเป็นเส้นที่ไฟล์นี้ทดสอบอยู่
+    departmentOptions: null,
     // asOfDate* เป็น null = ยังไม่มีข้อมูลค่าเสื่อมรายงวด ป้าย "ณ วันที่" จะไม่ขึ้น
     // ซึ่งไม่กระทบสิ่งที่ไฟล์นี้ทดสอบ (ตัวเลือกบริษัทบน dropdown)
     totals: {

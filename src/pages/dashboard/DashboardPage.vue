@@ -16,7 +16,7 @@
 // ★ ทะเบียนสินทรัพย์ (Asset Inventory) เคยถูกยุบมาต่อท้ายหน้านี้ช่วงหนึ่ง แล้วแยกกลับไป
 //   เป็น /asset-inventory ตามเดิม - อย่าเอากลับมา ช่องเลือกแผนกของหน้านี้ถูก backend
 //   ล็อกตาม role ส่วนของทะเบียนต้องค้นได้ทุกแผนก สองกฎนี้อยู่หน้าเดียวกันไม่ได้
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Icon } from '@iconify/vue'
 import AppPagination from '@/shared/components/AppPagination.vue'
 import { getDashboardOverview } from '@/shared/services/dashboard.service'
@@ -73,6 +73,17 @@ const companyOptions = ref<CompanySummary[]>([])
  */
 const depreciationChart = ref<DepreciationChartMode>('trend')
 
+/**
+ * ★ รอบแรกเท่านั้นที่ขอให้ backend ตั้ง "แผนกของตัวเอง" เป็นค่าตั้งต้นให้
+ *
+ * เป็นตัวแปรธรรมดา ไม่ใช่ ref โดยตั้งใจ - ไม่มีอะไรบนจอต้องวาดตามมัน และไม่ควรมี watch
+ * ตัวไหนมองเห็น (หน้านี้มีบทเรียนเรื่อง watch ที่กระตุ้นกันเองอยู่แล้ว ดูข้างล่าง)
+ *
+ * ★ ตั้งเป็น false **หลัง** await สำเร็จ ไม่ใช่ก่อน - รอบแรกที่ล้มเหลวแล้วผู้ใช้กด
+ *   "ลองใหม่" ต้องยังได้ค่าตั้งต้นอยู่ ไม่ใช่เสียสิทธิ์นั้นไปเพราะเน็ตสะดุดครั้งเดียว
+ */
+let askOwnDepartmentDefault = true
+
 async function load() {
   loading.value = true
   loadError.value = ''
@@ -81,11 +92,20 @@ async function load() {
     const res = await getDashboardOverview({
       departmentId,
       companyCode: selectedCompanyCode.value || undefined,
+      defaultOwnDepartment: askOwnDepartmentDefault || undefined,
     })
+    askOwnDepartmentDefault = false
     data.value = res
     summaryPage.value = 1
 
-    if (res.scope.departmentId === null && res.scope.kind === 'ALL') {
+    /**
+     * ★ backend ตั้งแผนกตั้งต้นให้รอบนี้ = ส่งลิสต์ตัวเลือกเต็มมาแยกต่างหาก ต้องใช้ก้อนนั้น
+     *   รอบนั้น byDepartment เหลือแถวเดียว (ถูกกรองตาม scope) ถ้าเติมจากก้อนเดิม dropdown
+     *   จะมีแค่ "ทุกศูนย์ต้นทุน" แล้วผู้ใช้เลือกแผนกอื่นไม่ได้เลย
+     */
+    if (res.departmentOptions) {
+      departmentOptions.value = res.departmentOptions.filter((d) => d.departmentId !== null)
+    } else if (res.scope.departmentId === null && res.scope.kind === 'ALL') {
       // เอาเฉพาะแถวที่มี id จริง - ชิ้นที่ยังไม่ระบุแผนก (id เป็น null) กรองด้วย API ไม่ได้
       departmentOptions.value = res.byDepartment.filter((d) => d.departmentId !== null)
     }
@@ -115,6 +135,8 @@ async function load() {
     // สะท้อนค่าที่ backend ใช้จริงกลับมาเหมือนแผนก - วันที่ backend เริ่มทิ้งค่าที่ส่งไป
     // (เช่นเพิ่มการล็อกบริษัทตาม role) ช่องเลือกจะเด้งกลับเองโดยไม่ต้องแก้ตรงนี้
     selectedCompanyCode.value = res.scope.companyCode ?? ''
+    // สะท้อนค่าที่ backend ใช้จริง - สำคัญกว่าสองช่องบนเพราะที่ตั้งถูกทิ้งได้บ่อยกว่า
+    // (สลับบริษัทแล้ว id เดิมเป็นของอีกบริษัท backend จะคืน null มา ช่องต้องเด้งกลับเอง)
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : 'โหลดข้อมูลภาพรวมไม่สำเร็จ'
     data.value = null
@@ -123,7 +145,33 @@ async function load() {
   }
 }
 
-onMounted(load)
+/**
+ * ── ★★★ กันไม่ให้ "ค่าที่สะท้อนกลับจาก backend" ไปกระตุ้น watch ให้โหลดซ้ำ
+ *
+ * load() เขียน selectedDepartmentId / selectedCompanyCode ด้วยค่าจาก scope ทุกรอบ (ดูท้าย
+ * load) ซึ่งรอบแรกเป็นการเปลี่ยนค่าจริงเสมอ: '' → 'UBA' สำหรับคนที่ถูกล็อกบริษัท และ
+ * '' → '<แผนกตัวเอง>' เมื่อ backend ตั้งค่าตั้งต้นให้ - watch ข้างล่างจึงยิง load() ซ้ำ
+ * ทันทีที่รอบแรกตอบกลับมา **ทั้งที่ผู้ใช้ยังไม่ได้แตะอะไรเลย**
+ *
+ * ★ ไม่ใช่ของใหม่ที่เพิ่งเกิด - หน้านี้ยิงสองครั้งต่อการเปิดหนึ่งครั้งมาตลอดสำหรับทุกคนที่
+ *   ถูกล็อกบริษัท (เส้นทาง '' → 'UBA') ธงนี้ปิดจุดนั้นไปด้วย
+ *
+ * ★ สองคำขอที่ซ้อนกันไม่ใช่แค่เปลือง - load() ไม่มีตัวยกเลิกคำขอเก่า ถ้า response มาถึง
+ *   ไม่เรียงลำดับ ค่าที่ถูกเขียนทับจะเป็นของรอบเก่า แล้วช่องเลือกกับตัวเลขบนจอจะไม่ตรงกัน
+ *
+ * await nextTick() ก่อนปลดธง = รอให้ watch ที่ถูกคิวไว้จากการเขียนค่าใน load() ทำงานจบ
+ * (แล้วถูกธงนี้ตีตกไป) ก่อน ไม่ใช่ปลดทันทีแล้วหวังว่าลำดับ microtask จะเป็นใจ
+ */
+const ready = ref(false)
+
+onMounted(async () => {
+  try {
+    await load()
+  } finally {
+    await nextTick()
+    ready.value = true
+  }
+})
 
 /**
  * โหลดใหม่เมื่อตัวกรองเปลี่ยน + ล้างแผนกทิ้งเมื่อเปลี่ยนบริษัท
@@ -145,11 +193,10 @@ onMounted(load)
  * แผนกเป็นของบริษัท (0024) — id ที่ค้างจากบริษัทก่อนไม่มีอยู่ในบริษัทใหม่
  */
 watch([selectedDepartmentId, selectedCompanyCode], ([dept, company], [prevDept, prevCompany]) => {
-  // ★ ข้ามการล้างแผนกเมื่อ backend ล็อกขอบเขตไว้ - ค่าที่เพิ่งเปลี่ยนไม่ได้มาจากคนกด
-  //   แต่มาจาก load() ที่เขียนค่ากลับตาม scope (พนักงานทั่วไปได้ทั้งบริษัทและแผนกพร้อมกัน
-  //   ในรอบแรก) ถ้าล้างทิ้งจะยิงเพิ่มอีกรอบเพื่อให้ backend บังคับค่าเดิมกลับมา
-  //   และช่องแผนกจะกะพริบเป็นว่างระหว่างทาง ทั้งที่ผู้ใช้เลือกอะไรไม่ได้อยู่แล้ว
-  if (!data.value?.scope.locked && company !== prevCompany && dept !== '') {
+  // ยังโหลดรอบแรกไม่จบ = ค่าที่เพิ่งเปลี่ยนมาจาก scope ไม่ใช่จากมือผู้ใช้ (ดู ready)
+  if (!ready.value) return
+  // ล้างแผนกก่อน "แล้วไม่โหลด" - การเซ็ตค่าจะกระตุ้น watch ตัวนี้ซ้ำเอง
+  if (company !== prevCompany && dept !== '') {
     selectedDepartmentId.value = ''
     return
   }
@@ -160,7 +207,10 @@ const scopeLabel = computed(() => {
   const scope = data.value?.scope
   if (!scope) return ''
   if (scope.kind === 'UNLINKED') return 'ยังระบุแผนกไม่ได้'
-  return scope.departmentName ?? 'ทุกแผนก'
+  // ★ "ศูนย์ต้นทุน" ไม่ใช่ "แผนก" (0027) - หน้านี้จัดกลุ่มด้วย asset.costCenterId
+  //   ซึ่งเป็นแกนบัญชีที่ SAP เป็นเจ้าของ ส่วน "แผนกที่ดูแล" เป็นคนละช่องและยังว่างอยู่
+  //   ดูหัว dashboard.service.ts ฝั่ง backend
+  return scope.departmentName ?? 'ทั้งหมด'
 })
 
 /** เปอร์เซ็นต์สำหรับวาดวงกลม - ปัดเป็นจำนวนเต็มเพราะ --value รับ 0–100 */
@@ -340,8 +390,10 @@ const pagedSummary = computed(() => {
   return summaryRows.value.slice(start, start + SUMMARY_PAGE_SIZE)
 })
 
-/** หน่วยนับต่อท้ายช่วง - ต้องเปลี่ยนตามแกน ไม่งั้นจะอ่านว่า "12 แผนก" ทั้งที่กำลังดูชั้นบัญชี */
-const summaryUnit = computed(() => (summaryAxis.value === 'assetClass' ? 'ชั้นบัญชี' : 'แผนก'))
+/** หน่วยนับต่อท้ายช่วง - ต้องเปลี่ยนตามแกน ไม่งั้นจะอ่านว่า "12 ศูนย์ต้นทุน" ทั้งที่กำลังดูชั้นบัญชี */
+const summaryUnit = computed(() =>
+  summaryAxis.value === 'assetClass' ? 'ชั้นบัญชี' : 'ศูนย์ต้นทุน',
+)
 
 const summaryRange = computed(() => {
   const total = summaryRows.value.length
@@ -406,33 +458,23 @@ watch(summaryAxis, () => {
           </select>
         </label>
 
-        <!-- ช่องเลือกแผนก - ปิดไว้เมื่อ backend ล็อกขอบเขต (พนักงานทั่วไป)
-           ป้ายข้างล่างบอกตรง ๆ ว่าเห็นได้แค่แผนกตัวเอง จะได้ไม่คิดว่าระบบเสีย -->
+        <!-- ช่องเลือกแผนก - **ไม่ถูกล็อกด้วย role แล้ว** (2026-09-22) ทุกคนเลือกได้เท่ากัน
+           เหลือปิดกรณีเดียวคือยังไม่เลือกบริษัท เพราะลิสต์แผนกผูกกับบริษัท -->
         <label class="form-control w-full max-w-xs text-left sm:w-64">
           <span class="mb-1 flex items-center gap-1.5 text-xs text-base-content/70">
             <Icon icon="lucide:filter" class="size-3.5" />
-            แผนก
-            <Icon v-if="data?.scope.locked" icon="lucide:lock" class="size-3.5"
-              title="คุณเห็นข้อมูลได้เฉพาะแผนกของตัวเอง" />
+            ศูนย์ต้นทุน
           </span>
           <select v-model="selectedDepartmentId" class="select h-11 w-full sm:h-10"
-            :disabled="loading || !!data?.scope.locked || departmentLocked">
-            <!-- ถูกล็อก = มีทางเลือกเดียวจริง ๆ จึงใส่แค่แผนกตัวเอง ไม่ใช่ลิสต์ที่กดไม่ได้
-               ★ ต้องมี option นี้เสมอ ไม่งั้นช่องจะโชว์ว่างทั้งที่ v-model มีค่าอยู่
-                 (พนักงานไม่เคยได้ผลลัพธ์รอบไม่กรอง departmentOptions จึงว่างตลอด) -->
-            <template v-if="data?.scope.locked">
-              <option v-if="data.scope.departmentId !== null" :value="String(data.scope.departmentId)">
-                {{ data.scope.departmentName }}
-              </option>
-            </template>
+            :disabled="loading || departmentLocked">
             <!-- ★ ยังไม่เลือกบริษัท = โชว์ตัวเลือกเดียวที่บอกว่าต้องทำอะไรก่อน
                  ห้ามโชว์ลิสต์แผนกทั้ง 40 ตัวในช่องที่กดไม่ได้ - ตัวเลือกที่เลือกไม่ได้
                  ไม่ควรมีอยู่ให้เห็นตั้งแต่แรก มันอ่านเป็น "ระบบเสีย" ไม่ใช่ "ยังไม่ถึงคิว" -->
-            <template v-else-if="departmentLocked">
+            <template v-if="departmentLocked">
               <option value="">เลือกบริษัทก่อน</option>
             </template>
             <template v-else>
-              <option value="">ทุกแผนก</option>
+              <option value="">ทุกศูนย์ต้นทุน</option>
               <option v-for="d in departmentOptions" :key="d.departmentId!" :value="String(d.departmentId)">
                 {{ departmentName(d) }} ({{ d.assets }})
               </option>
@@ -447,6 +489,7 @@ watch(summaryAxis, () => {
             เลือกบริษัทก่อนจึงจะเลือกแผนกได้
           </span>
         </label>
+
       </div>
     </div>
 
@@ -734,7 +777,7 @@ watch(summaryAxis, () => {
           <div class="card-body gap-3 text-left">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <h2 id="ams-department-summary-title" class="card-title text-base">
-                {{ summaryAxis === 'assetClass' ? 'สรุปรายหมวดหมู่ทางบัญชี' : 'สรุปรายแผนก' }}
+                {{ summaryAxis === 'assetClass' ? 'สรุปรายหมวดหมู่ทางบัญชี' : 'สรุปรายศูนย์ต้นทุน' }}
                 <span class="badge badge-ghost badge-sm">{{ summaryRows.length }}</span>
               </h2>
 
@@ -751,24 +794,7 @@ watch(summaryAxis, () => {
                        badge-ghost ทั้งคู่แบบร่างเดิมแยกด้วยตาไม่ออกว่าอันไหนกำลังใช้ -->
                 <div class="join" role="group" aria-label="แกนของตารางสรุป">
 
-                  <button
-                    type="button"
-                    class="btn btn-xs join-item"
-                    :class="summaryAxis === 'assetClass' ? 'btn-accent' : 'btn-ghost'"
-                    :aria-pressed="summaryAxis === 'assetClass'"
-                    @click="summaryAxis = 'assetClass'"
-                  >
-                    Asset Class
-                  </button>
-                                    <button
-                    type="button"
-                    class="btn btn-xs join-item"
-                    :class="summaryAxis === 'department' ? 'btn-accent' : 'btn-ghost'"
-                    :aria-pressed="summaryAxis === 'department'"
-                    @click="summaryAxis = 'department'"
-                  >
-                    Department
-                  </button>
+
                 </div>
               </div>
             </div>
@@ -778,7 +804,7 @@ watch(summaryAxis, () => {
                 <thead>
                   <tr>
                     <th scope="col" class="freeze-col">
-                      {{ summaryAxis === 'assetClass' ? 'ชั้นบัญชี' : 'แผนก' }}
+                      {{ summaryAxis === 'assetClass' ? 'ชั้นบัญชี' : 'ศูนย์ต้นทุน' }}
                     </th>
                     <th scope="col" class="text-center">ชิ้น</th>
                     <th scope="col" class="text-right">Active</th>
@@ -913,7 +939,7 @@ watch(summaryAxis, () => {
       <!-- ★ ต้องส่ง company-code ลงไปด้วย ไม่ใช่แค่ department-id - ไม่งั้นการ์ดสรุปข้างบน
            บอกยอดของ UBP แต่ตารางข้างล่างไล่ของ UBA มาให้ดู
            ชื่อบริษัทอ่านจาก scope ที่ backend ตอบ ไม่ใช่จากค่าที่หน้าจอส่งไป (ดูข้อ 1 บนหัวไฟล์) -->
-      <DepartmentTable v-if="selectedCompanyCode" class="mt-10" :department-id="selectedDepartmentId"
+      <DepartmentTable v-if="selectedCompanyCode" class="mt-10" :cost-center-id="selectedDepartmentId"
         :department-name="scopeLabel" :company-code="selectedCompanyCode" :company-name="data.scope.companyName" />
     </div>
   </div>

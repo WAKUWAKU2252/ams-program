@@ -17,15 +17,16 @@ export interface DepartmentOption extends MasterOption {
   /** ชื่อย่อไว้โชว์ในที่แคบ เช่น badge ในตาราง - HR ไม่ได้กรอกครบทุกแผนก */
   shortName: string | null;
   /**
-   * หัวหน้าแผนก = employee.id (ไม่ใช่ user.id) · null = ยังไม่ได้ตั้ง
+   * หัวหน้าแผนกทุกคน = employee.id (ไม่ใช่ user.id) · ลิสต์ว่าง = ยังไม่ได้ตั้ง (0037)
    *
-   * ★ ชื่อฟิลด์เดิมคือ ManagerEmpId ซึ่ง **backend ไม่เคยส่งมา** ค่าจึงเป็น undefined
-   *   เสมอ (ชนิดโกหกมาตลอด ไม่มีใครใช้เลยไม่มีใครเจอ) — 2026-09-17 เพิ่มคอลัมน์ฝั่ง
-   *   backend แล้วเปลี่ยนชื่อให้ตรงกับที่ส่งมาจริง
+   * ★ ทุกคนในลิสต์คือปลายทางของการ์ดขออนุมัติใน Teams ของทั้งแผนก และอนุมัติได้เท่ากัน
+   *   (ใครกดก่อนได้ก่อน) - เรียงตาม seq ที่ฝั่ง backend ตั้งไว้
+   * ★ ลิสต์ว่างไม่ใช่ null - "ยังไม่มีหัวหน้า" กับ "ยังไม่ได้โหลด" ต้องแยกออกจากกัน
    *
-   * ★ คนนี้คือปลายทางของการ์ดขออนุมัติใน Teams ของทั้งแผนก
+   * ★ เดิมเป็น `managerId` เดี่ยว ๆ (ก่อน 0037) ถ้าเจอโค้ดที่ยังอ่านชื่อนั้นอยู่ที่ไหน
+   *   แปลว่าตรงนั้นยังไม่ถูกแก้ - ค่าจะเป็น undefined เงียบ ๆ ไม่ใช่ error
    */
-  managerId: number | null;
+  managerIds: number[];
   departmentId: string | null;
   /**
    * บริษัทเจ้าของแผนก (0024) - backend ส่งมาให้ตั้งแต่แรก แต่ชนิดฝั่งนี้เคยไม่ประกาศไว้
@@ -76,6 +77,14 @@ export interface EmployeeOption extends MasterOption {
  */
 export interface LocationOption extends MasterOption {
   outPlan: boolean;
+  /**
+   * บริษัทเจ้าของสถานที่ (0037) · null = ใช้ร่วมทุกบริษัท ('ยังไม่ระบุที่ตั้ง')
+   *
+   * ★ ชื่อซ้ำกันข้ามบริษัทได้ - วัด 2026-09-25: UBA/UBP ซ้ำกัน 14 ชื่อ (QA/QC/ผลิต ฯลฯ)
+   *   ฟอร์มที่เขียนสถานที่ลงสินทรัพย์ต้องขอด้วย companyCode ของชิ้นเสมอ ส่วนหน้ากรองที่
+   *   ยังไม่เลือกบริษัทให้แปะป้ายด้วย locationLabel() (utils/location.ts)
+   */
+  companyCode: string | null;
 }
 
 export interface SubLocationOption extends MasterOption {
@@ -196,8 +205,15 @@ export function listCategories(params: MasterListParams = {}): Promise<MasterOpt
 // ไม่มี listUoms แล้ว - /master/uoms ถูกถอดพร้อมตาราง uom ใน migration 0012
 // หน่วยนับเป็น string ที่ sync มากับตัว asset จาก SAP (asset.uom) ไม่ใช่ตัวเลือกที่ผู้ใช้เลือกเอง
 
-/** GET /master/locations - คืนครบทั้งชุด (สถานที่/อาคาร) */
-export function listLocations(params: MasterListParams = {}): Promise<LocationOption[]> {
+/**
+ * GET /master/locations - สถานที่ทางบัญชี
+ *
+ * ส่ง companyCode = ของบริษัทนั้น + แถวใช้ร่วม · ไม่ส่ง = ทั้งเครือ
+ * ★ ฟอร์มที่บันทึกสถานที่ลงสินทรัพย์ต้องส่งเสมอ (ดู LocationOption.companyCode)
+ */
+export function listLocations(
+  params: MasterListParams & { companyCode?: string } = {},
+): Promise<LocationOption[]> {
   return request<LocationOption[]>(`/master/locations${toQuery({ ...params })}`, { method: 'GET' });
 }
 
@@ -278,7 +294,15 @@ export interface ListAssetClassesParams {
   search?: string
   /** ไม่ส่ง = ทุกบริษัท - หน้าทะเบียนส่งบริษัทที่เลือกอยู่มาเพื่อตัดรหัสที่ไม่มีของทิ้ง */
   companyCode?: string
+  /**
+   * ไม่ส่ง = ทุกศูนย์ต้นทุน - ตารางบน Dashboard ส่งศูนย์ที่เลือกอยู่ (department.id)
+   * ตัวเลือกกับจำนวนชิ้นจะได้แคบตามตารางข้างล่าง (ใช้กับลิสต์สามท่อนเลขด้วย)
+   */
+  costCenterId?: number
 }
+
+/** ขอบเขตของลิสต์สามท่อนเลขสินทรัพย์ - เหมือน ListAssetClassesParams แต่ไม่มี search */
+export type AssetNumberOptionParams = Pick<ListAssetClassesParams, 'companyCode' | 'costCenterId'>
 
 /**
  * GET /master/asset-classes
@@ -293,7 +317,81 @@ export function listAssetClasses(
     `/master/asset-classes${toQuery({
       search: params.search?.trim(),
       companyCode: params.companyCode,
+      costCenterId: params.costCenterId,
     })}`,
+    { method: 'GET' },
+  )
+}
+
+/**
+ * รหัสนำหน้าเลขสินทรัพย์ 3 ตัว (COM / FUR / MAC / …) ที่มีอยู่จริงในทะเบียน
+ *
+ * ── ★★★ เป็นแกน "รหัส" เท่านั้น ไม่ใช่แผนกและไม่ใช่หมวดบัญชี
+ *
+ * รหัสเข้ารหัส **ไซต์ + ประเภทของ** ตามวิธีที่ของถูก capitalize ไม่ใช่ตามคนที่ดูแล
+ * วัดจริง 2026-09-22: COM 846 ชิ้นกระจาย 19 ศูนย์ต้นทุน อยู่ที่ IT แค่ 13% ·
+ * CCTV ที่ IT ดูแลได้รหัส FAB แล้วไปกองที่ศูนย์ต้นทุนโรงงาน 98%
+ *
+ * ⚠️ **ป้ายบนหน้าจอต้องเขียนว่า "รหัส" เท่านั้น** ห้ามเขียนให้อ่านเป็นประเภท/แผนก -
+ *    ความเข้าใจผิดนี้เคยทำให้ลิสต์ที่ Finance ส่งให้ IT เกินจริง 7 เท่าและขาด CCTV ทั้งกอง
+ *
+ * ★ ไม่มีชื่อไทยมาให้ - ไม่มีตารางไหนเป็นเจ้าของความหมายของรหัส ('COM = คอมพิวเตอร์'
+ *   เป็นการเดาจากคำบรรยาย) หน้าจอโชว์รหัสดิบคู่จำนวนชิ้น อย่าเติมชื่อที่เดาเองลงไป
+ */
+export interface AssetPrefixOption {
+  /** รหัส 3 ตัวพิมพ์ใหญ่ เช่น 'COM' */
+  code: string
+  /** จำนวนชิ้นในทะเบียน - ต้องโชว์คู่รหัสเสมอ รหัสล้วน ๆ บอกไม่ได้ว่าอันไหนเป็นตัวหลัก */
+  assets: number
+}
+
+export function listAssetPrefixes(
+  params: AssetNumberOptionParams = {},
+): Promise<AssetPrefixOption[]> {
+  return request<AssetPrefixOption[]>(
+    `/master/asset-prefixes${toQuery({ ...params })}`,
+    { method: 'GET' },
+  )
+}
+
+/**
+ * Dept ID ในเลขสินทรัพย์ (ท่อนที่ 2 เช่น '775' ใน COM-775-26-001)
+ *
+ * ★ เป็นรหัสตอนออกเลข ไม่ใช่แผนกปัจจุบันของชิ้น - ของย้ายแผนกแล้วเลขไม่เปลี่ยน
+ *   ไม่มีชื่อแผนกมาให้โดยตั้งใจ (ชุดเก่าที่ยุบไปแล้วยังอยู่ในเลขเดิม) หน้าจอโชว์รหัสดิบคู่จำนวนชิ้น
+ */
+export interface AssetNumberDeptOption {
+  /** สามหลัก เช่น '775' */
+  dept: string
+  assets: number
+}
+
+export function listAssetNumberDepts(
+  params: AssetNumberOptionParams = {},
+): Promise<AssetNumberDeptOption[]> {
+  return request<AssetNumberDeptOption[]>(
+    `/master/asset-number-depts${toQuery({ ...params })}`,
+    { method: 'GET' },
+  )
+}
+
+/**
+ * ปีในเลขสินทรัพย์ (ท่อนที่ 3 เช่น '26' ใน COM-775-26-001) = ปีที่ออกเลข
+ *
+ * ★ คนละแกนกับปีบัญชี (fiscalYear) - backend ส่งสองหลักตามที่อยู่ในเลข การแปลงเป็น 2026
+ *   เป็นเรื่องของการแสดงผลเท่านั้น ค่าที่ส่งกลับไปกรองต้องเป็นสองหลักเหมือนเดิม
+ */
+export interface AssetNumberYearOption {
+  /** สองหลัก เช่น '26' */
+  year: string
+  assets: number
+}
+
+export function listAssetNumberYears(
+  params: AssetNumberOptionParams = {},
+): Promise<AssetNumberYearOption[]> {
+  return request<AssetNumberYearOption[]>(
+    `/master/asset-number-years${toQuery({ ...params })}`,
     { method: 'GET' },
   )
 }
@@ -324,7 +422,7 @@ export function listRoles(): Promise<RoleOption[]> {
  *   (ตั้งคนที่ไม่เข้าเงื่อนไข = ใบของทั้งแผนกส่งไม่ออกโดยไม่มี error ตอนตั้ง)
  */
 export interface ApproverOption {
-  /** employee.id - ค่าที่ลง department.managerId ไม่ใช่ user.id */
+  /** employee.id - ค่าที่ลง department_manager.employeeId ไม่ใช่ user.id */
   id: number;
   name: string;
   empId: string | null;
@@ -348,13 +446,13 @@ export function listApprovers(
  *      แผนกนี้ทุกใบที่ส่งหลังจากนี้จะวิ่งไปหาคนใหม่ ไม่มีขั้นตอนย้อนกลับอัตโนมัติ
  *      ห้ามเรียกโดยไม่ให้ผู้ใช้ยืนยันก่อน
  */
-export function setDepartmentManager(
+export function setDepartmentManagers(
   departmentId: number,
-  managerEmployeeId: number | null,
+  managerEmployeeIds: number[],
 ): Promise<DepartmentOption> {
   return request<DepartmentOption>(`/master/departments/${departmentId}/manager`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ managerEmployeeId }),
+    body: JSON.stringify({ managerEmployeeIds }),
   });
 }

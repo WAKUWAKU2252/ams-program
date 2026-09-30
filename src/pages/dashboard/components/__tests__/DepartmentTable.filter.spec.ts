@@ -1,4 +1,4 @@
-// ตัวกรองของตารางบน Dashboard - ที่ตั้ง / ผู้ครอบครอง / สถานะ
+// ตัวกรองของตารางบน Dashboard - ที่ตั้ง / ผู้ครอบครอง / สถานะ / Asset class / สามท่อนเลขสินทรัพย์
 //
 // ทดสอบว่า "สิ่งที่ผู้ใช้กดในแผง" กลายเป็น "พารามิเตอร์ที่ยิงไป backend" จริง เพราะเส้นทาง
 // ระหว่างสองอย่างนี้ขาดได้เงียบ ๆ หลายจุด (ลืมใส่ช่องใน payload / ส่ง 0 แทน undefined /
@@ -14,6 +14,10 @@ import DepartmentTable from '../DepartmentTable.vue'
 const getAssetInventory = vi.fn()
 const listLocations = vi.fn()
 const listEmployees = vi.fn()
+const listAssetClasses = vi.fn()
+const listAssetPrefixes = vi.fn()
+const listAssetNumberDepts = vi.fn()
+const listAssetNumberYears = vi.fn()
 
 // service ที่ component นี้ import - กันไม่ให้เทสต์ยิงเน็ตจริง
 vi.mock('@/shared/services/asset.service', () => ({
@@ -22,6 +26,10 @@ vi.mock('@/shared/services/asset.service', () => ({
 vi.mock('@/shared/services/master.service', () => ({
   listLocations: (...args: unknown[]) => listLocations(...args),
   listEmployees: (...args: unknown[]) => listEmployees(...args),
+  listAssetClasses: (...args: unknown[]) => listAssetClasses(...args),
+  listAssetPrefixes: (...args: unknown[]) => listAssetPrefixes(...args),
+  listAssetNumberDepts: (...args: unknown[]) => listAssetNumberDepts(...args),
+  listAssetNumberYears: (...args: unknown[]) => listAssetNumberYears(...args),
 }))
 
 const empty = { data: [], total: 0, page: 1, limit: 10 }
@@ -41,7 +49,7 @@ let wrapper: ReturnType<typeof mount> | null = null
 /** เมานต์แล้วรอให้รอบโหลดแรก (watch immediate) กับ onMounted เดินจนจบ */
 async function mountTable() {
   wrapper = mount(DepartmentTable, {
-    props: { departmentId: '5', departmentName: 'บัญชี', companyCode: 'UBA' },
+    props: { costCenterId: '5', departmentName: 'บัญชี', companyCode: 'UBA' },
     global: {
       // สนใจเฉพาะแถบตัวกรอง - ตัวตาราง/แถบหน้า/modal ไม่เกี่ยวกับสิ่งที่เทสต์นี้เฝ้า
       stubs: { AssetTable: true, AppPagination: true, AssetDetailModal: true, Icon: true },
@@ -74,7 +82,19 @@ beforeEach(() => {
   getAssetInventory.mockReset().mockResolvedValue(empty)
   listLocations.mockReset().mockResolvedValue(LOCATIONS)
   listEmployees.mockReset().mockResolvedValue({ data: EMPLOYEES, total: 2, page: 1, limit: 8 })
+  listAssetClasses.mockReset().mockResolvedValue([{ code: '1216401', name: 'เครื่องใช้สำนักงาน' }])
+  listAssetPrefixes.mockReset().mockResolvedValue([{ code: 'COM', assets: 12 }])
+  listAssetNumberDepts.mockReset().mockResolvedValue([{ dept: '775', assets: 12 }])
+  listAssetNumberYears.mockReset().mockResolvedValue([{ year: '26', assets: 12 }])
 })
+
+/** เปิดแผงอย่างเดียว ไม่กางหัวข้อ - แถวสามท่อนเลขเลือกได้เลยโดยไม่ต้องกาง */
+async function openPanel() {
+  const toggle = wrapper!.findAll('button').find((b) => b.text().includes('ตัวกรอง'))!
+  await toggle.trigger('click')
+  await nextTick()
+  await nextTick()
+}
 
 afterEach(() => {
   wrapper?.unmount()
@@ -104,7 +124,8 @@ describe('แผงตัวกรองของตารางบน Dashboard
 
     expect(lastQuery()).toMatchObject({
       locationId: 9,
-      departmentId: 5,
+      // แกนของ dashboard คือศูนย์ต้นทุน ไม่ใช่แผนกที่ดูแล (0027 - ดู describe ท้ายไฟล์)
+      costCenterId: 5,
       companyCode: 'UBA',
       page: 1,
     })
@@ -203,7 +224,7 @@ describe('แผงตัวกรองของตารางบน Dashboard
 
     it('ดู "ทุกบริษัท" = ไม่ส่ง companyCode (ลิสต์กลับไปเป็นทั้งเครือตามที่ตารางแสดง)', async () => {
       wrapper = mount(DepartmentTable, {
-        props: { departmentId: '', departmentName: '', companyCode: '' },
+        props: { costCenterId: '', departmentName: '', companyCode: '' },
         global: {
           stubs: { AssetTable: true, AppPagination: true, AssetDetailModal: true, Icon: true },
         },
@@ -253,5 +274,133 @@ describe('แผงตัวกรองของตารางบน Dashboard
         false,
       )
     })
+  })
+})
+
+// ── Asset class + สามท่อนเลขสินทรัพย์ (ชุดเดียวกับหน้า Asset Inventory) ──────────
+describe('Asset class และ รหัสนำหน้า · Dept ID · ปี', () => {
+  /**
+   * ★ ลิสต์ตัวเลือกต้องแคบตามทั้งบริษัทและศูนย์ต้นทุนของ Dashboard - ไม่งั้นมีค่าที่ศูนย์นี้
+   *   ไม่มีของ และจำนวนในวงเล็บเป็นของทั้งบริษัท ขัดกับตารางข้างล่าง
+   * ★ โหลดตอนเปิดแผง ไม่ใช่ตอนเปิดหน้า - Dashboard เป็นหน้าแรกของทุกคน
+   */
+  it('โหลดตัวเลือกตอนเปิดแผง พร้อมบริษัทและศูนย์ต้นทุน', async () => {
+    await mountTable()
+    expect(listAssetPrefixes).not.toHaveBeenCalled()
+
+    await openPanel()
+
+    for (const fn of [listAssetClasses, listAssetPrefixes, listAssetNumberDepts, listAssetNumberYears]) {
+      expect(fn).toHaveBeenCalledWith({ companyCode: 'UBA', costCenterId: 5 })
+    }
+  })
+
+  it('เปิดแผงซ้ำในขอบเขตเดิมไม่ยิงซ้ำ แต่เปลี่ยนศูนย์ต้นทุนแล้วยิงใหม่', async () => {
+    await mountTable()
+    await openPanel()
+    await openPanel() // ปิด
+    await openPanel() // เปิดใหม่
+    expect(listAssetPrefixes).toHaveBeenCalledTimes(1)
+
+    await wrapper!.setProps({ costCenterId: '8' })
+    await nextTick()
+    expect(listAssetPrefixes).toHaveBeenCalledTimes(2)
+    expect(listAssetPrefixes).toHaveBeenLastCalledWith({ companyCode: 'UBA', costCenterId: 8 })
+  })
+
+  it('เลือก Asset class แล้วส่งรหัสท่อนแรก และขึ้น chip', async () => {
+    await mountTable()
+    await openField('Asset class')
+
+    await wrapper!.findAll('button').find((b) => b.text().includes('1216401'))!.trigger('click')
+    await nextTick()
+
+    expect(lastQuery()).toMatchObject({ assetClass: '1216401', costCenterId: 5, page: 1 })
+    const chip = wrapper!.findAll('button.badge').find((b) => b.text().includes('Asset class:'))
+    expect(chip?.text()).toContain('1216401 · เครื่องใช้สำนักงาน')
+  })
+
+  it('สาม dropdown ส่งสามพารามิเตอร์ต่อกันแบบ AND และขึ้น chip ครบ', async () => {
+    await mountTable()
+    await openPanel()
+
+    const selects = wrapper!.findAll('select')
+    await selects.find((s) => s.attributes('aria-label') === 'รหัสนำหน้า')!.setValue('COM')
+    await selects.find((s) => s.attributes('aria-label') === 'Dept ID')!.setValue('775')
+    await selects.find((s) => s.attributes('aria-label') === 'ปี')!.setValue('26')
+    await nextTick()
+
+    expect(lastQuery()).toMatchObject({
+      assetPrefix: 'COM',
+      assetNumberDept: '775',
+      assetNumberYear: '26',
+      costCenterId: 5,
+    })
+    const chips = wrapper!.findAll('button.badge').map((b) => b.text())
+    expect(chips).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('รหัสนำหน้า: COM'),
+        expect.stringContaining('Dept ID: 775'),
+        expect.stringContaining('ปี: 26'),
+      ]),
+    )
+  })
+
+  it('เปลี่ยนบริษัทแล้วล้าง Asset class แต่สามท่อนเลขยังอยู่ (กติกาเดียวกับหน้า Asset Inventory)', async () => {
+    await mountTable()
+    await openField('Asset class')
+    await wrapper!.findAll('button').find((b) => b.text().includes('1216401'))!.trigger('click')
+    await wrapper!
+      .findAll('select')
+      .find((s) => s.attributes('aria-label') === 'ปี')!
+      .setValue('26')
+    await nextTick()
+
+    await wrapper!.setProps({ companyCode: 'UBP' })
+    await nextTick()
+    await nextTick()
+
+    expect(lastQuery().assetClass).toBeUndefined()
+    expect(lastQuery().assetNumberYear).toBe('26')
+    expect(lastQuery().companyCode).toBe('UBP')
+  })
+})
+
+/**
+ * แกนที่ตารางนี้ยิงต้องตรงกับแกนที่ตารางสรุปข้างบนใช้นับ (0027)
+ *
+ * ── อาการที่กันไว้ (เกิดจริงตอนย้าย dashboard ไป costCenterId)
+ *
+ * ตารางสรุปนับด้วย `asset.costCenterId` แต่ตารางนี้ยังส่ง `departmentId` ไปให้
+ * GET /assets/inventory ซึ่งกรอง `asset.departmentId` - คอลัมน์นั้นเป็น NULL ทั้งทะเบียน
+ * (รอคนกรอกตอนตรวจนับ) ผลคือกดศูนย์ต้นทุนที่ขึ้นว่ามีของ 116 ชิ้น แล้วได้
+ * "ยังไม่มีรายการ" โดยไม่มี error ให้เห็นเลยสักตัว
+ *
+ * ★ เฝ้าที่ "พารามิเตอร์ที่ยิงออกไป" ไม่ใช่ที่ชื่อ prop - ชื่อ prop เปลี่ยนแล้ว typecheck
+ *   จับได้เอง แต่การส่งค่าไปผิด key เป็นเรื่อง runtime ล้วน ๆ ที่ tsc มองไม่เห็น
+ *   (ทั้งสอง key เป็น number ที่ optional เหมือนกันเป๊ะใน InventoryParams)
+ */
+describe('แกนที่ยิงไป API', () => {
+  it('ส่ง costCenterId ไม่ใช่ departmentId', async () => {
+    await mountTable()
+
+    const q = lastQuery()
+    expect(q.costCenterId).toBe(5)
+    expect(q.departmentId).toBeUndefined()
+  })
+
+  it('ไม่เลือกศูนย์ต้นทุน = ไม่ส่งทั้งสอง key', async () => {
+    wrapper = mount(DepartmentTable, {
+      props: { costCenterId: '', departmentName: '', companyCode: 'UBA' },
+      global: {
+        stubs: { AssetTable: true, AppPagination: true, AssetDetailModal: true, Icon: true },
+      },
+    })
+    await nextTick()
+    await nextTick()
+
+    const q = lastQuery()
+    expect(q.costCenterId).toBeUndefined()
+    expect(q.departmentId).toBeUndefined()
   })
 })

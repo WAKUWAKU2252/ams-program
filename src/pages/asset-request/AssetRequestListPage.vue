@@ -16,12 +16,15 @@ import type { SortDirection } from '@/shared/components/AppSortMenu.vue'
 import {
   listPendingRegistration,
   listStuckNotifications,
+  listUnmatchedNumbers,
 } from '@/shared/services/assetRequest.service'
 import type {
   PendingRegistrationParams,
   PendingRegistrationRow,
   StuckNotification,
 } from '@/shared/services/assetRequest.service'
+import { listChangeRequestQueue } from '@/shared/services/assetChangeRequest.service'
+import type { ChangeKind } from '@/shared/services/assetChangeRequest.service'
 import { listCompanies, listDepartments } from '@/shared/services/master.service'
 import type { CompanyOption, DepartmentOption } from '@/shared/services/master.service'
 import { openRegistrationLobby } from '@/shared/services/presence.service'
@@ -32,6 +35,7 @@ import { REQUEST_SORT_OPTIONS } from '@/shared/utils/request-sort'
 import { Icon } from '@iconify/vue'
 import TopicCard from '@/shared/components/TopicCard.vue'
 import ChangeRequestQueue from './components/ChangeRequestQueue.vue'
+import UnmatchedNumberQueue from './components/UnmatchedNumberQueue.vue'
 import { useRoute } from 'vue-router'
 
 /**
@@ -40,6 +44,7 @@ import { useRoute } from 'vue-router'
  *   register  ใบที่อนุมัติแล้ว รอออกเลขสินทรัพย์ (ของเดิมทั้งหน้า)
  *   move      คำขอย้ายสถานที่
  *   holder    คำขอเปลี่ยนผู้ครอบครอง
+ *   unmatched เลขที่ออกไปแล้วแต่ยังไม่พบใน SAP - ที่แก้เลขผิดหลังแจ้งผลกลับผู้ขอ
  *
  * ★ สามอย่างนี้เป็นคิวของคนกลุ่มเดียวกัน (บัญชี) แต่คนละงาน - รวมเป็นตารางเดียวไม่ได้
  *   เพราะคอลัมน์ไม่เหมือนกันเลย และ "เหลืออะไรให้ทำ" ของแต่ละอันนับแยกกัน
@@ -47,11 +52,74 @@ import { useRoute } from 'vue-router'
  * ★ อ่านค่าตั้งต้นจาก ?tab= - กระดิ่งแจ้งเตือนลิงก์มาที่แท็บที่ถูกต้องได้เลย
  *   (ดู queuePath ใน asset-change-request.service.ts)
  */
-type QueueTab = 'register' | 'move' | 'holder'
+type QueueTab = 'register' | 'move' | 'holder' | 'unmatched'
 const route = useRoute()
-const tab = ref<QueueTab>(
-  route.query.tab === 'move' || route.query.tab === 'holder' ? route.query.tab : 'register',
-)
+
+const TABS: { key: QueueTab; label: string }[] = [
+  { key: 'register', label: 'ออกเลขสินทรัพย์' },
+  { key: 'move', label: 'คำขอย้ายสถานที่' },
+  { key: 'holder', label: 'คำขอเปลี่ยนผู้ครอบครอง' },
+  // { key: 'unmatched', label: 'อยู่ระหว่างรอข้อมูลจาก SAP' },
+]
+
+const tab = ref<QueueTab>(TABS.find((t) => t.key === route.query.tab)?.key ?? 'register')
+
+const KIND_TAB: Record<ChangeKind, QueueTab> = { LOCATION: 'move', HOLDER: 'holder' }
+
+/**
+ * จำนวนใบที่ค้างในแต่ละแท็บ - ขึ้นเป็นตัวเลขบนแท็บ จะได้รู้ว่างานรออยู่ที่ไหนโดยไม่ต้องกดไล่ดูทีละแท็บ
+ *
+ * ★ นับทั้งคิว ไม่ตามตัวกรองของตาราง - ตัวเลขบนแท็บตอบว่า "งานเหลือเท่าไร" ถ้าหดตามบริษัท
+ *   ที่เลือก แท็บ register จะหดอยู่แท็บเดียว (อีกสองแท็บไม่มีตัวกรอง) แล้วอ่านเทียบกันไม่ได้
+ *   จำนวนที่ตรงกับตัวกรองมีบอกอยู่แล้วที่ "N–M จาก X ใบ" เหนือตาราง
+ *
+ * ★ ยืม total ของ endpoint ลิสต์เดิมด้วย limit=1 - ไม่มี endpoint นับแยก
+ *
+ * ★ โหลดไม่ได้ = ค้างเลขเดิม/ไม่ขึ้น badge ไม่ลากหน้าหลักตาย (catch ทีละตัวเหมือนตัวกรอง)
+ */
+const counts = ref<Record<QueueTab, number>>({ register: 0, move: 0, holder: 0, unmatched: 0 })
+
+function loadRegisterCount() {
+  void listPendingRegistration({ limit: 1 })
+    .then((r) => (counts.value.register = r.total))
+    .catch(() => {})
+}
+
+function loadUnmatchedCount() {
+  void listUnmatchedNumbers({ limit: 1 })
+    .then((r) => (counts.value.unmatched = r.total))
+    .catch(() => {})
+}
+
+function loadChangeCount(kind: ChangeKind) {
+  void listChangeRequestQueue({ kind, limit: 1 })
+    .then((r) => (counts.value[KIND_TAB[kind]] = r.total))
+    .catch(() => {})
+}
+
+function loadCounts() {
+  loadRegisterCount()
+  loadChangeCount('LOCATION')
+  loadChangeCount('HOLDER')
+  // loadUnmatchedCount()
+}
+
+/**
+ * ตารางคำขอแก้ทะเบียนโหลดเสร็จ → เลขบนแท็บนั้นเอา total ของมันไปเลย
+ *
+ * คิวนั้นไม่มีตัวกรอง total ของตารางจึงเท่ากับทั้งคิวพอดี - ตัวเลขขยับตามทันทีที่บัญชีกด
+ * บันทึก/ตีกลับ โดยไม่ต้องยิงนับซ้ำ
+ *
+ * ★ รับ kind มาด้วย ไม่ใช้ tab ปัจจุบัน - สลับแท็บเร็ว ๆ แล้วผลของแท็บก่อนหน้ามาถึงทีหลัง
+ *   จะไปเขียนทับเลขของแท็บที่เพิ่งเปิด
+ */
+function onQueueLoaded(kind: ChangeKind, total: number) {
+  counts.value[KIND_TAB[kind]] = total
+}
+
+// สลับแท็บ = นับใหม่ทั้งหมด - คำขอย้าย/เปลี่ยนผู้ครอบครองไม่มีสาย realtime เหมือนคิวออกเลข
+// ถ้าไม่นับตอนนี้ เลขของแท็บที่ไม่ได้เปิดจะค้างค่าตั้งแต่เข้าหน้า
+watch(tab, loadCounts)
 
 const router = useRouter()
 const rows = ref<PendingRegistrationRow[]>([])
@@ -144,6 +212,10 @@ function scheduleReload() {
   reloadTimer = setTimeout(() => {
     reloadTimer = undefined
     void load()
+    // สายนี้คือสัญญาณเดียวที่บอกว่ามีใบเข้า/ออกจากคิวออกเลข - เลขบนแท็บต้องขยับตามด้วย
+    // (ออกเลขเพิ่ม = มีเลขใหม่ที่ SAP ยังไม่เห็นเพิ่มด้วย)
+    loadRegisterCount()
+    // loadUnmatchedCount()
   }, 400)
 }
 
@@ -418,6 +490,7 @@ onMounted(() => {
   loadFilterOptions()
   void load()
   void loadStuck()
+  loadCounts()
   openLobby()
 })
 
@@ -439,15 +512,20 @@ onUnmounted(() => {
       value="asset-request"/>
 
     <div role="tablist" class="tabs tabs-box tabs-sm mt-5 w-fit">
-      <button type="button" role="tab" class="tab" :class="tab === 'register' ? 'tab-active' : ''"
-        @click="tab = 'register'">ออกเลขสินทรัพย์</button>
-      <button type="button" role="tab" class="tab" :class="tab === 'move' ? 'tab-active' : ''"
-        @click="tab = 'move'">คำขอย้ายสถานที่</button>
-      <button type="button" role="tab" class="tab" :class="tab === 'holder' ? 'tab-active' : ''"
-        @click="tab = 'holder'">คำขอเปลี่ยนผู้ครอบครอง</button>
+      <button v-for="t in TABS" :key="t.key" type="button" role="tab" class="tab gap-1"
+        :class="tab === t.key ? 'tab-active' : ''" @click="tab = t.key">
+        {{ t.label }}
+      
+        <span v-if="counts[t.key]" class="badge badge-xs badge-primary">
+          {{ counts[t.key] }}
+        </span>
+      </button>
     </div>
 
-    <ChangeRequestQueue v-if="tab !== 'register'" :kind="tab === 'move' ? 'LOCATION' : 'HOLDER'" />
+    <UnmatchedNumberQueue v-if="tab === 'unmatched'" @loaded="(n: number) => (counts.unmatched = n)" />
+
+    <ChangeRequestQueue v-else-if="tab !== 'register'" :kind="tab === 'move' ? 'LOCATION' : 'HOLDER'"
+      @loaded="onQueueLoaded" />
 
     <template v-else>
 

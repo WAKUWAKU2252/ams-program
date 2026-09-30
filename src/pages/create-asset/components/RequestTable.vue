@@ -686,7 +686,10 @@ async function loadMasterData() {
       //   บริษัท การบันทึกจะล้มที่ fk_asset_department ซึ่งเป็น composite FK
       //   (departmentId, companyCode) - พังตอนกดบันทึก ไม่ใช่ตอนเลือก
       listDepartments({ companyCode: companyCode.value }),
-      listLocations(),
+      // ★ สถานที่ก็เป็นของบริษัทเหมือนแผนก (0037) - ไม่ส่ง = ได้ทั้งเครือ ชื่อซ้ำกันระหว่าง
+      //   UBA/UBP 14 ชื่อ (QA/QC/ผลิต ฯลฯ) แล้วเลือกผิดบริษัทได้จริง: วัด 2026-09-25 มีชิ้นของ
+      //   MIG ถูกบันทึกด้วยที่ตั้งของ UBA ไปแล้ว (backend ปฏิเสธแล้วตอนนี้ แต่ต้องไม่ให้เห็นตั้งแต่ต้น)
+      listLocations({ companyCode: companyCode.value }),
       listSubLocations(),
     ]);
     departments.value = dept;

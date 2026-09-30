@@ -5,7 +5,7 @@
 
 import { getToken, clearToken } from './auth.token';
 
-export const BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+export const BASE_URL: string = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 interface ApiErrorBody {
   message?: string;

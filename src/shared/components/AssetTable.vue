@@ -22,10 +22,10 @@ const props = withDefaults(
     /** ซ่อนคอลัมน์แผนกเมื่อทั้งตารางเป็นแผนกเดียวกันอยู่แล้ว - ค่าซ้ำทุกแถวไม่ได้บอกอะไร */
     showDepartment?: boolean
     /**
-     * เปิดคอลัมน์มูลค่าคงเหลือ - ปิดไว้เป็นค่าตั้งต้นโดยตั้งใจ
+     * เปิดคอลัมน์อายุคงเหลือ - **คุมแค่คอลัมน์นี้** มูลค่าคงเหลือโชว์เสมอไม่ขึ้นกับตัวนี้
      *
-     * ตารางบน Dashboard ตอบคำถาม "ของอยู่ไหน ใครถือ" ซึ่งไม่ต้องใช้ตัวเลขเงิน
-     * และหน้านั้นมีการ์ดยอดรวมอยู่เหนือตารางอยู่แล้ว เอามาใส่ซ้ำมีแต่ทำให้แถวแน่นขึ้น
+     * ★ หน้าไหนใช้ ASSET_SORT_OPTIONS ต้องเปิดตัวนี้ - ในนั้นมี "เรียงตามอายุคงเหลือ"
+     *   ปิดไว้ = กดเรียงแล้วไม่มีคอลัมน์ให้เห็น ลำดับอ่านไม่ออก (Dashboard เคยเป็นแบบนั้น)
      */
     showAccounting?: boolean
     /** จองความสูงไว้กี่แถว ดูหมายเหตุที่ minHeight ข้างล่าง */
@@ -52,7 +52,7 @@ const ROW_PX = 68.8
 const HEAD_PX = 45.8
 const minHeight = computed(() => `${(props.minRows * ROW_PX + HEAD_PX) / 16}rem`)
 
-/** 6 คอลัมน์คงที่ + สองคอลัมน์ที่เปิด/ปิดได้ - ใช้กับ colspan ของแถวว่าง */
+/** 7 คอลัมน์คงที่ + สองคอลัมน์ที่เปิด/ปิดได้ - ใช้กับ colspan ของแถวว่าง */
 const colCount = computed(() => 7 + (props.showDepartment ? 1 : 0) + (props.showAccounting ? 1 : 0))
 
 const currentYear = new Date().getFullYear()
@@ -188,6 +188,16 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
             <span :class="item.departmentName ? '' : 'text-base-content/40 italic'">
               {{ item.departmentName ?? 'ยังไม่ระบุ' }}
             </span>
+            <!-- ★ โผล่เฉพาะตอนสองแกนไม่ตรงกัน (0027) - วันนี้ยังไม่มีแถวไหนโผล่เลยเพราะ
+                 migration เพิ่งคัดลอกค่าเท่ากันไว้ จะเริ่มเห็นเมื่อมีคนแก้แผนกที่ดูแล
+                 ซึ่งเป็นจังหวะเดียวที่บรรทัดนี้มีข้อมูลให้บอก - ถ้าโชว์ตลอดจะเป็นค่าซ้ำ
+                 ทุกแถวที่ไม่ได้บอกอะไร (หลักเดียวกับ showDepartment ข้างบน) -->
+            <div
+              v-if="item.costCenterName && item.costCenterName !== item.departmentName"
+              class="text-xs text-base-content/60"
+            >
+              ศูนย์ต้นทุน: {{ item.costCenterName }}
+            </div>
           </td>
 
           <td>
@@ -249,7 +259,7 @@ const statusBadge = (status: string) => STATUS_BADGE[status] ?? 'badge-ghost'
         <!-- ข้อความตอนไม่มีของ คนเรียกเป็นคนกำหนดเอง - "ค้นไม่เจอ" แก้ด้วยการเปลี่ยนคำค้น
              ส่วน "แผนกนี้ยังไม่มีของ" แก้ด้วยการไปลงทะเบียน คนละทางแก้กันคนละเรื่อง -->
         <tr v-else-if="!items.length">
-          <td :colspan="colCount" class="py-12 text-center text-base-content/50">
+          <td :colspan="colCount" class="py-12 text-center text-base-content/50 ">
             <slot name="empty">
               <Icon icon="mdi:package-variant" class="mx-auto size-12 opacity-40" />
               <p class="mt-2">ไม่มีรายการ</p>

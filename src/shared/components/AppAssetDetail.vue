@@ -25,6 +25,7 @@ import AppAssetLocationMap from './AppAssetLocationMap.vue'
 import FloorPlanPickerModal from './FloorPlanPickerModal.vue'
 import AssetImageDialog from './AssetImageDialog.vue'
 import AssetWarrantyDialog from './AssetWarrantyDialog.vue'
+import AssetDepartmentDialog from './AssetDepartmentDialog.vue'
 import { getAssetByNumber, openAssetLabel, updateAssetLocation } from '@/shared/services/asset.service'
 import type { AssetByNumberDetail } from '@/shared/services/asset.service'
 import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service'
@@ -147,6 +148,19 @@ const props = withDefaults(
      *   แก้แล้วอยู่ถาวร ไม่ถูก sync ทับเหมือนเมื่อก่อน (ดู updateAssetHolderBody ฝั่ง backend)
      */
     editableHolder?: boolean
+    /**
+     * เปิดให้แก้ "แผนกที่ดูแล" จากกล่องนี้หรือไม่ (0027)
+     *
+     * ★ ค่าตั้งต้น false ด้วยเหตุผลเดียวกับสี่ตัวข้างบน - หน้า QR เปิดได้โดยไม่ต้องล็อกอิน
+     * ★ หน้า Audit ปิดสำหรับผู้ตรวจภายนอก (AUDIT) - auditScopeGuard allowlist มีแค่ location
+     *
+     * ★ เปิดได้เพราะ 0027 ถอด departmentId ออกจาก set: ของ SAP connector แล้ว ก่อนหน้านั้น
+     *   ปุ่มนี้จะกดแล้วค่าหายในรอบ sync ถัดไป - ถ้าวันไหนมีคนเอา departmentId กลับเข้า set:
+     *   ต้องถอด prop นี้ออกพร้อมกัน ไม่งั้นได้ปุ่มหลอก
+     *
+     * ★ **ไม่มีคู่สำหรับศูนย์ต้นทุน** - ช่องนั้น SAP ทับทุกรอบ แก้ที่ AMS ไปก็หาย
+     */
+    editableDepartment?: boolean
   }>(),
   {
     active: true,
@@ -156,6 +170,7 @@ const props = withDefaults(
     editableImage: false,
     editableWarranty: false,
     editableHolder: false,
+    editableDepartment: false,
   },
 )
 
@@ -401,13 +416,30 @@ async function onWarrantySaved() {
   emit('updated')
 }
 
+// ── แก้แผนกที่ดูแล (เปิดด้วย prop editableDepartment) ────────────────────────
+//
+// ★ ทำไมต้องมี: migration 0035 + การล้างค่าตั้งต้นทิ้ง ทำให้สินทรัพย์ 3,511 ชิ้นไม่มีแผนก
+//   เลย นี่คือทางเดียวที่คนจะเติมกลับเข้าไปทีละชิ้นตอนเดินตรวจนับ
+// ★ ตัวฟอร์มกับการยิง PATCH อยู่ใน AssetDepartmentDialog ทั้งก้อน - ที่นี่เหลือแค่
+//   "เปิดกล่อง" กับ "โหลดใหม่เมื่อบันทึกเสร็จ" (โครงเดียวกับ AssetWarrantyDialog)
+const departmentDialogOpen = ref(false)
+
+async function onDepartmentSaved() {
+  await load()
+  // ตารางที่กรองตามแผนกอยู่ต้องรู้ด้วย - ชิ้นนี้อาจหลุดออกจากผลลัพธ์ที่กำลังเปิดอยู่
+  emit('updated')
+}
+
 /**
  * ปิดกล่องเมื่อสลับไปดูชิ้นอื่น - ไม่งั้นกล่องที่เปิดค้างอยู่จะชี้ไปชิ้นเก่าแล้วกดบันทึก
  * ทับได้โดยไม่มีอะไรเตือน (เคสจริงของหน้า QR ที่สแกนชิ้นถัดไปทั้งที่หน้ายังเปิดอยู่)
  */
 watch(
   () => detail.value?.id,
-  () => (warrantyDialogOpen.value = false),
+  () => {
+    warrantyDialogOpen.value = false
+    departmentDialogOpen.value = false
+  },
 )
 
 // โหลดเมื่อ "เริ่มมองเห็น" หรือ "ของที่ชี้อยู่เปลี่ยน" - อย่างหลังคือเคสของหน้า QR
@@ -653,8 +685,8 @@ defineExpose({ reload: load })
                  ดิบ ๆ ให้ดูเฉย ๆ ซึ่งไม่มีใครต้องใช้) เหลือแค่ปุ่มที่ทำงานจริง
                ★ แถวนี้วาดทั้งสอง layout ปุ่มจึงขึ้นทุกที่ที่ฝังคอมโพเนนต์นี้ ต่างจากของเดิม
                  ที่ผูกกับ prop qrCode ซึ่งมีแค่หน้า My Assets ส่งมา -->
-          <button v-if="canPrint && detail" type="button" class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1" :disabled="printing"
-            aria-label="พิมพ์สติกเกอร์" title="พิมพ์สติกเกอร์" @click="printLabel">
+          <button v-if="canPrint && detail" type="button" class="btn btn-ghost btn-xs ml-auto shrink-0 gap-1"
+            :disabled="printing" aria-label="พิมพ์สติกเกอร์" title="พิมพ์สติกเกอร์" @click="printLabel">
             <span v-if="printing" class="loading loading-spinner loading-xs"></span>
             <Icon v-else icon="lucide:printer" class="size-3.5" />
           </button>
@@ -783,9 +815,30 @@ defineExpose({ reload: load })
               <dt class="text-base-content/60">หน่วยนับ</dt>
               <dd>{{ detail.uom ?? '-' }}</dd>
             </div>
+            <!-- ★ สองแถวนี้ต้องอยู่ติดกันและต้องมีทั้งคู่เสมอ (0027)
+                 ทั้งคู่เป็น "ชื่อแผนก" หน้าตาเหมือนกันเป๊ะ - โชว์ตัวเดียวเมื่อไหร่ คนอ่านไม่มีทาง
+                 รู้ว่ากำลังดูแกนไหน ซึ่งเป็นคำถามที่ทำให้ต้องแยกคอลัมน์ตั้งแต่แรก
+                 (HP LaserJet: บัญชีลงที่ 'ผลิตส่วนกลาง' แต่ IT เป็นคนดูแล) -->
             <div class="flex justify-between gap-3">
-              <dt class="text-base-content/60">แผนก</dt>
-              <dd>{{ detail.departmentName ?? '-' }}</dd>
+              <dt class="text-base-content/60">แผนกที่ดูแล</dt>
+              <dd class="flex min-w-0 items-center gap-1">
+                <span class="truncate" :class="detail.departmentName ? '' : 'text-base-content/40 italic'">
+                  {{ detail.departmentName ?? 'ยังไม่ระบุ' }}
+                </span>
+                <!-- ★ ปุ่มอยู่บรรทัดเดียวกับค่า เหมือนประกัน/ผู้ครอบครอง - คนที่เห็นว่าแผนกผิด
+                     กำลังมองบรรทัดนี้อยู่พอดี และต้องไม่ไปอยู่บรรทัดศูนย์ต้นทุนข้างล่าง
+                     ซึ่งแก้ที่นี่ไม่ได้ (SAP ทับทุกรอบ) -->
+                <button v-if="editableDepartment" type="button" class="btn btn-ghost btn-xs btn-square"
+                  aria-label="แก้แผนกที่ดูแล" title="แก้แผนกที่ดูแล" @click="departmentDialogOpen = true">
+                  <Icon icon="lucide:pencil" class="size-3.5" />
+                </button>
+              </dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-base-content/60">ศูนย์ต้นทุน</dt>
+              <!-- ไม่มีปุ่มแก้โดยตั้งใจ - ค่านี้มาจากท่อน 3 ของ AssetClass ที่ SAP ทับทุกรอบ
+                   sync แก้ที่ AMS ไปก็หายรอบถัดไป ต้องแก้ที่ SAP -->
+              <dd class="truncate">{{ detail.costCenterName ?? '-' }}</dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="text-base-content/60">ผู้ครอบครอง</dt>
@@ -797,6 +850,16 @@ defineExpose({ reload: load })
               <dt class="text-base-content/60">Asset class</dt>
               <dd>{{ detail.assetClass ?? '-' }}</dd>
             </div>
+                        <div class="flex justify-between gap-3">
+              <dt class="text-base-content/60">เลขที่ PO</dt>
+              <dd v-if="detail.poNumber" class="font-mono">{{ detail.poNumber }}</dd>
+              <dd v-else class="text-right text-base-content/40 italic">ไม่พบข้อมูล</dd>
+            </div>
+            <div class="flex justify-between gap-3">
+              <dt class="text-base-content/60">เลขที่ GRPO</dt>
+              <dd v-if="detail.grpoNumber" class="font-mono">{{ detail.grpoNumber }}</dd>
+              <dd v-else class="text-right text-base-content/40 italic">ไม่พบข้อมูล</dd>
+            </div>
             <div class="flex justify-between gap-3">
               <!-- ★ ตรงนี้เคยเป็น "วันที่ตั้งหนี้" (วันใบกำกับใบแรก) - ถอดออกเพราะตอบอะไร
                    ไม่ได้จริง: ของที่วางบิลหลายงวดได้แค่วันของงวดแรก และมีค่าแค่ 52% ของ
@@ -805,20 +868,19 @@ defineExpose({ reload: load })
                      "ของชิ้นนี้เข้าทะเบียน SAP เมื่อไหร่" - คนละตัวกับ createdAt ซึ่งเป็น
                      วันที่แถวถูก sync เข้ามาใน AMS (ของที่ลงทะเบียนปี 2017 มี createdAt
                      เป็นปี 2026 ทั้งชุด) -->
+                     
               <dt class="text-base-content/60">วันที่ลงทะเบียน</dt>
               <dd>{{ formatDate(detail.sapCreatedDate) }}</dd>
             </div>
+            <!-- ★ มีเฉพาะของที่ขึ้นทะเบียนผ่านใบคำขอใน AMS - ของเก่าจาก SAP ไม่มีลิงก์กลับไป PO
+                 (ใบกำกับซื้อของสินทรัพย์ไม่อ้างเอกสารต้นทาง) ค่าว่างจึงบอกเหตุผลแทน '-'
+                 ซึ่งอ่านเหมือน "ลืมกรอก" · แยกสองแถวเสมอตามที่ผู้ใช้ขอ -->
+
             <!-- ถอด "ราคาที่ได้มา" ออกแล้ว - มันคือยอดรวมบรรทัดใบกำกับซึ่งเพี้ยนเป็นเท่าตัว
                  เมื่อรหัสเดียวอยู่หลายบรรทัด และวางอยู่เหนือ "ราคาทุน" ที่เป็นคนละเลข
                  ทำให้คนอ่านไม่รู้ว่าจะเชื่ออันไหน - ราคาที่ถูกคือ "ราคาทุน" ในส่วน
                  มูลค่าทางบัญชีข้างล่าง (ครอบ 99.4% ของทะเบียน) -->
-            <div class="flex justify-between gap-3">
-              <dt class="text-base-content/60">สถานที่จาก SAP</dt>
-              <!-- ★ อ่านอย่างเดียว - สถานที่ทางบัญชีแก้ได้ทางเดียวคือใบคำขอ (หน้า Create
-                   Requests) ต่างจาก "แก้ที่ตั้งบนผัง" ข้างบนซึ่งเป็นห้อง+หมุดที่ AMS
-                   เป็นเจ้าของและแก้เองได้ทันที -->
-              <dd class="min-w-0 truncate">{{ detail.locationName ?? '-' }}</dd>
-            </div>
+
             <div class="flex justify-between gap-1">
               <dt class="text-base-content/60">ระยะประกัน</dt>
               <dd class="flex items-center gap-2">
@@ -835,6 +897,13 @@ defineExpose({ reload: load })
                   <Icon icon="lucide:pencil" class="size-3.5" />
                 </button>
               </dd>
+            </div>
+                        <div class="flex justify-between gap-3">
+              <dt class="text-base-content/60">สถานที่จาก SAP</dt>
+              <!-- ★ อ่านอย่างเดียว - สถานที่ทางบัญชีแก้ได้ทางเดียวคือใบคำขอ (หน้า Create
+                   Requests) ต่างจาก "แก้ที่ตั้งบนผัง" ข้างบนซึ่งเป็นห้อง+หมุดที่ AMS
+                   เป็นเจ้าของและแก้เองได้ทันที -->
+              <dd class="min-w-0 truncate">{{ detail.locationName ?? '-' }}</dd>
             </div>
           </dl>
         </section>
@@ -994,6 +1063,12 @@ defineExpose({ reload: load })
     <AssetWarrantyDialog v-if="editableWarranty && detail" v-model:open="warrantyDialogOpen" :asset-id="detail.id"
       :warranty-start-date="detail.warrantyStartDate" :warranty-end-date="detail.warrantyEndDate"
       @saved="onWarrantySaved" />
+
+    <!-- กล่องแก้แผนกที่ดูแล - v-if ไม่ใช่แค่ v-model:open ด้วยเหตุผลเดียวกับกล่องข้างบน
+         (ไม่มี detail แปลว่ายังไม่รู้ id ที่จะยิง PATCH และยังไม่รู้ companyCode
+          ที่ใช้กรองตัวเลือก ซึ่งขาดไม่ได้เพราะแผนกเป็นของบริษัท) -->
+    <AssetDepartmentDialog v-if="editableDepartment && detail" v-model:open="departmentDialogOpen" :asset-id="detail.id"
+      :company-code="detail.companyCode" :department-id="detail.departmentId" @saved="onDepartmentSaved" />
 
     <!-- ── กล่องเลือกสถานที่บนผัง ─────────────────────────────────────────────
          ตัวเดียวกับที่กล่องกรอกสินทรัพย์ใช้ ไม่ก๊อป - ตรรกะ "ต้องเลือกห้อง + ต้องปักหมุด

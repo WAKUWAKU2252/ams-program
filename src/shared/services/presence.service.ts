@@ -1,4 +1,5 @@
 import { getTokenUserId } from './auth.token';
+import { request } from './httpClient';
 import { openStream, type StreamConnection } from './sse.service';
 
 // ── สองสายที่คนละหน้าที่กันชัดเจน ────────────────────────────────────────────
@@ -150,6 +151,24 @@ export function openPresence(
     },
     handlers,
   );
+}
+
+/**
+ * "ยังทำงานอยู่" - ต่ออายุ lock ตอนผู้ใช้ขยับจอแต่ยังไม่ได้กดบันทึก
+ *
+ * ★ backend นับอายุ lock จาก "ครั้งล่าสุดที่ยังทำงานอยู่" (ดู HOLDER_TTL_MS) ปุ่มที่กดบันทึก
+ *   ต่ออายุให้เองอยู่แล้ว ตัวนี้มีไว้สำหรับช่วงที่ไล่ตรวจของทั้งใบโดยยังไม่ได้กดอะไร - ไม่มี
+ *   ตัวนี้ บัญชีที่นั่งตรวจรูปเกิน 15 นาทีแล้วค่อยกดออกเลขชิ้นแรกจะกดไม่ผ่าน
+ *
+ * ★ กลืน error ทิ้ง: heartbeat พลาดหนึ่งครั้งไม่ใช่เรื่องที่ผู้ใช้ต้องรู้ (ครั้งถัดไปหรือปุ่ม
+ *   บันทึกถัดไปต่ออายุให้อยู่ดี) และไม่ควรขึ้น error กลางจอระหว่างที่เขากำลังทำงาน
+ */
+export function sendPresenceHeartbeat(requestId: number, scope: PresenceScope): void {
+  const path =
+    scope === 'registration'
+      ? `/asset-requests/${requestId}/registration-presence/heartbeat`
+      : `/asset-requests/${requestId}/presence/heartbeat`;
+  request(path, { method: 'POST' }).catch(() => {});
 }
 
 /**

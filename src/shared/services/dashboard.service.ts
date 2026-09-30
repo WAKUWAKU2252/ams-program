@@ -9,11 +9,13 @@
 import { request } from './httpClient'
 
 /**
- * ALL            เห็นได้ทุกแผนก - เลือกกรองเองได้
- * OWN_DEPARTMENT ถูกล็อกไว้ที่แผนกตัวเอง (พนักงานทั่วไป)
- * UNLINKED       บัญชียังไม่ผูกกับข้อมูลพนักงาน จึงบอกไม่ได้ว่าอยู่แผนกไหน = ไม่มีอะไรให้แสดง
+ * ALL       เลือกแผนกไหนก็ได้ในบริษัทที่ตัวเองเห็น - ทุก role ได้ค่านี้
+ * UNLINKED  บัญชียังไม่ผูกกับข้อมูลพนักงาน จึงบอกไม่ได้ว่าอยู่ **บริษัท** ไหน = ไม่มีอะไรให้แสดง
+ *
+ * ★ เลิกล็อกแผนกแล้ว (2026-09-22) ค่า OWN_DEPARTMENT ถูกถอดทิ้ง - เหลือล็อกแค่บริษัท
+ *   ซึ่งเป็นเส้นระหว่างนิติบุคคล (ดู companyLocked) เหตุผลเต็มอยู่ฝั่ง backend
  */
-export type DashboardScopeKind = 'ALL' | 'OWN_DEPARTMENT' | 'UNLINKED'
+export type DashboardScopeKind = 'ALL' | 'UNLINKED'
 
 /**
  * สถานะสินทรัพย์ - SAP เป็นเจ้าของ มีสองค่าเท่านั้น (ดูเหตุผลเต็มที่ shared/utils/asset-status.ts)
@@ -26,8 +28,6 @@ export interface DashboardScope {
   /** แผนกที่ตัวเลขชุดนี้นับมาจริง - null = รวมทุกแผนก */
   departmentId: number | null
   departmentName: string | null
-  /** true = ต้องปิดช่องเลือกแผนก (เลือกไปก็ไม่มีผล) */
-  locked: boolean
   /**
    * บริษัทที่ตัวเลขชุดนี้นับมา - null = รวมทุกบริษัท
    * ถูกล็อกตาม role เหมือนแผนกแล้ว (ดู companyLocked) ห้ามเดาจากค่าที่หน้าจอส่งไป
@@ -242,6 +242,14 @@ export interface DashboardTotalsBaseline {
 
 export interface DashboardOverview {
   scope: DashboardScope
+  /**
+   * ลิสต์ตัวเลือกของ dropdown เลือกแผนก - ไม่ถูกกรองด้วยแผนกที่เลือกอยู่
+   *
+   * มีค่าเฉพาะรอบที่ backend ตั้งแผนกตั้งต้นให้เอง (ส่ง defaultOwnDepartment ไป) เพราะรอบนั้น
+   * byDepartment เหลือแถวเดียว เติมตัวเลือกจากก้อนนั้นไม่ได้ - รอบอื่นเป็น null แล้วใช้
+   * byDepartment ตามเดิม (ดู DashboardOverview.departmentOptions ฝั่ง backend)
+   */
+  departmentOptions: DepartmentSummary[] | null
   totals: DashboardTotals
   freshness: DashboardFreshness
   status: DashboardStatus
@@ -262,11 +270,24 @@ export interface DashboardOverview {
 
 /** GET /dashboard/overview - ไม่ส่ง departmentId = ทุกแผนกเท่าที่ role นั้นเห็นได้ */
 export function getDashboardOverview(
-  params: { departmentId?: number; companyCode?: string } = {},
+  params: {
+    departmentId?: number
+    companyCode?: string
+    /**
+     * "ยังไม่ได้เลือกแผนกเอง ตั้งให้ด้วย" - ส่งเฉพาะรอบแรกที่เปิดหน้าเท่านั้น
+     *
+     * backend จะตั้งแผนกของผู้ใช้ให้ **เฉพาะเมื่อแผนกนั้นมีของในบริษัทที่กำลังดู** ถ้าไม่มี
+     * ก็คืน departmentId = null มาตามเดิม (ไม่งั้น 62% ของบัญชีจะเปิดมาเจอหน้าศูนย์ทุกช่อง
+     * - ดู ownDepartmentDefault ฝั่ง backend) หน้าจอจึงอ่านผลจาก scope เหมือนเดิม
+     * ห้ามเดาเองว่าแผนกไหนถูกตั้งให้
+     */
+    defaultOwnDepartment?: boolean
+  } = {},
 ): Promise<DashboardOverview> {
   const query = new URLSearchParams()
   if (params.departmentId) query.set('departmentId', String(params.departmentId))
   if (params.companyCode) query.set('companyCode', params.companyCode)
+  if (params.defaultOwnDepartment) query.set('defaultOwnDepartment', 'true')
 
   const qs = query.toString()
   return request<DashboardOverview>(`/dashboard/overview${qs ? `?${qs}` : ''}`, { method: 'GET' })

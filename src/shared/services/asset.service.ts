@@ -385,6 +385,29 @@ export function listAssetsInRoom(subLocationId: number, page = 1): Promise<RoomA
   });
 }
 
+/**
+ * หมุดหนึ่งอันบนผังทั้งชั้น - รูปเดียวกับ RoomAsset บวกห้องที่หมุดอยู่
+ *
+ * เป็น RoomAsset ครบทุกช่องเพื่อให้ส่งเข้า AssetDetailModal ได้ตรง ๆ - หน้าแผนผังเปิดกล่อง
+ * จากหมุดเมื่อชิ้นนั้นไม่อยู่ในลิสต์หน้าแรกของห้อง (ดู onSelectAsset ใน FloorPlanPage)
+ */
+export interface FloorPin extends RoomAsset {
+  subLocationId: number;
+  posX: number;
+  posY: number;
+}
+
+/**
+ * GET /assets/pins?planKey= - หมุดทุกชิ้นบนผังชั้นหนึ่ง (ตัวเลือก "ทุกห้อง")
+ *
+ * ไม่แบ่งหน้า - ต้องวาดทั้งชั้นในครั้งเดียว ตัดเมื่อไหร่หมุดส่วนเกินหายจากผังเงียบ ๆ
+ */
+export function listFloorPins(planKey: string): Promise<FloorPin[]> {
+  return request<FloorPin[]>(`/assets/pins?planKey=${encodeURIComponent(planKey)}`, {
+    method: 'GET',
+  });
+}
+
 /** GET /assets/:id - รายละเอียดรายชิ้น */
 export function getAsset(id: number): Promise<AssetDetail> {
   return request<AssetDetail>(`/assets/${id}`, { method: 'GET' });
@@ -469,6 +492,29 @@ export function updateAssetWarranty(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+/**
+ * PATCH /assets/:id/department - แก้ "แผนกที่ดูแล" ของชิ้นที่ "ลงทะเบียนแล้ว"
+ *
+ * ★ ห้ามใช้ updateAsset() แทน - เหตุผลเดียวกับสามเส้นข้างบน (เส้นนั้นปฏิเสธ REGISTERED
+ *   ทั้งก้อน ซึ่งคือของแทบทั้งทะเบียน)
+ *
+ * ★ คนละแกนกับศูนย์ต้นทุน - `costCenterName` บนหน้าจอแก้ที่นี่ไม่ได้และไม่ควรมีปุ่มให้แก้
+ *   มันเป็นของ SAP ทับทุกรอบ sync แก้ที่ AMS ไปก็หายรอบถัดไป (ต้องแก้ AssetClass ที่ SAP)
+ *
+ * ★ ส่ง null = ถอนกลับเป็น "ยังไม่ระบุแผนก" - key นี้บังคับส่งเสมอ ไม่มีรูป partial
+ *   เพราะ body มีช่องเดียว ไม่ส่งมาก็คือคำขอที่ไม่ได้สั่งอะไร
+ */
+export function updateAssetDepartment(
+  id: number,
+  departmentId: number | null,
+): Promise<{ id: number }> {
+  return request<{ id: number }>(`/assets/${id}/department`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ departmentId }),
   })
 }
 
@@ -599,7 +645,15 @@ export interface AssetByNumberDetail {
   posX: number | null;
   posY: number | null;
 
+  /** id ของแผนกที่ดูแล - กล่องแก้แผนกใช้เติมค่าตั้งต้น (null = ยังไม่ระบุ) */
+  departmentId: number | null;
+  /** แผนกที่ดูแล - AMS เป็นเจ้าของ คนแก้ได้ sync ไม่ทับ (0027) */
   departmentName: string | null;
+  /**
+   * ศูนย์ต้นทุนที่รับค่าเสื่อม - SAP เป็นเจ้าของ (0027)
+   * null = ยังไม่มี assetClass (ลงทะเบียนผ่าน AMS แต่บัญชียังไม่ออกเลขให้)
+   */
+  costCenterName: string | null;
   /** id ของผู้ถือครอง - กล่องเปลี่ยนผู้ครอบครองใช้เติมค่าตั้งต้น (null = ยังไม่ระบุ) */
   employeeId: number | null;
   /** null = ทะเบียนยังไม่ระบุผู้ถือครอง (ของเก่าส่วนใหญ่เป็นแบบนี้) */
@@ -609,6 +663,12 @@ export interface AssetByNumberDetail {
   /** ยังรับไว้แม้หน้าจอเลิกโชว์แล้ว - ดูหมายเหตุที่ AppAssetDetail */
   acquisitionDate: string | null;
   acquisitionCost: number | null;
+  /**
+   * เลข PO / GRPO ต้นทาง - มีเฉพาะของที่ขึ้นทะเบียนผ่านใบคำขอใน AMS
+   * null ทั้งคู่ = ของเก่าที่ดึงมาจาก SAP ซึ่งไม่มีลิงก์กลับไป PO (ไม่ใช่ลืมกรอก)
+   */
+  poNumber: string | null;
+  grpoNumber: string | null;
   /**
    * ระยะประกัน - สอง nullable อิสระจากกัน มีครบ 4 กรณีจริง
    * (ไม่มีเลย / มีแต่วันเริ่ม / มีแต่วันจบ / มีทั้งคู่) ฝั่งแสดงผลต้องเขียนครบทุกกรณี
@@ -688,7 +748,10 @@ export interface InventoryItem {
   serialNumber: string | null
   imageId: string | null
   categoryName: string | null
+  /** แผนกที่ดูแล - AMS เป็นเจ้าของ (0027) */
   departmentName: string | null
+  /** ศูนย์ต้นทุนที่รับค่าเสื่อม - SAP เป็นเจ้าของ · null = ยังไม่มี assetClass (0027) */
+  costCenterName: string | null
   locationName: string
   subLocationName: string | null
   /** null = ทะเบียนยังไม่ระบุผู้ถือครอง */
@@ -718,7 +781,16 @@ export interface InventoryParams {
   limit?: number
   /** ค้นพร้อมกันสามช่อง: เลขสินทรัพย์ / รายละเอียด / เลขเครื่อง */
   search?: string
+  /** แผนกที่ดูแล - แกนที่คนแก้เองได้ sync ไม่ทับ (0027) */
   departmentId?: number
+  /**
+   * ศูนย์ต้นทุนที่รับค่าเสื่อม = ท่อน 3 ของ assetClass ที่ SAP เป็นเจ้าของ (0027)
+   *
+   * ★ คนละแกนกับ departmentId และส่งพร้อมกันได้ - backend เอาไป AND กัน
+   *   "ของที่บัญชีลงไว้ที่ผลิตส่วนกลาง แต่ IT ดูแล" ตอบได้ด้วยสองช่องนี้พร้อมกันเท่านั้น
+   * ★ id มาจากรายชื่อ department เดียวกันทั้งคู่ - เป็นลิสต์เดียวกัน คนละบทบาท
+   */
+  costCenterId?: number
   /** รหัสบริษัท เช่น 'UBA' - ตารางบน Dashboard ส่งมาให้ตรงกับการ์ดสรุปข้างบน */
   companyCode?: string
   locationId?: number
@@ -734,6 +806,27 @@ export interface InventoryParams {
    * ★ คนที่จำได้แค่ต้นรหัสให้ใช้ช่อง search แทน ซึ่งค้นแบบ contains ให้
    */
   assetClass?: string
+  /**
+   * รหัสนำหน้าเลขสินทรัพย์ 3 ตัว ('COM') - **คนละแกนกับ assetClass ข้างบน**
+   *
+   *   'COM-775-26-053'  ← ตัวนี้เทียบท่อนแรกของ **เลขสินทรัพย์**
+   *   '1216401-0-775'   ← assetClass เทียบ **รหัสบัญชี** ซึ่งคนละสตริงกัน
+   *
+   * ★★ ห้ามใช้แทนแกนแผนก - รหัสบอก "ไซต์ + ประเภทของ" ตามวิธี capitalize ไม่ใช่คนดูแล
+   *    (COM อยู่ที่ IT แค่ 13% · CCTV ของ IT ได้รหัส FAB ไปกองที่โรงงาน)
+   * ★ ตัวเลือกมาจาก listAssetPrefixes()
+   */
+  assetPrefix?: string
+  /**
+   * Dept ID ในเลขสินทรัพย์ = ท่อนที่ 2 ('775' ใน COM-775-26-053) - รหัสตอนออกเลข
+   * ★ ไม่ใช่แผนกปัจจุบันของชิ้น (อันนั้นคือ departmentId) · ตัวเลือกมาจาก listAssetNumberDepts()
+   */
+  assetNumberDept?: string
+  /**
+   * ปีในเลขสินทรัพย์ = ท่อนที่ 3 สองหลัก ('26' ใน COM-775-26-053) = ปีที่ออกเลข
+   * ★ คนละแกนกับ fiscalYear ข้างล่าง · ตัวเลือกมาจาก listAssetNumberYears()
+   */
+  assetNumberYear?: string
   /**
    * ปีบัญชีของตัวเลขที่ sync มา - **ไม่ใช่ปีที่ซื้อ**
    * ★ กรองด้วยตัวนี้แล้ว ชิ้นที่ยังไม่มีตัวเลขบัญชีจะหายจากผลลัพธ์ (เทียบปีไม่ได้)
@@ -780,12 +873,16 @@ export function getAssetInventory(params: InventoryParams = {}): Promise<Paginat
   const search = params.search?.trim()
   if (search) query.set('search', search)
   if (params.departmentId) query.set('departmentId', String(params.departmentId))
+  if (params.costCenterId) query.set('costCenterId', String(params.costCenterId))
   if (params.companyCode) query.set('companyCode', params.companyCode)
   if (params.locationId) query.set('locationId', String(params.locationId))
   // 0 = ยังไม่ได้เลือก (AppEmployeeSelect ใช้ 0 แทน "ล้างค่า") จึงตกไปโดยไม่ต้องเช็คเพิ่ม
   if (params.employeeId) query.set('employeeId', String(params.employeeId))
   if (params.status) query.set('status', params.status)
   if (params.assetClass) query.set('assetClass', params.assetClass)
+  if (params.assetPrefix) query.set('assetPrefix', params.assetPrefix)
+  if (params.assetNumberDept) query.set('assetNumberDept', params.assetNumberDept)
+  if (params.assetNumberYear) query.set('assetNumberYear', params.assetNumberYear)
   // '' = ค่าตั้งต้น ไม่ต้องส่ง key ไป (backend เรียงตามเลขสินทรัพย์ให้อยู่แล้ว)
   if (params.sort) query.set('sort', params.sort)
   // ทิศทางไม่มีความหมายถ้าไม่ได้บอกว่าเรียงตามอะไร - ส่งไปก็ถูกเมินอยู่ดี

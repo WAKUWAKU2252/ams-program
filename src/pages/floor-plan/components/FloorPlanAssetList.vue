@@ -29,8 +29,9 @@ const props = defineProps<{
   /**
    * ชิ้นที่ถูกเลือกอยู่ (คลิกมาจากหมุดบนผัง) - ไฮไลต์การ์ดแล้วเลื่อนลิสต์ไปหา
    *
-   * ★ ต้องเป็นชิ้นที่โหลดมาแล้วเสมอ ซึ่งจริงโดยโครงสร้าง: หมุดบนผังวาดจาก items ที่
-   *   component นี้ส่งขึ้นไป จึงไม่มีทางมีหมุดของชิ้นที่ยังไม่อยู่ในลิสต์
+   * ★ ต้องเป็นชิ้นที่โหลดมาแล้ว ไม่งั้นไม่มีการ์ดให้เลื่อนไปหา - ในโหมดห้องเดียวจริงโดย
+   *   โครงสร้าง (หมุดวาดจาก items ที่ส่งขึ้นไป) ส่วนหมุดจากโหมด "ทุกห้อง" หน้าแม่เป็นคนเช็ค
+   *   กับหน้าแรกที่โหลดมาก่อนตั้งค่านี้ (ดู onRoomAssetsLoaded ใน FloorPlanPage)
    */
   activeAssetId?: number | null;
 }>();
@@ -38,8 +39,12 @@ const props = defineProps<{
 // ส่งรายการที่โหลดได้ขึ้นไปให้หน้าแม่ เพื่อเอาไปวาดหมุดบนผัง - โหลดที่เดียวใช้สองที่
 // ไม่ให้แผนที่ยิง API ซ้ำเอง (จะกลายเป็นสองคำขอต่อการคลิกห้องหนึ่งครั้ง)
 // ส่งชุด "ที่สะสมมาแล้วทั้งหมด" ทุกครั้งที่โหลดหน้าใหม่ หมุดจึงเพิ่มขึ้นตามลิสต์
+//
+// page = หน้าที่เพิ่งโหลดเสร็จ / 0 = ล้างลิสต์ตอนเปลี่ยนห้อง (ยังไม่ได้ยิง API)
+// ★ หน้าแม่ต้องแยกสองจังหวะนี้ออก: คลิกหมุดจากโหมดทุกห้องต้องรอ "หน้าแรกของห้องใหม่"
+//   ก่อนตัดสินว่าชิ้นนั้นอยู่ในลิสต์ไหม ถ้าไปตัดสินตอนลิสต์ว่างจะเปิดกล่องทุกครั้ง
 const emit = defineEmits<{
-  (e: 'loaded', assets: RoomAsset[]): void;
+  (e: 'loaded', assets: RoomAsset[], page: number): void;
   /** กดการ์ด = ขอเปิดรายละเอียดชิ้นนั้น - หน้าแม่เป็นคนถือ modal (แพทเทิร์นเดียวกับหน้าทะเบียน) */
   (e: 'open', asset: RoomAsset): void;
 }>();
@@ -112,7 +117,7 @@ async function loadNext() {
     hasMore.value = res.hasMore;
     items.value = next === 1 ? res.items : [...items.value, ...res.items];
     loadImages(res.items);
-    emit('loaded', items.value);
+    emit('loaded', items.value, res.page);
   } catch (e) {
     if (token !== latest) return;
     error.value = e instanceof Error ? e.message : 'โหลดรายการสินทรัพย์ไม่สำเร็จ';
@@ -156,7 +161,7 @@ async function reload() {
   error.value = '';
   page = 0;
   releaseImages();
-  emit('loaded', []);
+  emit('loaded', [], 0);
   if (!props.room?.id) return;
   await loadNext();
 }
@@ -237,7 +242,10 @@ function badge(asset: RoomAsset) {
     <div ref="scroller" class="min-h-0 flex-1 overflow-y-auto">
       <div v-if="!room" class="rounded-box border border-dashed border-base-300 p-6 text-center">
         <Icon icon="lucide:mouse-pointer-click" class="mx-auto size-6 opacity-40" />
-        <p class="mt-2 text-sm text-base-content/60">เลือกห้องบนผังเพื่อดูของในห้อง</p>
+        <!-- ไม่มีห้อง = โหมด "ทุกห้อง" ผังข้าง ๆ กำลังโชว์หมุดทั้งชั้นอยู่ -->
+        <p class="mt-2 text-sm text-base-content/60">
+          ผังกำลังแสดงหมุดทุกห้องของชั้นนี้ - คลิกหมุดหรือเลือกห้องเพื่อดูรายการในห้อง
+        </p>
       </div>
 
       <div v-else-if="loading" class="flex flex-col gap-2">

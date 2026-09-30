@@ -53,7 +53,7 @@ const STATUS_META: Record<ChangeStatus, { label: string; cls: string; desc: stri
   DONE: {
     label: 'ดำเนินการแล้ว',
     cls: 'badge-success',
-    desc: 'บัญชีดำเนินการให้แล้ว ทะเบียนเปลี่ยนเป็นค่าที่ขอเรียบร้อย - ใบนี้ไม่อยู่ในลิสต์ปกติแล้ว เปิดดูย้อนหลังได้จากตัวกรองสถานะ',
+    desc: 'บัญชีดำเนินการให้แล้ว ทะเบียนเปลี่ยนเป็นค่าที่ขอเรียบร้อย',
   },
   REJECTED: {
     label: 'ถูกตีกลับ',
@@ -167,8 +167,7 @@ const isEmpty = computed(
 /**
  * มีตัวกรองอยู่ไหม - ตัวแยก "ยังไม่เคยส่งคำขอเลย" ออกจาก "กรองแล้วไม่เจอ"
  *
- * ★ status = '' ไม่ใช่ "ไม่ได้กรอง" ในทางเทคนิค (backend ยังตัด DONE ออกให้) แต่ในสายตา
- *   ผู้ใช้มันคือค่าตั้งต้นที่เขาไม่ได้แตะ จึงนับเป็น "ไม่ได้กรอง" ตรงนี้
+ * status = '' คือ "ทั้งหมด" (backend ไม่กรองสถานะ รวมใบ DONE ด้วย) จึงนับเป็น "ไม่ได้กรอง"
  */
 const isFiltered = computed(() => kind.value !== '' || status.value !== '')
 </script>
@@ -189,14 +188,14 @@ const isFiltered = computed(() => kind.value !== '' || status.value !== '')
             
         </div>
 
-        <!-- ★ ค่าว่าง = "ที่ยังไม่จบ" ไม่ใช่ "ทุกสถานะ" - backend ตัดใบ DONE ออกจากลิสต์ปกติแล้ว
-             (ดู listMine) ป้ายตัวเลือกต้องพูดตรงกับสิ่งที่ได้จริง ไม่งั้นคนเลือก "ทุกสถานะ"
-             แล้วนับใบไม่ครบจะคิดว่าใบหาย - ส่วนใบที่จบแล้วยังเปิดดูได้จากตัวเลือกล่างสุด
-             ★★ ตัวเลือกล่างสุดคือ **ทางเดียวในทั้งระบบ** ที่พาไปดูใบ DONE ได้ - คิวฝั่งบัญชี
+        <!-- ★ ค่าว่าง = "ทั้งหมด" จริง รวมใบที่ดำเนินการแล้ว (DONE) - backend ไม่กรองสถานะ
+             เมื่อไม่ส่ง status มา (ดู listMine) ป้ายตัวเลือกต้องพูดตรงกับสิ่งที่ได้จริงเสมอ
+             ★★ ตัวกรองนี้คือ **ทางเดียวในทั้งระบบ** ที่พาไปดูใบ DONE ได้ - คิวฝั่งบัญชี
                ไม่เคยส่ง status มาและ backend ตั้งต้นให้เป็น SUBMITTED เสมอ (ดู listQueue)
-               ถอดตัวเลือกนี้ออกเมื่อไหร่ ใบที่ทำเสร็จแล้วจะไม่เหลือหน้าจอไหนเปิดดูได้อีกเลย -->
+               ถอด "ทั้งหมด" กับ "ดำเนินการแล้ว" ออกพร้อมกันเมื่อไหร่ ใบที่ทำเสร็จแล้วจะไม่เหลือ
+               หน้าจอไหนเปิดดูได้อีกเลย -->
         <select v-model="status" class="select select-bordered select-sm w-48">
-          <option value="">ที่ยังไม่จบ</option>
+          <option value="">ทั้งหมด</option>
           <option value="SUBMITTED">รอบัญชีดำเนินการ</option>
           <option value="REJECTED">ถูกตีกลับ</option>
           <option value="DONE">ดำเนินการแล้ว</option>
@@ -313,7 +312,7 @@ const isFiltered = computed(() => kind.value !== '' || status.value !== '')
           <dt class="text-base-content/60">ส่งเมื่อ</dt>
           <dd>{{ formatDateTime(noteTarget.submittedAt) }}</dd>
           <template v-if="noteTarget.appliedAt">
-            <dt class="text-base-content/60">ทำให้เมื่อ</dt>
+            <dt class="text-base-content/60">ทำรายการเมื่อ</dt>
             <dd>{{ formatDateTime(noteTarget.appliedAt) }}</dd>
           </template>
           <template v-if="noteTarget.rejectedAt">

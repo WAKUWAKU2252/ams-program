@@ -180,6 +180,20 @@ afterEach(() => {
   wrapper = null
 })
 
+describe('ตัวเลือกสถานที่ในฟอร์มรายชิ้น', () => {
+  // ★ ที่ตั้งเป็นของบริษัท (0037) - ไม่ส่ง companyCode = ได้ทั้งเครือ ชื่อซ้ำ UBA/UBP 14 ชื่อ
+  //   และเคยมีชิ้นของ MIG ถูกบันทึกด้วยที่ตั้งของ UBA ไปแล้วจริง
+  it('ขอสถานที่ด้วยบริษัทของใบ ไม่ใช่ทั้งเครือ', async () => {
+    const { listLocations } = await import('@/shared/services/master.service')
+    vi.mocked(listLocations).mockClear()
+    getAssetSlots.mockResolvedValue({ ...slotsResponse(), companyCode: 'UBP' })
+
+    await mountTable('all')
+
+    expect(listLocations).toHaveBeenCalledWith({ companyCode: 'UBP' })
+  })
+})
+
 describe('ใบที่บัญชีตีกลับรายชิ้น (editableScope = rejected)', () => {
   it('★ เปิดปุ่มแก้ไขเฉพาะชิ้นที่ถูกตีกลับ ชิ้นอื่นต้องกดไม่ได้', async () => {
     await mountTable('rejected')

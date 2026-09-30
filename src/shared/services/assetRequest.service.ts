@@ -98,7 +98,7 @@ export interface ListDraftsParams {
   status?: AssetRequestStatus | AssetRequestStatus[]; // หลายสถานะได้ (เช่น DRAFT + REJECTED)
   /** คำค้น - เลขที่คำขอ / เลขที่ PO / ชื่อผู้ขาย (ค้นที่ backend ไม่ใช่กรองแถวที่โหลดมาแล้ว) */
   search?: string;
-  /** แผนกของผู้ขอซื้อ - ตรงกับคอลัมน์ "ขอซื้อโดย" ที่ตารางแสดง ไม่ใช่แผนกของผู้สร้างใบ */
+  /** แผนกของผู้ขอซื้อ - ตรงกับคอลัมน์ "ผู้ขอซื้อ" ที่ตารางแสดง ไม่ใช่แผนกของผู้สร้างใบ */
   departmentId?: number;
   /** ผู้ขอซื้อบน PO */
   ownerPrId?: number;
@@ -268,15 +268,123 @@ export interface AssignNumberResponse {
  * มาจากทางไหน (SAP/AMS) และวันที่ได้มา เอาไปโชว์ตรง ๆ ได้เลย ผู้ใช้ต้องใช้ข้อมูลนั้น
  * ตัดสินว่าจะลบแถวที่ซ้ำทิ้งหรือกรอกเลขใหม่
  */
+/**
+ * @param adoptSapAssetId id ของแถวที่ sync ดึงมาจาก SAP ซึ่งบัญชีเปิดดูแล้วยืนยันว่าเป็นชิ้นเดียวกัน
+ *                        (ได้มาจาก getSapMatch) - ไม่ส่ง = ออกเลขตามปกติ
+ */
 export function assignAssetNumber(
   requestId: number,
   assetId: number,
   assetNumber: string,
+  adoptSapAssetId?: number,
 ): Promise<AssignNumberResponse> {
   return request(`/asset-requests/${requestId}/assets/${assetId}/number`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assetNumber }),
+    body: JSON.stringify({ assetNumber, adoptSapAssetId }),
+  })
+}
+
+/**
+ * แถวที่ sync ดึงมาจาก SAP ไปก่อน แล้วถือเลขเดียวกับที่บัญชีกำลังจะกรอก
+ *
+ * ★ adoptable / blockedReason / warning มาจากฟังก์ชันเดียวกับที่ backend ใช้ตัดสินตอนเขียน
+ *   จริง - หน้าจอห้ามตัดสินเองว่าผูกได้ไหม แค่แสดงตามนี้
+ */
+export interface SapMatch {
+  assetId: number
+  assetNumber: string
+  description: string | null
+  sapCreatedDate: string | null
+  status: string
+  /** ราคาทุนตามบัญชีใน SAP - null = SAP ยังไม่มีตัวเลขให้ */
+  sapCost: number | null
+  adoptable: boolean
+  /** เหตุผลที่ผูกไม่ได้ - null เมื่อผูกได้ */
+  blockedReason: string | null
+  /** ข้อสังเกตที่ไม่บล็อก แต่ควรอ่านก่อนกดยืนยัน */
+  warning: string | null
+}
+
+/** ดูก่อนกด - เลขนี้ชนกับแถวจาก SAP ไหม (match: null = ไม่ชน) อ่านอย่างเดียว */
+export function getSapMatch(
+  requestId: number,
+  assetId: number,
+  assetNumber: string,
+): Promise<{ match: SapMatch | null }> {
+  const qs = new URLSearchParams({ assetNumber })
+  return request(`/asset-requests/${requestId}/assets/${assetId}/sap-match?${qs}`, { method: 'GET' })
+}
+
+// ── เลขที่ยังไม่พบใน SAP + แก้เลขหลังปิดงาน ───────────────────────────────────
+
+/**
+ * ชิ้นจากใบคำขอที่ออกเลขแล้ว แต่ sync ยังไม่เคยเจอเลขนั้นใน SAP (ไม่มีวันที่ SAP / ข้อมูลบัญชี)
+ *
+ * ชิ้นที่เพิ่งออกเลขจะอยู่ในรายการชั่วคราวจนกว่า sync รอบถัดไป - ไม่ใช่ความผิดปกติเสมอไป
+ */
+export interface UnmatchedNumberRow {
+  assetId: number
+  requestId: number
+  companyCode: string
+  assetNumber: string | null
+  description: string | null
+  serialNumber: string | null
+  acquisitionCost: number | null
+  registeredAt: string | null
+  registeredByName: string | null
+  poNumber: string
+  vendorName: string | null
+  /**
+   * แจ้งผลกลับผู้ขอแล้วหรือยัง
+   *   false = ใบยังอยู่ในคิวออกเลข → แก้ที่หน้าออกเลขของใบ
+   *   true  = ปิดงานแล้ว → แก้ด้วย renumberAsset
+   */
+  requestClosed: boolean
+}
+
+export interface UnmatchedNumberParams {
+  page?: number
+  limit?: number
+  /** เลขสินทรัพย์ / S/N / ชื่อรายการ / เลขที่ PO */
+  search?: string
+}
+
+export function listUnmatchedNumbers(
+  params: UnmatchedNumberParams = {},
+): Promise<Paginated<UnmatchedNumberRow>> {
+  const query = new URLSearchParams()
+  if (params.page) query.set('page', String(params.page))
+  if (params.limit) query.set('limit', String(params.limit))
+  const search = params.search?.trim()
+  if (search) query.set('search', search)
+  const qs = query.toString()
+  return request(`/asset-requests/unmatched-numbers${qs ? `?${qs}` : ''}`, { method: 'GET' })
+}
+
+export interface RenumberResponse {
+  asset: { id: number; assetNumber: string | null }
+  previousNumber: string | null
+  /** true = รวมกับแถวที่ sync ดึงมาแล้ว / false = รอ sync รอบถัดไปจับคู่ */
+  adopted: boolean
+}
+
+/**
+ * แก้เลขของชิ้นที่ใบแจ้งผลกลับผู้ขอไปแล้ว - ได้เฉพาะเลขที่ SAP ยังไม่เคยเห็น
+ *
+ * 409 แบบเดียวกับ assignAssetNumber (เลขซ้ำ / ชนแถวจาก SAP ที่ต้องเปิดดูด้วย getSapMatch ก่อน)
+ * บวกกรณีเลขเดิมถูก SAP จับคู่ไปแล้ว หรือใบยังไม่ปิดงาน - ข้อความจาก backend บอกครบ
+ */
+export function renumberAsset(
+  requestId: number,
+  assetId: number,
+  assetNumber: string,
+  adoptSapAssetId?: number,
+): Promise<RenumberResponse> {
+  return request(`/asset-requests/${requestId}/assets/${assetId}/renumber`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetNumber, adoptSapAssetId }),
   })
 }
 

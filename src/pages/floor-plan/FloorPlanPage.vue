@@ -11,7 +11,7 @@
  */
 import { computed, onMounted, ref, useTemplateRef, watch } from 'vue';
 import { listFloorPlans, type FloorPlan } from '@/shared/services/master.service';
-import type { RoomAsset } from '@/shared/services/asset.service';
+import { listFloorPins, type FloorPin, type RoomAsset } from '@/shared/services/asset.service';
 import { categoryIcon } from '@/shared/utils/category-icon';
 import FloorPlanMap from '@/shared/components/FloorPlanMap.vue';
 // dropdown ไม่ใช่ FloorPlanRoomList ที่กางค้าง - ตัวนั้นยังใช้อยู่ใน FloorPlanPickerModal
@@ -24,20 +24,56 @@ import TopicCard from '@/shared/components/TopicCard.vue';
 
 // ลิสต์ของในห้อง - หน้านี้สั่งให้มันโหลดใหม่เองได้ (ดูเหตุผลที่ AssetDetailModal ท้ายไฟล์)
 const assetListRef = useTemplateRef<{ reload: () => Promise<void> }>('assetListRef');
+// แผนที่ - ใช้สั่งถอยไปดูทั้งผังตอนกลับเข้าโหมด "ทุกห้อง" (ดู watch(selectedId))
+const mapRef = useTemplateRef<{ fit: () => void }>('mapRef');
 
 const plans = ref<FloorPlan[]>([]);
 const activeKey = ref<string>('');
+/** ห้องที่เลือก - null = ตัวเลือก "ทุกห้อง" ของชั้นที่เปิดอยู่ (ดูหัว FloorPlanRoomSelect.vue) */
 const selectedId = ref<number | null>(null);
 const loading = ref(true);
 const error = ref('');
 const activePlan = computed(() => plans.value.find((p) => p.planKey === activeKey.value) ?? null);
 
-// ของในห้องที่เลือก - โหลดโดย FloorPlanAssetList แล้วส่งขึ้นมา หน้านี้ใช้ต่อเพื่อวาดหมุดบนผัง
+// ── หมุดบนผังมาจากสองแหล่ง แล้วแต่โหมด
 //
-// ★ ชุดนี้โตขึ้นทีละ 50 ตามที่ผู้ใช้เลื่อนลิสต์ลงไป ไม่ใช่ของทั้งห้องตั้งแต่แรก - หมุดบนผัง
-//   จึงเพิ่มตามลิสต์ ซึ่งเป็นสิ่งที่ต้องการ: ห้องคลังที่มีของ 300 ชิ้นถ้าโปรยหมุดครบทีเดียว
-//   จะทับกันจนคลิกไม่ถูก
+// เลือกห้อง  → ของในห้องที่ FloorPlanAssetList โหลดแล้วส่งขึ้นมา (roomAssets)
+// ทุกห้อง   → หมุดทั้งชั้นจาก GET /assets/pins (floorPins)
+//
+// ★ โหมดห้องเดียว ชุดนี้โตขึ้นทีละ 50 ตามที่ผู้ใช้เลื่อนลิสต์ลงไป ไม่ใช่ของทั้งห้องตั้งแต่แรก
+//   หมุดบนผังจึงเพิ่มตามลิสต์ - ห้องคลังที่มีของ 300 ชิ้นถ้าโปรยหมุดครบทีเดียวจะทับกันจน
+//   คลิกไม่ถูก ส่วนโหมดทุกห้องโปรยทั้งชั้นเพราะนั่นคือสิ่งที่ตัวเลือกนี้มีไว้ให้ดู
+//   (วัด 2026-09-30: ทั้งไซต์ปักหมุด 27 ชิ้น ชั้นที่เยอะสุด 17 ยังไม่มีเรื่องทับกัน)
 const roomAssets = ref<RoomAsset[]>([]);
+const floorPins = ref<FloorPin[]>([]);
+const pinsError = ref('');
+/** กันผลของชั้นเก่ามาทับชั้นใหม่ - ผู้ใช้สลับแท็บชั้นรัว ๆ ได้ (แนวเดียวกับ latest ในลิสต์) */
+let pinsToken = 0;
+
+async function loadFloorPins() {
+  const key = activeKey.value;
+  const token = ++pinsToken;
+  pinsError.value = '';
+  if (!key) {
+    floorPins.value = [];
+    return;
+  }
+  try {
+    const pins = await listFloorPins(key);
+    if (token === pinsToken) floorPins.value = pins;
+  } catch (e) {
+    if (token !== pinsToken) return;
+    floorPins.value = [];
+    pinsError.value = e instanceof Error ? e.message : 'โหลดหมุดทั้งชั้นไม่สำเร็จ';
+  }
+}
+
+// สลับชั้น = ล้างหมุดชั้นเดิมทันที ไม่รอ response - ไม่งั้นหมุดชั้น 1 จะค้างอยู่บนภาพผังชั้น 2
+// ระหว่างรอ (พิกัดเป็นสัดส่วนของภาพ มันจึงวาดได้ "ถูกที่" บนผังผิดใบโดยไม่มีอะไรฟ้อง)
+watch(activeKey, () => {
+  floorPins.value = [];
+  void loadFloorPins();
+});
 
 /**
  * ชิ้นที่เลือกอยู่ - คลิกหมุดบนผังแล้วลิสต์เลื่อนไปหา / คลิกการ์ดในลิสต์แล้วหมุดกระพริบ
@@ -58,9 +94,60 @@ function openDetail(asset: RoomAsset) {
   detailOpen.value = true;
 }
 
+/**
+ * คลิกหมุดจากโหมดทุกห้อง - รอให้ลิสต์ของห้องนั้นโหลดหน้าแรกเสร็จก่อนค่อยตัดสินใจ
+ *
+ * ไม่ใช่ ref เพราะไม่มีอะไรบนจอผูกกับมัน เป็นแค่ "งานค้าง" ระหว่างสองจังหวะ
+ */
+let pendingPin: FloorPin | null = null;
+
+/**
+ * คลิกหมุดบนผัง
+ *
+ * เลือกห้องอยู่  → หมุดมาจากลิสต์ของห้องนี้เอง ชิ้นนั้นอยู่ในลิสต์แน่นอน เลือกได้เลย
+ * ทุกห้อง      → สลับไปห้องของหมุดนั้นก่อน แล้วรอหน้าแรกของลิสต์ (ดู onRoomAssetsLoaded)
+ *
+ * ★ ตั้ง activeAssetId ทันทีในโหมดทุกห้องไม่ได้: watch(selectedId) ล้างมันทิ้งทุกครั้งที่
+ *   เปลี่ยนห้อง และถึงรอดมาได้ ลิสต์ก็ยังไม่มีการ์ดให้เลื่อนไปหา
+ */
+function onSelectAsset(id: number) {
+  if (selectedId.value !== null) {
+    activeAssetId.value = id;
+    return;
+  }
+  const pin = floorPins.value.find((p) => p.id === id);
+  if (!pin) return;
+  pendingPin = pin;
+  selectedId.value = pin.subLocationId;
+}
+
+/**
+ * ลิสต์ของในห้องโหลดเสร็จ - เก็บไว้วาดหมุด และปิดงานค้างจากการคลิกหมุดในโหมดทุกห้อง
+ *
+ * ชิ้นที่คลิกอยู่ในหน้าแรก → ไฮไลต์การ์ดแล้วลิสต์เลื่อนไปหาเอง
+ * ไม่อยู่ (ห้องที่มีหมุดเกิน 50 / เพิ่งมีคนย้ายชิ้นนั้นออก) → เปิดกล่องรายละเอียดแทน
+ *   จะได้ไม่คลิกแล้วเงียบ - FloorPin เป็น RoomAsset ครบทุกช่องจึงส่งเข้ากล่องได้ตรง ๆ
+ *
+ * ★ ตัดสินที่ page === 1 เท่านั้น: page 0 คือจังหวะล้างลิสต์ตอนเปลี่ยนห้องซึ่งยังว่างอยู่
+ *   ถ้าตัดสินตรงนั้นจะเปิดกล่องทุกครั้งที่คลิกหมุด
+ */
+function onRoomAssetsLoaded(assets: RoomAsset[], page: number) {
+  roomAssets.value = assets;
+  if (!pendingPin || page !== 1) return;
+  const pin = pendingPin;
+  pendingPin = null;
+  if (assets.some((a) => a.id === pin.id)) activeAssetId.value = pin.id;
+  else openDetail(pin);
+}
+
+/** หมุดที่วาดบนผัง - แหล่งตามโหมด (ดูหัวไฟล์ส่วน roomAssets/floorPins) */
+const pinSource = computed<RoomAsset[]>(() =>
+  selectedId.value === null ? floorPins.value : roomAssets.value,
+);
+
 /** เฉพาะชิ้นที่ปักหมุดไว้แล้ว - ชิ้นที่รู้แค่ว่าอยู่ห้องนี้ไม่มีพิกัดให้วาด */
 const assetPins = computed(() =>
-  roomAssets.value
+  pinSource.value
     .filter((a): a is RoomAsset & { posX: number; posY: number } => a.posX !== null && a.posY !== null)
     .map((a) => ({
       id: a.id,
@@ -83,8 +170,17 @@ const selectedRoom = computed(
 
 // เปลี่ยนห้อง = ชิ้นที่เลือกไว้เป็นของห้องเก่า ต้องล้างทิ้ง ไม่งั้นหมุดในห้องใหม่จะมีอันหนึ่ง
 // เด้งค้างอยู่เฉย ๆ ถ้าบังเอิญ id ตรงกัน (หรือไม่มีอะไรเด้งเลยแต่ลิสต์ยังคิดว่ามีตัวที่เลือกอยู่)
-watch(selectedId, () => {
+//
+// ★ งานค้างจากการคลิกหมุดล้างเฉพาะเมื่อไปห้องอื่นที่ไม่ใช่ห้องของหมุด - onSelectAsset
+//   เป็นคนเปลี่ยนห้องเอง watcher นี้จึงวิ่งตามหลังมันทุกครั้ง ล้างทิ้งตรง ๆ = งานหายก่อนเริ่ม
+//
+// ★ กลับมาที่ทุกห้อง (เลือกจาก dropdown / คลิกห้องเดิมซ้ำ / ปิดรายละเอียดห้อง) ต้องถอยไปดู
+//   ทั้งผัง - แผนที่ซูมตามห้องเองอยู่แล้ว แต่ตอนห้องเป็น null มันไม่ขยับ จะค้างซูมอยู่ที่
+//   ห้องเดิมทั้งที่ตอนนี้หมุดทั้งชั้นโผล่มาแล้ว ส่วนใหญ่จึงอยู่นอกกรอบสายตา
+watch(selectedId, (id) => {
   activeAssetId.value = null;
+  if (pendingPin && pendingPin.subLocationId !== id) pendingPin = null;
+  if (id === null) mapRef.value?.fit();
 });
 
 function switchPlan(key: string) {
@@ -159,9 +255,15 @@ onMounted(async () => {
         <div class="h-[60dvh] min-h-[20rem] lg:h-auto lg:min-h-[26rem] lg:flex-1">
           <!-- active-pin-id ทำให้หมุดของชิ้นที่เลือกเด้งค้างไว้ - ในห้องคลังที่หมุดอยู่ติดกัน
                สีอย่างเดียวแยกไม่ออกว่าอันไหนคือชิ้นที่เพิ่งกดจากลิสต์ -->
-          <FloorPlanMap v-if="activePlan" :src="planSrc" :rooms="activePlan.rooms" :selected-id="selectedId" :asset-pins="assetPins"
+          <FloorPlanMap v-if="activePlan" ref="mapRef" :src="planSrc" :rooms="activePlan.rooms" :selected-id="selectedId" :asset-pins="assetPins"
             :active-pin-id="activeAssetId"
-            @select="selectedId = $event" @select-asset="activeAssetId = $event" />
+            @select="selectedId = $event" @select-asset="onSelectAsset" />
+        </div>
+
+        <!-- หมุดทั้งชั้นโหลดไม่ขึ้นต้องบอก ไม่งั้นผังโล่งในโหมดทุกห้องจะอ่านได้ว่า "ชั้นนี้ไม่มีใครปักหมุด" -->
+        <div v-if="pinsError && selectedId === null" role="alert" class="alert alert-error alert-soft py-2">
+          <span class="text-sm">{{ pinsError }}</span>
+          <button type="button" class="btn btn-ghost btn-xs" @click="loadFloorPins">ลองใหม่</button>
         </div>
 
         <FloorPlanRoomDetail v-if="selectedRoom" :room="selectedRoom" @clear="selectedId = null" />
@@ -179,6 +281,7 @@ onMounted(async () => {
         <FloorPlanRoomSelect
           :rooms="activePlan?.rooms ?? []"
           :selected-id="selectedId"
+          :floor-label="activePlan?.floor ?? activePlan?.planKey"
           @select="selectedId = $event"
         />
 
@@ -189,7 +292,7 @@ onMounted(async () => {
           class="min-h-0 flex-1"
           :room="selectedRoom"
           :active-asset-id="activeAssetId"
-          @loaded="roomAssets = $event"
+          @loaded="onRoomAssetsLoaded"
           @open="openDetail"
         />
       </div>
@@ -199,7 +302,8 @@ onMounted(async () => {
 
          ★ หน้านี้ต้องโหลดลิสต์ใหม่เมื่อที่ตั้งถูกแก้ ต่างจากหน้าตารางอื่น: ที่นี่ผังข้างหลัง
            modal วาดหมุดของ "ห้องที่เลือกอยู่" ถ้าคนย้ายชิ้นไปห้องอื่นแล้วไม่โหลดใหม่ หมุด
-           จะยังค้างอยู่ที่เดิมบนผัง = แผนที่โกหกทันทีหลังกดบันทึก -->
+           จะยังค้างอยู่ที่เดิมบนผัง = แผนที่โกหกทันทีหลังกดบันทึก
+           หมุดทั้งชั้นก็ต้องโหลดใหม่ด้วยเหตุผลเดียวกัน - กดกลับไปทุกห้องแล้วต้องเห็นหมุดที่ใหม่ -->
     <AssetDetailModal
       v-model="detailOpen"
       :item="detailItem"
@@ -207,7 +311,8 @@ onMounted(async () => {
       editable-image
       editable-holder
       editable-warranty
-      @updated="assetListRef?.reload()"
+      editable-department
+      @updated="assetListRef?.reload(); loadFloorPins()"
     />
   </div>
 </template>

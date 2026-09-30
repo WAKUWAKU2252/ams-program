@@ -21,11 +21,20 @@ import AssetTable from '@/shared/components/AssetTable.vue'
 import { getAssetInventory } from '@/shared/services/asset.service'
 import type { InventoryItem, InventoryParams } from '@/shared/services/asset.service'
 import {
+  listAssetClasses,
+  listAssetNumberDepts,
+  listAssetNumberYears,
+  listAssetPrefixes,
   listEmployees,
   listLocations,
+  type AssetClassOption,
+  type AssetNumberDeptOption,
+  type AssetNumberYearOption,
+  type AssetPrefixOption,
   type EmployeeOption,
-  type MasterOption,
+  type LocationOption,
 } from '@/shared/services/master.service'
+import { locationLabel, locationsForCompany } from '@/shared/utils/location'
 import { ApiError } from '@/shared/services/httpClient'
 import { ASSET_STATUS_OPTIONS, assetStatusLabel } from '@/shared/utils/asset-status'
 import { ASSET_SORT_OPTIONS } from '@/shared/utils/asset-sort'
@@ -33,8 +42,16 @@ import AppSortMenu from '@/shared/components/AppSortMenu.vue'
 import type { SortDirection } from '@/shared/components/AppSortMenu.vue'
 
 const props = defineProps<{
-  /** id ของแผนกที่เลือกบน Dashboard - '' = ทุกแผนก (ตรงกับ scope.departmentId === null) */
-  departmentId: string
+  /**
+   * id ของศูนย์ต้นทุนที่เลือกบน Dashboard - '' = ทุกศูนย์ต้นทุน (ตรงกับ scope.departmentId === null)
+   *
+   * ★ ชื่อ prop ต้องบอกแกนให้ตรง (0027) - ค่ายังเป็น `department.id` เหมือนเดิมเพราะ
+   *   ตาราง department ทำหน้าที่เป็นทั้งผังแผนกและผังศูนย์ต้นทุน แต่ **ปลายทางที่มันไปกรอง
+   *   คือ asset.costCenterId** ไม่ใช่ asset.departmentId
+   *   เดิมชื่อ departmentId แล้วส่งไปกรอง asset.departmentId ซึ่งเป็น NULL ทั้งทะเบียน
+   *   ผลคือกดแผนกที่ตารางสรุปบอกว่ามีของ แล้วได้รายการว่าง
+   */
+  costCenterId: string
   /** ชื่อที่จะขึ้นหัวตาราง มาจาก scope ของ backend */
   departmentName?: string
   /**
@@ -58,7 +75,7 @@ const LIMIT = 10
 /** ข้อความในช่องค้นหา - ยังไม่ใช่คำที่ยิงไปจริง (ดู debounce ข้างล่าง) */
 const searchText = ref('')
 
-// ── ตัวกรอง: ที่ตั้ง / ผู้ครอบครอง / สถานะ ───────────────────────────────────
+// ── ตัวกรอง: ที่ตั้ง / ผู้ครอบครอง / สถานะ / Asset class / สามท่อนเลขสินทรัพย์ ──
 //
 // รูปแบบเดียวกับหน้า Asset Inventory และ Audit: dropdown แผงเดียวที่กางหัวข้อแล้วเลือก
 // ค่าได้ในตัวเอง + แถบ chip ใต้แถบเครื่องมือบอกว่าตอนนี้ตารางถูกจำกัดด้วยอะไรอยู่บ้าง
@@ -78,11 +95,25 @@ const sortDir = ref<SortDirection>('desc')
 /** ผู้ครอบครอง - เก็บชื่อคู่กับ id เพราะ chip กับป้ายใต้หัวข้อต้องใช้ชื่อ ไม่ใช่เลข */
 const employeeId = ref(0)
 const employeeName = ref('')
+/** รหัสหมวด = ท่อน 1 ของรหัสบัญชี เช่น '1216301' - แกนเดียวกับหน้า Asset Inventory */
+const assetClass = ref('')
+/**
+ * สามท่อนแรกของเลขสินทรัพย์ COM-775-26-001 → รหัสนำหน้า / Dept ID / ปี
+ * ★ ความหมายเหมือนหน้า Asset Inventory ทุกข้อ (ดู AssetInventoryPage.vue) - Dept ID กับปี
+ *   คือค่าที่ฝังในเลขตอนออกเลข ไม่ใช่ศูนย์ต้นทุนที่เลือกบน Dashboard และไม่ใช่ปีบัญชี
+ */
+const assetPrefix = ref('')
+const assetNumberDept = ref('')
+const assetNumberYear = ref('')
 
+// ลำดับและป้ายตรงกับหน้า Asset Inventory - สองตารางนี้คนกลุ่มเดียวกันสลับไปมา
 const FILTER_FIELDS = [
   { key: 'location', label: 'ที่ตั้ง', icon: 'lucide:map-pin' },
   { key: 'holder', label: 'ผู้ครอบครอง', icon: 'lucide:user' },
   { key: 'status', label: 'สถานะ', icon: 'lucide:activity' },
+  { key: 'assetClass', label: 'Asset class', icon: 'lucide:layers' },
+  // ★ แถวนี้ไม่กาง/หุบ - สาม dropdown ในแถวเดียว (ดูเทมเพลต) ป้ายมีไว้ให้ช่องค้นหาตัวกรองหาเจอ
+  { key: 'assetNumber', label: 'รหัสนำหน้า · Dept ID · ปี', icon: 'lucide:hash' },
 ]
 
 const panelOpen = ref(false)
@@ -104,6 +135,8 @@ function filterHasValue(key: string): boolean {
       return employeeId.value > 0
     case 'status':
       return !!status.value
+    case 'assetClass':
+      return !!assetClass.value
     default:
       return false
   }
@@ -113,6 +146,7 @@ function clearField(key: string) {
   if (key === 'location') locationId.value = ''
   else if (key === 'holder') clearEmployee()
   else if (key === 'status') status.value = ''
+  else if (key === 'assetClass') assetClass.value = ''
 }
 
 /**
@@ -122,7 +156,14 @@ function clearField(key: string) {
  * จะกลับไปสถานะ "ไม่กรอง" ได้จากในลิสต์ (นอกจากกด × บนหัวข้อ) - กติกาเดียวกับหน้าทะเบียน
  */
 function toggleValue(key: string, value: string) {
-  const target = key === 'location' ? locationId : key === 'status' ? status : null
+  const target =
+    key === 'location'
+      ? locationId
+      : key === 'status'
+        ? status
+        : key === 'assetClass'
+          ? assetClass
+          : null
   if (!target) return
   target.value = target.value === value ? '' : value
 }
@@ -130,26 +171,102 @@ function toggleValue(key: string, value: string) {
 /** ค่าที่เลือกไว้ เป็นข้อความอ่านออก - โชว์ใต้หัวข้อตอนหุบ จะได้ไม่ต้องกางดู */
 function fieldValueLabel(key: string): string {
   switch (key) {
-    case 'location':
-      return locations.value.find((l) => String(l.id) === locationId.value)?.name ?? locationId.value
+    case 'location': {
+      const loc = locations.value.find((l) => String(l.id) === locationId.value)
+      return loc ? locationLabel(loc, locations.value) : locationId.value
+    }
     case 'holder':
       return employeeName.value || `รหัส ${employeeId.value}`
     case 'status':
       return assetStatusLabel(status.value)
+    case 'assetClass':
+      return assetClassLabel(assetClass.value)
     default:
       return ''
   }
 }
 
+// ── Asset class + สามท่อนเลขสินทรัพย์: ลิสต์ตัวเลือกจากทะเบียน แคบตามขอบเขตของ Dashboard ──
+//
+// ★ ส่งทั้งบริษัทและศูนย์ต้นทุนไป - ตารางนี้ถูกจำกัดด้วยทั้งสองแกน ถ้าลิสต์ไม่แคบตาม ตัวเลือก
+//   จะมีค่าที่ศูนย์นี้ไม่มีของ (กดแล้วตารางว่าง) และจำนวนชิ้นในวงเล็บเป็นของทั้งบริษัท
+//   ซึ่งขัดกับตารางที่อยู่ข้างล่าง (ต่างจากหน้า Asset Inventory ที่ไม่มีแกนศูนย์ต้นทุนมาจากข้างนอก)
+//
+// ★ โหลดตอนเปิดแผงเท่านั้น ไม่ใช่ทุกครั้งที่เปลี่ยนศูนย์ต้นทุน - Dashboard เป็นหน้าแรกของทุกคน
+//   และคนส่วนใหญ่ไม่ได้เปิดตัวกรอง (หลักเดียวกับรายชื่อผู้ครอบครอง)
+const assetClasses = ref<AssetClassOption[]>([])
+const assetPrefixes = ref<AssetPrefixOption[]>([])
+const assetNumberDepts = ref<AssetNumberDeptOption[]>([])
+const assetNumberYears = ref<AssetNumberYearOption[]>([])
+/** ขอบเขตที่ลิสต์ชุดปัจจุบันโหลดมา - '' = ยังไม่เคยโหลด/โหลดพัง (เปิดแผงครั้งหน้าจะลองใหม่) */
+let assetOptionsKey = ''
+
+function loadAssetOptions() {
+  const key = `${props.companyCode ?? ''}|${props.costCenterId}`
+  if (key === assetOptionsKey) return
+  assetOptionsKey = key
+  const params = {
+    companyCode: props.companyCode || undefined,
+    costCenterId: props.costCenterId ? Number(props.costCenterId) : undefined,
+  }
+  // ผลที่มาช้ากว่าการเปลี่ยนขอบเขตรอบถัดไปต้องทิ้ง ไม่งั้นลิสต์ของศูนย์เก่ามาทับของศูนย์ใหม่
+  const fresh = () => key === assetOptionsKey
+  const failed = () => {
+    if (fresh()) assetOptionsKey = ''
+  }
+  void listAssetClasses(params)
+    .then((rows) => fresh() && (assetClasses.value = rows))
+    .catch(failed)
+  void listAssetPrefixes(params)
+    .then((rows) => fresh() && (assetPrefixes.value = rows))
+    .catch(failed)
+  void listAssetNumberDepts(params)
+    .then((rows) => fresh() && (assetNumberDepts.value = rows))
+    .catch(failed)
+  void listAssetNumberYears(params)
+    .then((rows) => fresh() && (assetNumberYears.value = rows))
+    .catch(failed)
+}
+
+const assetClassSearch = ref('')
+
+/** ชื่อยังไม่มีก็ใช้รหัสไปก่อน - กติกาเดียวกับหน้า Asset Inventory / Asset summary */
+const assetClassOptions = computed(() =>
+  assetClasses.value.map((c) => ({ code: c.code, label: c.name ?? c.code })),
+)
+
+const filteredAssetClasses = computed(() => {
+  const q = assetClassSearch.value.trim().toLowerCase()
+  if (!q) return assetClassOptions.value
+  return assetClassOptions.value.filter(
+    (o) => o.code.includes(q) || o.label.toLowerCase().includes(q),
+  )
+})
+
+/** '<รหัส> · <ชื่อ>' เหมือนหน้า Asset Inventory - หาไม่เจอในลิสต์ (ยังไม่โหลด) ใช้รหัสแทน */
+function assetClassLabel(code: string): string {
+  if (!code) return ''
+  const label = assetClassOptions.value.find((o) => o.code === code)?.label ?? code
+  return `${code} · ${label}`
+}
+
 // ── ที่ตั้ง: โหลดครบทีเดียวแล้วกรองในเครื่อง (มีไม่กี่สิบแถว) ─────────────────
-const locations = ref<MasterOption[]>([])
+const locations = ref<LocationOption[]>([])
 /** โหลดไม่สำเร็จ - บอกในลิสต์ตรงนั้น ไม่ยัดลง loadError ซึ่งเป็นช่องของ "ตารางโหลดไม่ขึ้น" */
 const locationsFailed = ref(false)
 const locationSearch = ref('')
 
+/**
+ * ที่ตั้งของบริษัทที่ Dashboard เลือกอยู่ + แถวใช้ร่วม - '' (ทุกบริษัท) = ทั้งเครือ (0037)
+ * ชื่อที่ซ้ำกันข้ามบริษัทแปะรหัสบริษัท (locationLabel) - เหตุผลเดียวกับหน้าทะเบียน
+ */
+const companyLocations = computed(() => locationsForCompany(locations.value, props.companyCode))
+
 const filteredLocations = computed(() => {
   const q = locationSearch.value.trim().toLowerCase()
-  return q ? locations.value.filter((l) => l.name.toLowerCase().includes(q)) : locations.value
+  return q
+    ? companyLocations.value.filter((l) => l.name.toLowerCase().includes(q))
+    : companyLocations.value
 })
 
 onMounted(async () => {
@@ -289,6 +406,35 @@ const activeFilterChips = computed(() => {
       clear: () => (status.value = ''),
     })
   }
+  // ป้ายสี่ตัวข้างล่างเขียนแบบเดียวกับ chip ของหน้า Asset Inventory
+  if (assetClass.value) {
+    chips.push({
+      key: 'class',
+      label: `Asset class: ${assetClassLabel(assetClass.value)}`,
+      clear: () => (assetClass.value = ''),
+    })
+  }
+  if (assetPrefix.value) {
+    chips.push({
+      key: 'prefix',
+      label: `รหัสนำหน้า: ${assetPrefix.value}`,
+      clear: () => (assetPrefix.value = ''),
+    })
+  }
+  if (assetNumberDept.value) {
+    chips.push({
+      key: 'numberDept',
+      label: `Dept ID: ${assetNumberDept.value}`,
+      clear: () => (assetNumberDept.value = ''),
+    })
+  }
+  if (assetNumberYear.value) {
+    chips.push({
+      key: 'numberYear',
+      label: `ปี: ${assetNumberYear.value}`,
+      clear: () => (assetNumberYear.value = ''),
+    })
+  }
 
   return chips
 })
@@ -301,6 +447,10 @@ function clearFilters() {
   locationId.value = ''
   status.value = ''
   clearEmployee()
+  assetClass.value = ''
+  assetPrefix.value = ''
+  assetNumberDept.value = ''
+  assetNumberYear.value = ''
 }
 
 // ── ปิดแผงเมื่อคลิกนอกแผง / กด Escape ────────────────────────────────────────
@@ -318,6 +468,7 @@ function onPanelKeydown(e: KeyboardEvent) {
 
 watch(panelOpen, (open) => {
   if (open) {
+    loadAssetOptions()
     document.addEventListener('pointerdown', onDocumentPointerDown)
     document.addEventListener('keydown', onPanelKeydown)
   } else {
@@ -325,9 +476,6 @@ watch(panelOpen, (open) => {
     document.removeEventListener('keydown', onPanelKeydown)
   }
 })
-
-/** หัวตาราง ใช้เป็นจุดเลื่อนกลับตอนเปลี่ยนหน้า */
-const tableTop = ref<HTMLElement | null>(null)
 
 async function load() {
   loading.value = true
@@ -337,12 +485,20 @@ async function load() {
       page: page.value,
       limit: LIMIT,
       search: searchText.value,
-      departmentId: props.departmentId ? Number(props.departmentId) : undefined,
+      // ★ costCenterId ไม่ใช่ departmentId (0027) - ต้องเป็นแกนเดียวกับที่ตารางสรุป
+      //   ข้างบนใช้นับ ไม่งั้นกดแผนกที่ขึ้นว่ามี 116 ชิ้น แล้วได้รายการว่าง
+      //   (เกิดมาแล้วตอนย้าย dashboard ไป costCenterId แล้วลืมจุดนี้ - asset.departmentId
+      //    เป็น NULL ทั้งทะเบียนรอคนกรอกตอนตรวจนับ กรองด้วยตัวนั้นจึงได้ 0 เสมอ)
+      costCenterId: props.costCenterId ? Number(props.costCenterId) : undefined,
       companyCode: props.companyCode || undefined,
       locationId: locationId.value ? Number(locationId.value) : undefined,
       // 0 = ยังไม่เลือก - ปล่อยเป็น undefined ไม่ใช่ส่ง 0 ไป (backend บังคับ minimum: 1)
       employeeId: employeeId.value || undefined,
       status: status.value || undefined,
+      assetClass: assetClass.value || undefined,
+      assetPrefix: assetPrefix.value || undefined,
+      assetNumberDept: assetNumberDept.value || undefined,
+      assetNumberYear: assetNumberYear.value || undefined,
       sort: (sort.value || undefined) as InventoryParams['sort'],
       sortDir: sortDir.value,
     })
@@ -375,17 +531,24 @@ async function load() {
  *      เขียนเตือนไว้เรื่อง watch สองตัวในรอบ flush เดียว)
  */
 watch(
-  () => [props.departmentId, props.companyCode],
+  () => [props.costCenterId, props.companyCode],
   ([, company], prev) => {
+    // แผงเปิดค้างอยู่ตอนขอบเขตเปลี่ยน = ต้องเห็นตัวเลือกของขอบเขตใหม่ทันที
+    // (แผงปิดอยู่ไม่ต้องโหลด - loadAssetOptions เทียบขอบเขตเองตอนเปิดแผงครั้งหน้า)
+    if (panelOpen.value) loadAssetOptions()
     if (prev !== undefined && company !== prev[1]) {
       employeesLoaded = false
       employees.value = []
       employeeTotal.value = 0
       // กางหัวข้อค้างอยู่ = ต้องเห็นชื่อชุดใหม่ทันที ไม่ใช่ลิสต์ว่างจนกว่าจะหุบแล้วกางใหม่
       if (expandedField.value === 'holder') void loadEmployees()
-      if (employeeId.value) {
+      // ★ Asset class ล้างตอนเปลี่ยนบริษัทเหมือนหน้า Asset Inventory - ส่วนสามท่อนเลข
+      //   ไม่ล้างด้วยเหตุผลเดียวกับหน้านั้น (เป็นสตริงในเลข ความหมายเหมือนกันทุกบริษัท)
+      assetClassSearch.value = ''
+      if (employeeId.value || assetClass.value) {
         page.value = 1
         clearEmployee()
+        assetClass.value = ''
         return
       }
     }
@@ -398,10 +561,23 @@ watch(
 // ตัวกรองยิงทันทีไม่ต้องหน่วง - เป็นการ "เลือก" ครั้งเดียวจบ ไม่ใช่การพิมพ์ทีละตัวอักษร
 // (ต้องรีเซ็ตหน้าเหมือนกัน ไม่งั้นค้างอยู่หน้า 4 แล้วกรองจนเหลือ 6 ชิ้น = ตารางว่าง
 //  และแถบเลขหน้าหายไปด้วย ผู้ใช้จะไม่มีปุ่มให้กดกลับ)
-watch([locationId, employeeId, status, sort, sortDir], () => {
-  page.value = 1
-  void load()
-})
+watch(
+  [
+    locationId,
+    employeeId,
+    status,
+    assetClass,
+    assetPrefix,
+    assetNumberDept,
+    assetNumberYear,
+    sort,
+    sortDir,
+  ],
+  () => {
+    page.value = 1
+    void load()
+  },
+)
 
 // หน่วงก่อนยิงตอนพิมพ์ค้น - ไม่งั้นพิมพ์ 10 ตัวอักษรได้ 10 request
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -422,12 +598,15 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onPanelKeydown)
 })
 
+/**
+ * ★ ไม่เลื่อนจอ - ถอด scrollIntoView ออกแล้ว (2026-09-22) เหตุผลเดียวกับหน้าทะเบียน
+ *
+ * ตัวนี้เลื่อนไปหัวตาราง (ไม่ใช่หัวหน้า) ซึ่งเบากว่าของเดิมที่หน้าทะเบียนก็จริง
+ * แต่ยังขยับจออยู่ดี แถบเลขหน้าอยู่ท้ายตารางจึงเลื่อนหนีจากใต้เมาส์เหมือนกัน
+ */
 function onPageChange(next: number) {
   page.value = next
   void load()
-  // ตารางนี้อยู่ท้ายหน้า - เลื่อนกลับไปหัวตาราง ไม่ใช่หัวหน้า Dashboard
-  // ไม่งั้นกดหน้า 2 แล้วโดนดีดขึ้นไปดูการ์ดสรุปใหม่ทุกครั้ง
-  tableTop.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 const heading = computed(() => {
@@ -461,7 +640,7 @@ function openAsset(item: InventoryItem) {
 </script>
 
 <template>
-  <section ref="tableTop">
+  <section>
     <!-- ── แถบค้นหา/กรอง - โครงเดียวกับหน้า Asset Inventory และ Audit ──────────
          ต่างแค่ขนาด sm ทั้งแถบ เพราะตารางนี้อยู่ท้าย Dashboard ที่มีการ์ดกับกราฟอยู่เหนือมัน
          ไม่ใช่หน้าที่เปิดมาเพื่อค้นทะเบียนโดยเฉพาะ -->
@@ -525,8 +704,53 @@ function openAsset(item: InventoryItem) {
 
           <div class="max-h-96 overflow-y-auto p-1.5">
             <div v-for="f in visibleFields" :key="f.key" class="rounded-btn">
+              <!-- สามท่อนแรกของเลขสินทรัพย์ในแถวเดียว - มาร์กอัปเดียวกับหน้า Asset Inventory
+                   ตัวเลือกแรกของแต่ละช่องคือ "ไม่กรอง" จึงไม่ต้องมีปุ่ม × แยก -->
+              <div v-if="f.key === 'assetNumber'" class="flex w-full items-center gap-2 px-2 py-2">
+                <Icon :icon="f.icon" class="size-4 shrink-0 opacity-60" />
+                <div class="grid flex-1 grid-cols-3 gap-1.5">
+                  <select
+                    v-model="assetPrefix"
+                    class="select select-xs w-full"
+                    :class="{ 'select-primary': assetPrefix }"
+                    aria-label="Code"
+                    title="Code"
+                  >
+                    <option value="">Code</option>
+                    <option v-for="o in assetPrefixes" :key="o.code" :value="o.code">
+                      {{ o.code }} ({{ o.assets }})
+                    </option>
+                  </select>
+                  <select
+                    v-model="assetNumberDept"
+                    class="select select-xs w-full"
+                    :class="{ 'select-primary': assetNumberDept }"
+                    aria-label="Dept ID"
+                    title="Dept ID"
+                  >
+                    <option value="">Dept ID</option>
+                    <option v-for="o in assetNumberDepts" :key="o.dept" :value="o.dept">
+                      {{ o.dept }} ({{ o.assets }})
+                    </option>
+                  </select>
+                  <select
+                    v-model="assetNumberYear"
+                    class="select select-xs w-full"
+                    :class="{ 'select-primary': assetNumberYear }"
+                    aria-label="ปี"
+                    title="ปี"
+                  >
+                    <option value="">ปี</option>
+                    <option v-for="o in assetNumberYears" :key="o.year" :value="o.year">
+                      {{ o.year }} ({{ o.assets }})
+                    </option>
+                  </select>
+                </div>
+              </div>
+
               <!-- หัวข้อ: กดแล้วกาง/หุบ ตัวที่กรองอยู่มี badge กับปุ่ม × ให้ปลดได้จากตรงนี้ -->
               <div
+                v-else
                 class="flex w-full cursor-pointer items-center gap-2 rounded-btn px-2 py-2 hover:bg-base-200"
                 @click="expandedField = expandedField === f.key ? '' : f.key"
               >
@@ -577,7 +801,7 @@ function openAsset(item: InventoryItem) {
                           class="size-3.5 shrink-0"
                           :class="locationId === String(l.id) ? 'text-primary' : 'opacity-0'"
                         />
-                        <span class="truncate">{{ l.name }}</span>
+                        <span class="truncate">{{ locationLabel(l, companyLocations) }}</span>
                       </button>
                     </li>
                     <li v-if="locationsFailed" class="px-2 py-2 text-xs text-base-content/50">
@@ -660,6 +884,33 @@ function openAsset(item: InventoryItem) {
                   </li>
                 </ul>
 
+                <!-- มาร์กอัปเดียวกับตัวกรอง Asset class ของหน้า Asset Inventory / Asset summary -->
+                <template v-else-if="f.key === 'assetClass'">
+                  <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
+                    <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
+                    <input v-model="assetClassSearch" type="search" class="grow" placeholder="ค้น Asset class" />
+                  </label>
+                  <ul class="max-h-44 overflow-y-auto">
+                    <li v-for="o in filteredAssetClasses" :key="o.code">
+                      <button
+                        class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                        :class="{ 'bg-primary/10 font-medium': assetClass === o.code }"
+                        @click="toggleValue('assetClass', o.code)"
+                      >
+                        <Icon
+                          :icon="assetClass === o.code ? 'lucide:check' : 'lucide:minus'"
+                          class="size-3.5 shrink-0"
+                          :class="assetClass === o.code ? 'text-primary' : 'opacity-0'"
+                        />
+                        <span class="truncate">{{ o.code }} · {{ o.label }}</span>
+                      </button>
+                    </li>
+                    <li v-if="!filteredAssetClasses.length" class="px-2 py-2 text-xs text-base-content/50">
+                      ไม่พบ Asset class ที่ตรงกับคำค้น
+                    </li>
+                  </ul>
+                </template>
+
               </div>
             </div>
 
@@ -701,11 +952,16 @@ function openAsset(item: InventoryItem) {
 
     
 
+    <!-- คอลัมน์ชุดเดียวกับหน้า Asset Inventory ยกเว้นแผนก (ผู้ใช้กำหนด 2026-09-29)
+         ★ show-accounting ต้องเปิด - ตัวเลือก "เรียงตาม" ใช้ชุดเดียวกับหน้า Inventory
+           (มีอายุคงเหลือ) ถ้าปิด กดเรียงตามอายุคงเหลือแล้วจะไม่มีคอลัมน์นั้นให้เห็น
+           ลำดับที่ได้จึงอ่านไม่ออก (เคยเป็นแบบนั้นจริง) -->
     <AssetTable
       class="mt-2"
       :items="items"
       :loading="loading"
-      :show-department="!departmentId"
+      :show-department="false"
+      show-accounting
       :min-rows="8"
       @select="openAsset"
     >

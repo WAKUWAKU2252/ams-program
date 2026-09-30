@@ -5,7 +5,7 @@ import RequestTable from './components/RequestTable.vue'
 import FormActions from '@/pages/create-asset/components/FormActions.vue'
 import { getAssetRequest, submitRequest } from '@/shared/services/assetRequest.service'
 import type { AssetRequestDetail } from '@/shared/services/assetRequest.service'
-import { openPresence } from '@/shared/services/presence.service'
+import { openPresence, sendPresenceHeartbeat } from '@/shared/services/presence.service'
 import type { PresenceState, PresenceConnection } from '@/shared/services/presence.service'
 import { ApiError } from '@/shared/services/httpClient'
 import { formatDate } from '@/shared/utils/date'
@@ -264,10 +264,15 @@ async function onSubmit() {
  */
 const holdingLock = computed(() => presenceState.value?.state === 'editable')
 
-useIdleKick(holdingLock, () => {
-  closePresence()
-  router.replace({ name: 'DraftList' })
-})
+useIdleKick(
+  holdingLock,
+  () => {
+    closePresence()
+    router.replace({ name: 'DraftList' })
+  },
+  // อ่าน props ตอนเรียก ไม่ใช่ตอนตั้ง - หน้านี้สลับใบได้โดยไม่ unmount (ดู watch requestId)
+  () => sendPresenceHeartbeat(Number(props.requestId), 'draft'),
+)
 
 onMounted(loadDraft)
 

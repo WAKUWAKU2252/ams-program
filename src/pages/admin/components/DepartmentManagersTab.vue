@@ -2,7 +2,7 @@
 // แท็บ "หัวหน้าแผนก" ของหน้า Admin
 //
 // ⚠️⚠️ เขียนลงฐานจริง: PATCH /master/departments/:id/manager
-//      department.managerId คือ **ปลายทางของการ์ดขออนุมัติใน Teams** — เปลี่ยนเมื่อไหร่
+//      ตาราง department_manager คือ **ปลายทางของการ์ดขออนุมัติใน Teams** — เปลี่ยนเมื่อไหร่
 //      ใบคำขอของแผนกนั้นทุกใบที่ส่งหลังจากนี้จะวิ่งไปหาคนใหม่ทันที ไม่มีขั้นตอนย้อนกลับ
 //
 // ★ ตัวเลือกหัวหน้ามีแต่คนที่ "อนุมัติได้จริง" — backend กรองด้วยเงื่อนไขชุดเดียวกับที่ระบบ
@@ -15,7 +15,7 @@ import {
   listApprovers,
   listCompanies,
   listDepartments,
-  setDepartmentManager,
+  setDepartmentManagers,
   type ApproverOption,
   type CompanyOption,
   type DepartmentOption,
@@ -46,7 +46,7 @@ const company = ref('')
 /**
  * ชื่อหัวหน้าปัจจุบันของแต่ละแผนก
  *
- * ★ department ส่งมาแค่ managerId (employee.id) ไม่มีชื่อ — ใช้ลิสต์ approvers เป็นตัวแปลง
+ * ★ department ส่งมาแค่ managerIds (employee.id) ไม่มีชื่อ — ใช้ลิสต์ approvers เป็นตัวแปลง
  *   ซึ่งครอบคลุมพอดี เพราะหัวหน้าที่ตั้งได้ต้องเป็น approver อยู่แล้ว
  *   แปลงไม่ออก = คนนั้นเสียคุณสมบัติไปแล้ว (บัญชีถูกปิด/ถูกลดสิทธิ์ทีหลัง) ซึ่งแปลว่า
  *   ใบของแผนกนั้นส่งไม่ออกอยู่ตอนนี้ — ต้องโชว์เป็นคำเตือน ไม่ใช่ปล่อยว่าง
@@ -96,50 +96,71 @@ onMounted(load)
 // ── กล่องยืนยันตั้งหัวหน้า ───────────────────────────────────────────────────
 const dialog = ref<HTMLDialogElement | null>(null)
 const target = ref<DepartmentOption | null>(null)
-const nextManagerId = ref<number | null>(null)
 const pickSearch = ref('')
 const saving = ref(false)
 
 /**
- * ตัวเลือกหัวหน้า — กรองด้วยบริษัทของแผนกนั้นเสมอ
+ * ตัวเลือกหัวหน้า — ทุกคนที่อนุมัติได้ ไม่กรองบริษัท (ถอดตัวกรองออก 2026-09-25)
  *
- * ★ ไม่ใช่แค่ความสะดวก: ชื่อแผนกซ้ำกันข้ามบริษัท 55 ชื่อ และการแยกแผนกตามบริษัทคือสิ่งที่
- *   0024 ตั้งใจทำ เพราะแผนกรหัสเดียวกันของสองบริษัทต้องมีหัวหน้าคนละคน
+ * ★ หัวหน้าคนหนึ่งรักษาการ/เป็นตัวแทนให้แผนกอื่นได้ รวมถึงแผนกของอีกบริษัท - ผู้ใช้สั่งถอด
+ *   กติกา "ต้องเป็นคนบริษัทเดียวกัน" ทั้งที่จอและที่ backend
+ * ★ ตัวกรองเดิมยังผิดแกนด้วย: ใช้บริษัทของ "แผนกหลัก" ของคน ซึ่งเกือบทุกคนชี้แผนกของ UBA
+ *   (วัด 2026-09-25: UBA 382 · MIG 10 · UBP 3 คน) แผนกของ UBP/MIG แทบไม่มีใครให้เลือก
+ * ★ แต่ละแถวโชว์บริษัท + แผนกหลักของคนนั้นไว้ให้แยกคนชื่อซ้ำออก (ดูเทมเพลต)
  */
 const options = computed(() => {
   const q = pickSearch.value.trim().toLowerCase()
-  const co = target.value?.companyCode
   return approvers.value.filter((a) => {
-    if (co && a.companyCode && a.companyCode !== co) return false
     if (!q) return true
     return a.name.toLowerCase().includes(q) || (a.empId ?? '').toLowerCase().includes(q)
   })
 })
 
+/** หัวหน้าปัจจุบันของแผนกที่เปิดกล่องอยู่ - เรียงตามที่ backend ส่งมา (seq) */
 const current = computed(() =>
-  target.value?.managerId ? (approverById.value.get(target.value.managerId) ?? null) : null,
+  (target.value?.managerIds ?? [])
+    .map((id) => approverById.value.get(id))
+    .filter((a): a is NonNullable<typeof a> => !!a),
 )
+
+/** id ที่เลือกไว้ในกล่อง ยังไม่บันทึก - Set เพราะเป็นการกาถูกหลายคน ไม่ใช่เลือกหนึ่ง */
+const picked = ref<Set<number>>(new Set())
+
+function togglePick(id: number) {
+  // สร้าง Set ใหม่ทุกครั้ง - Vue ไม่ track การ mutate ภายใน Set เดิม (reactivity ไม่ลึกถึงข้างใน)
+  const next = new Set(picked.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  picked.value = next
+}
+
+/** เทียบว่าชุดที่เลือกต่างจากของเดิมไหม - ลำดับไม่สำคัญ เทียบแบบเซต */
+const unchanged = computed(() => {
+  const before = target.value?.managerIds ?? []
+  if (before.length !== picked.value.size) return false
+  return before.every((id) => picked.value.has(id))
+})
 
 function openDialog(dept: DepartmentOption) {
   target.value = dept
-  nextManagerId.value = dept.managerId
+  picked.value = new Set(dept.managerIds)
   pickSearch.value = ''
   dialog.value?.showModal()
 }
 
 async function confirm() {
   const dept = target.value
-  if (!dept) return
+  if (!dept || unchanged.value) return
 
   saving.value = true
   errorMsg.value = ''
   successMsg.value = ''
   try {
-    await setDepartmentManager(dept.id, nextManagerId.value)
-    const who = nextManagerId.value ? (approverById.value.get(nextManagerId.value)?.name ?? '') : ''
-    successMsg.value = nextManagerId.value
-      ? `ตั้ง ${who} เป็นหัวหน้าแผนก ${dept.name} แล้ว`
-      : `ถอดหัวหน้าแผนก ${dept.name} ออกแล้ว`
+    const ids = [...picked.value]
+    await setDepartmentManagers(dept.id, ids)
+    successMsg.value = ids.length
+      ? `ตั้งหัวหน้าแผนก ${dept.name} เป็น ${ids.length} คนแล้ว`
+      : `ถอดหัวหน้าแผนก ${dept.name} ออกทั้งหมดแล้ว`
     dialog.value?.close()
     await load()
   } catch (e) {
@@ -197,15 +218,21 @@ async function confirm() {
               </span>
             </td>
             <td class="whitespace-nowrap text-base-content/70">{{ d.companyCode }}</td>
-            <td class="max-w-56 truncate">
-              <template v-if="d.managerId && approverById.get(d.managerId)">
-                {{ approverById.get(d.managerId)!.name }}
-              </template>
-              <!-- ★ ตั้งไว้แล้วแต่แปลงชื่อไม่ออก = ใบของแผนกนี้ส่งไม่ออกอยู่ตอนนี้ ต้องโชว์ -->
-              <span v-else-if="d.managerId" class="flex items-center gap-1 text-warning">
-                <Icon icon="lucide:triangle-alert" class="size-4 shrink-0" />
-                ตั้งไว้แล้วแต่อนุมัติไม่ได้
-              </span>
+            <td class="max-w-56">
+              <!-- หลายคนได้ตั้งแต่ 0037 - โชว์ชื่อทุกคน คนที่แปลงชื่อไม่ออกติดป้ายเตือนรายคน
+                   ★ ป้ายเตือนต้องรายคน ไม่ใช่รวมทั้งแถว: แผนกที่มี 3 คนแล้วเสียคนเดียว
+                     ใบยังส่งออกได้ตามปกติ (อีกสองคนรับได้) ถ้าเตือนทั้งแถวจะอ่านผิดว่าพังหมด -->
+              <div v-if="d.managerIds.length" class="flex flex-wrap gap-1">
+                <template v-for="id in d.managerIds" :key="id">
+                  <span v-if="approverById.get(id)" class="badge badge-sm badge-ghost">
+                    {{ approverById.get(id)!.name }}
+                  </span>
+                  <span v-else class="badge badge-sm badge-warning gap-1">
+                    <Icon icon="lucide:triangle-alert" class="size-3 shrink-0" />
+                    อนุมัติไม่ได้
+                  </span>
+                </template>
+              </div>
               <span v-else class="text-base-content/50">ยังไม่ได้ตั้ง</span>
             </td>
             <td class="text-right">
@@ -241,8 +268,16 @@ async function confirm() {
 
         <p class="mt-3 text-sm">
           ปัจจุบัน:
-          <span v-if="current" class="font-medium">{{ current.name }}</span>
+          <span v-if="current.length" class="font-medium">
+            {{ current.map((c) => c.name).join(' · ') }}
+          </span>
           <span v-else class="text-base-content/50">ยังไม่ได้ตั้ง</span>
+        </p>
+
+        <!-- ★ ต้องบอกกติกา first-wins ตรงนี้ ไม่ใช่ปล่อยให้เดาจากการที่เลือกได้หลายคน
+             คนตั้งต้องรู้ว่าเลือก 3 คน ≠ ต้องอนุมัติครบ 3 คน -->
+        <p class="mt-1 text-xs text-base-content/50">
+          เลือกได้หลายคน — ทุกคนจะได้รับการ์ด และ<strong>ใครกดก่อนถือว่าจบ</strong>
         </p>
 
         <label class="input input-sm mt-3 w-full">
@@ -253,47 +288,45 @@ async function confirm() {
         <ul
           class="mt-2 max-h-56 divide-y divide-base-200 overflow-y-auto rounded-box border border-base-300"
         >
-          <li>
-            <label
-              class="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors"
-              :class="nextManagerId === null ? 'bg-primary/10' : 'hover:bg-base-200'"
-            >
-              <input
-                v-model="nextManagerId"
-                type="radio"
-                name="nextManager"
-                class="radio radio-xs radio-primary shrink-0"
-                :value="null"
-              />
-              <span class="text-base-content/60">ไม่มีหัวหน้า (ใบของแผนกนี้จะส่งไม่ได้)</span>
-            </label>
-          </li>
+          <!-- ★ ไม่มีตัวเลือก "ไม่มีหัวหน้า" แล้ว (0037) - การถอดทุกคนคือการไม่กาใครเลย
+               ซึ่งเห็นได้จากตัวนับข้างล่างอยู่แล้ว ตัวเลือกพิเศษที่ขัดกับ checkbox ตัวอื่น
+               จะทำให้คนงงว่ากามันพร้อมคนอื่นได้ไหม -->
           <li v-for="a in options" :key="a.id">
             <label
               class="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors"
-              :class="nextManagerId === a.id ? 'bg-primary/10' : 'hover:bg-base-200'"
+              :class="picked.has(a.id) ? 'bg-primary/10' : 'hover:bg-base-200'"
             >
               <input
-                v-model="nextManagerId"
-                type="radio"
-                name="nextManager"
-                class="radio radio-xs radio-primary shrink-0"
-                :value="a.id"
+                type="checkbox"
+                class="checkbox checkbox-xs checkbox-primary shrink-0"
+                :checked="picked.has(a.id)"
+                @change="togglePick(a.id)"
               />
               <span class="min-w-0 flex-1 truncate">
                 {{ a.name }}
                 <span v-if="a.departmentName" class="text-xs opacity-60">
-                  · {{ a.departmentName }}
+                  · {{ a.companyCode ? `${a.companyCode} ` : '' }}{{ a.departmentName }}
                 </span>
               </span>
               <span class="badge badge-ghost badge-sm shrink-0">{{ a.roleName }}</span>
             </label>
           </li>
           <li v-if="!options.length" class="px-3 py-6 text-center text-sm text-base-content/60">
-            ไม่มีใครในบริษัทนี้ที่ตั้งเป็นหัวหน้าได้ ต้องมีบัญชีที่เปิดใช้อยู่และสิทธิ์
+            ไม่พบคนที่ตั้งเป็นหัวหน้าได้ ต้องมีบัญชีที่เปิดใช้อยู่และสิทธิ์
             MANAGER / FINANCE / ADMIN ก่อน
           </li>
         </ul>
+
+        <!-- ★ ต้องเตือนตอนกำลังจะถอดทุกคน - ผลคือใบของทั้งแผนกส่งไม่ออก ซึ่งไม่มี error
+             ให้ผู้ขอเห็นตอนกดส่ง (ตกที่ ConflictError ของ submitRequest) -->
+        <p
+          v-if="picked.size === 0 && (target?.managerIds.length ?? 0) > 0"
+          class="mt-2 flex items-center gap-1.5 text-sm text-warning"
+        >
+          <Icon icon="lucide:triangle-alert" class="size-4 shrink-0" />
+          ไม่ได้เลือกใครเลย — ใบคำขอของแผนกนี้จะส่งไม่ได้จนกว่าจะตั้งหัวหน้าใหม่
+        </p>
+        <p v-else class="mt-2 text-sm text-base-content/60">เลือกไว้ {{ picked.size }} คน</p>
 
         <div class="modal-action">
           <form method="dialog">
@@ -302,7 +335,7 @@ async function confirm() {
           <button
             type="button"
             class="btn btn-primary btn-sm"
-            :disabled="saving || nextManagerId === (target?.managerId ?? null)"
+            :disabled="saving || unchanged"
             @click="confirm"
           >
             <span v-if="saving" class="loading loading-spinner loading-xs"></span>

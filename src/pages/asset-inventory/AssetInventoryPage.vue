@@ -28,15 +28,22 @@ import { getAssetInventory } from '@/shared/services/asset.service'
 import type { InventoryItem, InventoryParams } from '@/shared/services/asset.service'
 import {
   listAssetClasses,
+  listAssetNumberDepts,
+  listAssetNumberYears,
+  listAssetPrefixes,
   listCompanies,
   listDepartments,
   listLocations,
 } from '@/shared/services/master.service'
+import { locationLabel, locationsForCompany } from '@/shared/utils/location'
 import type {
   AssetClassOption,
+  AssetNumberDeptOption,
+  AssetNumberYearOption,
+  AssetPrefixOption,
   CompanyOption,
   DepartmentOption,
-  MasterOption,
+  LocationOption,
 } from '@/shared/services/master.service'
 import { ApiError } from '@/shared/services/httpClient'
 import { ASSET_STATUS_OPTIONS } from '@/shared/utils/asset-status'
@@ -64,11 +71,37 @@ const searchText = ref('')
 // ที่เดียว ('' = ไม่กรอง) เก็บเป็น number แล้วต้องคอยระวัง 0 กับ '' ปนกันทุกจุดที่อ่าน
 /** รหัสบริษัท เช่น 'UBA' - '' = ทุกบริษัท (ค่าคือ code ไม่ใช่ id ดู CompanyOption) */
 const companyCode = ref('')
+/** แผนกที่ดูแล - แกนที่คนแก้เองได้ (0027) */
 const departmentId = ref('')
+/**
+ * ศูนย์ต้นทุนที่รับค่าเสื่อม - ท่อน 3 ของ assetClass ที่ SAP เป็นเจ้าของ (0027)
+ *
+ * ★ ใช้ลิสต์ตัวเลือกชุดเดียวกับแผนก (companyDepartments) เพราะเป็นรายชื่อเดียวกันจริง ๆ
+ *   - department.departmentId คือรหัสศูนย์ต้นทุนของ SAP อยู่แล้ว ต่างกันแค่บทบาท
+ *   ห้ามสร้าง master ตัวที่สองขึ้นมาให้มันโดยเด็ดขาด สองลิสต์จะ drift กันทันที
+ */
+const costCenterId = ref('')
 const locationId = ref('')
 const status = ref('')
 /** รหัสหมวด = ท่อน 1 ของรหัสบัญชี เช่น '1216301' - '' = ทุกหมวด (ค่าคือ code ไม่ใช่ id) */
 const assetClass = ref('')
+/**
+ * รหัสนำหน้าเลขสินทรัพย์ 3 ตัว เช่น 'COM' - '' = ทุกรหัส
+ *
+ * ★★ **คนละแกนกับ assetClass ข้างบน** - ตัวนั้นเทียบรหัสบัญชี ตัวนี้เทียบเลขสินทรัพย์
+ *    'COM-775-26-053' (เลขสินทรัพย์)  vs  '1216401-0-775' (รหัสบัญชี) คนละสตริงกัน
+ * ★★ และ **ไม่ใช่แกนแผนก** - รหัสบอกไซต์+ประเภทของตามวิธี capitalize ไม่ใช่คนดูแล
+ *    (COM อยู่ที่ IT แค่ 13% · CCTV ที่ IT ดูแลได้รหัส FAB ไปกองที่โรงงาน)
+ */
+const assetPrefix = ref('')
+/**
+ * ท่อน 2 กับท่อน 3 ของเลขสินทรัพย์ - COM-**775**-**26**-001 → Dept ID '775' · ปี '26'
+ *
+ * ★ เป็นค่าที่ฝังอยู่ในเลขตอนออกเลข ไม่ใช่แผนกปัจจุบัน (departmentId) และไม่ใช่ปีบัญชี
+ *   ของตัวเลขที่ sync มา - ของย้ายแผนกแล้วเลขไม่เปลี่ยน
+ */
+const assetNumberDept = ref('')
+const assetNumberYear = ref('')
 /** '' = เรียงตามเลขสินทรัพย์ (ค่าตั้งต้นของ backend) - ดู ASSET_SORT_OPTIONS */
 const sort = ref('')
 /** มีผลเมื่อเลือก sort แล้วเท่านั้น - ค่าตั้งต้นคือมาก/ใหม่ก่อน */
@@ -76,8 +109,11 @@ const sortDir = ref<SortDirection>('desc')
 
 const companies = ref<CompanyOption[]>([])
 const departments = ref<DepartmentOption[]>([])
-const locations = ref<MasterOption[]>([])
+const locations = ref<LocationOption[]>([])
 const assetClasses = ref<AssetClassOption[]>([])
+const assetPrefixes = ref<AssetPrefixOption[]>([])
+const assetNumberDepts = ref<AssetNumberDeptOption[]>([])
+const assetNumberYears = ref<AssetNumberYearOption[]>([])
 
 /**
  * ต้องเลือกบริษัทก่อนถึงจะเลือกแผนกได้ - แผนกเป็นของบริษัท ไม่ใช่ของทั้งเครือ (0024)
@@ -92,6 +128,18 @@ const assetClasses = ref<AssetClassOption[]>([])
  *   asset.connector.ts) ล็อกไว้ก็ไม่มีอะไรให้กรองได้ถูกต้องอยู่ดี
  */
 const departmentLocked = computed(() => !companyCode.value)
+
+/**
+ * แกนที่กดไม่ได้จนกว่าจะเลือกบริษัท - แผนกกับศูนย์ต้นทุนกินลิสต์ companyDepartments
+ * ตัวเดียวกัน จึงต้องล็อกด้วยเงื่อนไขเดียวกันเสมอ (0027)
+ *
+ * ★ รวมไว้เป็นฟังก์ชันเดียวแทนการเขียน `f.key === 'x' && departmentLocked` ซ้ำในเทมเพลต
+ *   สี่จุด - เดิมเป็นแบบนั้น พอเพิ่มแกนที่สองต้องไปแก้ครบทั้งสี่ ลืมจุดใดจุดหนึ่ง = หัวข้อ
+ *   ดูกดได้แต่กางออกมาแล้วลิสต์ว่าง พร้อมข้อความ "ไม่พบ...ที่ตรงกับคำค้น" ที่โกหก
+ */
+function fieldLocked(key: string): boolean {
+  return departmentLocked.value && (key === 'department' || key === 'costCenter')
+}
 
 /** แผนกของบริษัทที่เลือกไว้ - ยังไม่เลือกบริษัท = ว่าง ไม่ใช่ "ทั้งหมด" (ดู departmentLocked) */
 const companyDepartments = computed(() =>
@@ -119,9 +167,13 @@ async function load() {
       search: searchText.value,
       companyCode: companyCode.value || undefined,
       departmentId: num(departmentId.value),
+      costCenterId: num(costCenterId.value),
       locationId: num(locationId.value),
       status: status.value || undefined,
       assetClass: assetClass.value || undefined,
+      assetPrefix: assetPrefix.value || undefined,
+      assetNumberDept: assetNumberDept.value || undefined,
+      assetNumberYear: assetNumberYear.value || undefined,
       sort: (sort.value || undefined) as InventoryParams['sort'],
       sortDir: sortDir.value,
     })
@@ -163,6 +215,7 @@ function loadFilterOptions() {
     .then((rows) => (locations.value = rows))
     .catch(() => {})
   void loadAssetClasses()
+  loadAssetNumberSegments()
 }
 
 /**
@@ -178,6 +231,23 @@ function loadFilterOptions() {
 function loadAssetClasses() {
   return listAssetClasses({ companyCode: companyCode.value || undefined })
     .then((rows) => (assetClasses.value = rows))
+    .catch(() => {})
+}
+
+/**
+ * ตัวเลือกสามท่อนแรกของเลขสินทรัพย์ (รหัสนำหน้า · Dept ID · ปี) ที่มีอยู่จริงในทะเบียน
+ * - กติกาเดียวกับ loadAssetClasses ทุกข้อ และ catch แยกทีละตัวเหมือน loadFilterOptions
+ */
+function loadAssetNumberSegments() {
+  const params = { companyCode: companyCode.value || undefined }
+  void listAssetPrefixes(params)
+    .then((rows) => (assetPrefixes.value = rows))
+    .catch(() => {})
+  void listAssetNumberDepts(params)
+    .then((rows) => (assetNumberDepts.value = rows))
+    .catch(() => {})
+  void listAssetNumberYears(params)
+    .then((rows) => (assetNumberYears.value = rows))
     .catch(() => {})
 }
 
@@ -217,18 +287,41 @@ onUnmounted(() => {
 //    → ได้ตารางว่างแวบหนึ่ง แล้วอีกตัวค่อยล้างแผนกจนยิงซ้ำอีกรอบ
 //    (บั๊กเดียวกับที่หน้า Dashboard เคยเจอ - ดู watch ใน DashboardPage.vue)
 watch(
-  [companyCode, departmentId, locationId, status, assetClass, sort, sortDir],
+  [
+    companyCode,
+    departmentId,
+    costCenterId,
+    locationId,
+    status,
+    assetClass,
+    assetPrefix,
+    assetNumberDept,
+    assetNumberYear,
+    sort,
+    sortDir,
+  ],
   ([company], [prevCompany]) => {
     if (company !== prevCompany) {
       // ลิสต์ Asset class แคบตามบริษัท - โหลดใหม่ทุกครั้งที่เปลี่ยน ไม่ว่าจะมีค่าให้ล้างหรือไม่
       // (ไม่เกี่ยวกับตาราง จึงไม่ต้องรอ และไม่ต้อง return ตรงนี้)
       void loadAssetClasses()
+      // จำนวนชิ้นในวงเล็บของสามท่อนเลขสินทรัพย์แคบตามบริษัทเหมือนกัน จึงต้องโหลดใหม่ด้วย
+      loadAssetNumberSegments()
 
       // ★ ล้างสองแกนพร้อมกันในรอบเดียว แล้ว return - ทั้งคู่เป็นของบริษัท ค่าที่ค้างจาก
       //   บริษัทก่อนจึงไม่มีอยู่ในบริษัทใหม่ การเซ็ตสองตัวในรอบเดียวกระตุ้น watch ตัวนี้
       //   ซ้ำแค่ครั้งเดียว (Vue รวม flush ให้) รอบถัดไปจึงโหลดด้วยชุดที่ถูกต้องครั้งเดียว
-      if (departmentId.value || assetClass.value) {
+      // ★ costCenterId เข้าชุดนี้ด้วย - เป็น department.id เหมือนกัน จึงเป็นของบริษัท
+      //   เหมือนกันเป๊ะ ลืมไว้ = id ของบริษัทเก่าค้างแล้วได้ตารางว่างโดยไม่มีอะไรอธิบาย
+      // ★ assetPrefix **ไม่อยู่ในชุดที่ล้าง** โดยตั้งใจ - สามตัวข้างล่างเป็น id/รหัสที่ผูก
+      //   กับบริษัท (ค่าที่ค้างไว้ไม่มีอยู่จริงในบริษัทใหม่) แต่รหัสนำหน้าเป็นรหัสกลางที่
+      //   แปลว่าเหมือนกันทุกบริษัท - "ขอดู COM ของ UBP" เป็นคำถามที่มีความหมายจริง
+      //   ถ้ารหัสนั้นไม่มีในบริษัทใหม่ ตารางจะว่างซึ่งเป็นคำตอบที่ถูก และ chip ยังโชว์อยู่
+      //   ให้กดล้างได้ (ต่างจาก id ค้างที่อธิบายความว่างไม่ได้เลย)
+      //   Dept ID กับปีในเลขก็ไม่ล้างด้วยเหตุผลเดียวกัน - เป็นสตริงในเลข ไม่ใช่ id ของบริษัท
+      if (departmentId.value || costCenterId.value || assetClass.value) {
         departmentId.value = ''
+        costCenterId.value = ''
         assetClass.value = ''
         return
       }
@@ -238,20 +331,31 @@ watch(
   },
 )
 
+/**
+ * ★ ไม่เลื่อนจอ - ถอด window.scrollTo ออกแล้ว (2026-09-22)
+ *
+ * เดิมดีดขึ้นหัวหน้าทุกครั้งที่เปลี่ยนหน้า ด้วยเหตุผลว่า "ตาต้องกลับไปอยู่หัวตาราง"
+ * แต่แถบเลขหน้าอยู่ **ท้ายตาราง** ผลคือกดปุ่มแล้วปุ่มหนีไปจากใต้เมาส์ทันที
+ * ต้องเลื่อนกลับลงมาเองทุกครั้ง กดดูหลายหน้าติดกันไม่ได้เลย
+ *
+ * ปล่อยให้จออยู่ที่เดิม แถบเลขหน้าจึงค้างใต้เมาส์ กดต่อเนื่องได้
+ */
 function onPageChange(next: number) {
   page.value = next
   void load()
-  // เปลี่ยนหน้าแล้วตาต้องกลับไปอยู่หัวตาราง ไม่ใช่ค้างอยู่ท้ายหน้าเดิม
-  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 function clearFilters() {
   searchText.value = ''
   companyCode.value = ''
   departmentId.value = ''
+  costCenterId.value = ''
   locationId.value = ''
   status.value = ''
   assetClass.value = ''
+  assetPrefix.value = ''
+  assetNumberDept.value = ''
+  assetNumberYear.value = ''
   // ไม่เรียก load() เอง - watch ทั้งสองชุดข้างบนจับได้ครบทุกช่องอยู่แล้ว
   // เรียกเองจะกลายเป็นยิงซ้อนกับ watch แล้วผลลัพธ์ที่มาทีหลังอาจเป็นของคิวรีเก่า
 }
@@ -272,10 +376,26 @@ const filterSearch = ref('')
 const FILTER_FIELDS = [
   { key: 'company', label: 'บริษัท', icon: 'lucide:building-2' },
   { key: 'department', label: 'แผนก', icon: 'lucide:users' },
+  // ★ แยกจาก "แผนก" ตั้งแต่ 0027 - ป้ายต้องไม่ใช่คำว่าแผนกเด็ดขาด สองช่องนี้ให้ผลต่างกัน
+  //   ได้จริง (วัดแล้ว 310 ชิ้นที่บัญชีกับหน้างานไม่ตรงกัน) ถ้าป้ายคล้ายกันคนจะกดสลับกัน
+  { key: 'costCenter', label: 'ศูนย์ต้นทุน', icon: 'lucide:receipt' },
   { key: 'location', label: 'ที่ตั้ง', icon: 'lucide:map-pin' },
   { key: 'status', label: 'สถานะ', icon: 'lucide:activity' },
   // ★ ป้ายกับไอคอนต้องตรงกับหน้า Asset summary - เป็นตัวกรองแกนเดียวกัน (ท่อน 1 ของรหัสบัญชี)
   { key: 'assetClass', label: 'Asset class', icon: 'lucide:layers' },
+  /**
+   * ★★ ป้ายต้องเป็นคำว่า "รหัส" เท่านั้น - ห้ามเขียน "ประเภท" หรือ "หมวด" เด็ดขาด
+   *
+   * รหัสนำหน้าบอก **ไซต์ + ประเภทของตอน capitalize** ไม่ใช่ประเภทการใช้งานและไม่ใช่แผนก
+   * เขียนป้ายให้อ่านเป็น "ประเภท" เมื่อไหร่ คนจะเอาไปใช้ตอบว่า "ของ IT มีอะไรบ้าง" ทันที
+   * ซึ่งผิด - COM อยู่ที่ IT แค่ 13% ส่วน CCTV ที่ IT ดูแลได้รหัส FAB ไปกองที่โรงงาน
+   * (ความเข้าใจผิดแบบนี้เคยทำให้ลิสต์ที่ Finance ส่งให้ IT เกินจริง 7 เท่าและขาด CCTV)
+   *
+   * ★ แถวนี้ไม่กาง/หุบเหมือนแถวอื่น - เป็นสาม dropdown ในแถวเดียวตามท่อนของเลข
+   *   COM-775-26-001 → รหัสนำหน้า | Dept ID | ปี (ดูเทมเพลต) ป้ายข้างล่างมีไว้ให้ช่อง
+   *   "ค้นหาตัวกรอง" หาเจอเท่านั้น
+   */
+  { key: 'assetNumber', label: 'รหัสนำหน้า · Dept ID · ปี', icon: 'lucide:hash' },
 ]
 
 const visibleFields = computed(() => {
@@ -290,6 +410,8 @@ function filterHasValue(key: string): boolean {
       return !!companyCode.value
     case 'department':
       return !!departmentId.value
+    case 'costCenter':
+      return !!costCenterId.value
     case 'location':
       return !!locationId.value
     case 'status':
@@ -304,6 +426,7 @@ function filterHasValue(key: string): boolean {
 function clearField(key: string) {
   if (key === 'company') companyCode.value = ''
   else if (key === 'department') departmentId.value = ''
+  else if (key === 'costCenter') costCenterId.value = ''
   else if (key === 'location') locationId.value = ''
   else if (key === 'status') status.value = ''
   else if (key === 'assetClass') assetClass.value = ''
@@ -319,18 +442,26 @@ function clearField(key: string) {
  * ส่งตัว ref ออกไปจาก template จึงไม่ได้ ได้แต่ค่าข้างใน
  */
 function toggleValue(key: string, value: string) {
-  const target =
-    key === 'company'
-      ? companyCode
-      : key === 'department'
-        ? departmentId
-        : key === 'location'
-          ? locationId
-          : key === 'status'
-            ? status
-            : key === 'assetClass'
-              ? assetClass
-              : null
+  // switch ให้เข้าชุดกับ filterHasValue/clearField/fieldValueLabel ที่อยู่รอบ ๆ - เดิมเป็น
+  // ternary ซ้อนกันห้าชั้น พอเติมแกนที่หกใน 0027 แล้วอ่านไม่ออกว่าอันไหนคู่กับอันไหน
+  const target = (() => {
+    switch (key) {
+      case 'company':
+        return companyCode
+      case 'department':
+        return departmentId
+      case 'costCenter':
+        return costCenterId
+      case 'location':
+        return locationId
+      case 'status':
+        return status
+      case 'assetClass':
+        return assetClass
+      default:
+        return null
+    }
+  })()
   if (!target) return
   target.value = target.value === value ? '' : value
 }
@@ -342,8 +473,12 @@ function fieldValueLabel(key: string): string {
       return companies.value.find((c) => c.code === companyCode.value)?.name ?? companyCode.value
     case 'department':
       return departments.value.find((d) => String(d.id) === departmentId.value)?.name ?? ''
-    case 'location':
-      return locations.value.find((l) => String(l.id) === locationId.value)?.name ?? ''
+    case 'costCenter':
+      return departments.value.find((d) => String(d.id) === costCenterId.value)?.name ?? ''
+    case 'location': {
+      const loc = locations.value.find((l) => String(l.id) === locationId.value)
+      return loc ? locationLabel(loc, locations.value) : ''
+    }
     case 'status':
       return STATUS_OPTIONS.find((s) => s.value === status.value)?.label ?? status.value
     case 'assetClass':
@@ -356,10 +491,25 @@ function fieldValueLabel(key: string): string {
 // ── ค้นในรายการตัวเลือก ────────────────────────────────────────────────────
 // แผนกจริงมี 62 แผนก ลิสต์เปล่า ๆ เลื่อนหาไม่ไหว ส่วนสถานะ/ปีมีไม่กี่ตัวจึงไม่ต้องมี
 const departmentSearch = ref('')
+const costCenterSearch = ref('')
 const locationSearch = ref('')
 
 const filteredDepartments = computed(() => {
   const q = departmentSearch.value.trim().toLowerCase()
+  return q
+    ? companyDepartments.value.filter((d) => d.name.toLowerCase().includes(q))
+    : companyDepartments.value
+})
+
+/**
+ * ★ กรองจาก companyDepartments ตัวเดียวกับแผนก - ไม่ใช่ลิสต์ที่สอง
+ *
+ * ตัวเลือกของสองแกนนี้คือรายชื่อเดียวกันจริง ๆ (department.departmentId = รหัสศูนย์ต้นทุน
+ * ของ SAP) ถ้าแยกเป็นสอง source เมื่อไหร่ ลิสต์จะ drift กันโดยไม่มีอะไรฟ้อง
+ * ที่ต้องมี ref ค้นแยกคือ "คำที่พิมพ์" เท่านั้น ไม่ใช่ตัวข้อมูล
+ */
+const filteredCostCenters = computed(() => {
+  const q = costCenterSearch.value.trim().toLowerCase()
   return q
     ? companyDepartments.value.filter((d) => d.name.toLowerCase().includes(q))
     : companyDepartments.value
@@ -371,7 +521,10 @@ const filteredDepartments = computed(() => {
 // ★ ต้องอยู่ใต้ departmentSearch - const ไม่ถูก hoist ตามฟังก์ชันที่ปิดทับมัน วางไว้เหนือ
 //   แล้ววันหลังมีคนเติม { immediate: true } จะได้ ReferenceError ตอน setup โดยที่ tsc
 //   จับไม่ได้ (บั๊กคลาสเดียวกับที่ AppAssetDetail.vue เขียนเตือนไว้)
-watch(companyCode, () => (departmentSearch.value = ''))
+watch(companyCode, () => {
+  departmentSearch.value = ''
+  costCenterSearch.value = ''
+})
 
 /**
  * ปลดบริษัททิ้งตอนลิสต์แผนกกางอยู่ = ต้องหุบมันด้วย
@@ -380,12 +533,27 @@ watch(companyCode, () => (departmentSearch.value = ''))
  * สาเหตุจริงคือยังไม่ได้เลือกบริษัท ไม่ใช่คำค้นไม่ตรง
  */
 watch(departmentLocked, (locked) => {
-  if (locked && expandedField.value === 'department') expandedField.value = ''
+  if (!locked) return
+  // ศูนย์ต้นทุนล็อกด้วยเงื่อนไขเดียวกัน (ใช้ลิสต์แผนกของบริษัทตัวเดียวกัน) จึงต้องหุบคู่กัน
+  if (expandedField.value === 'department' || expandedField.value === 'costCenter') {
+    expandedField.value = ''
+  }
 })
+
+/**
+ * ที่ตั้งของบริษัทที่เลือก + แถวใช้ร่วม - ยังไม่เลือกบริษัท = ทั้งเครือ (0037)
+ *
+ * ★ ต่างจากแผนกตรงที่ไม่ล็อกไว้จนกว่าจะเลือกบริษัท - กรองที่ตั้งข้ามบริษัทเป็นคำถามที่ถามได้
+ *   จริง ('ยังไม่ระบุที่ตั้ง' ทั้งเครือ) แต่ชื่อที่ซ้ำกันข้ามบริษัทต้องแปะรหัสบริษัท
+ *   (locationLabel) ไม่งั้นเห็น 'QA' สองอันแล้วเลือกไม่ถูก
+ */
+const companyLocations = computed(() => locationsForCompany(locations.value, companyCode.value))
 
 const filteredLocations = computed(() => {
   const q = locationSearch.value.trim().toLowerCase()
-  return q ? locations.value.filter((l) => l.name.toLowerCase().includes(q)) : locations.value
+  return q
+    ? companyLocations.value.filter((l) => l.name.toLowerCase().includes(q))
+    : companyLocations.value
 })
 
 /**
@@ -488,8 +656,9 @@ const activeFilterChips = computed(() => {
   }
 
   if (locationId.value) {
-    const name = locations.value.find((l) => String(l.id) === locationId.value)?.name
-    chips.push({ key: 'loc', label: `ที่ตั้ง: ${name ?? locationId.value}`, clear: () => (locationId.value = '') })
+    const loc = locations.value.find((l) => String(l.id) === locationId.value)
+    const name = loc ? locationLabel(loc, locations.value) : locationId.value
+    chips.push({ key: 'loc', label: `ที่ตั้ง: ${name}`, clear: () => (locationId.value = '') })
   }
 
   if (status.value) {
@@ -503,6 +672,33 @@ const activeFilterChips = computed(() => {
       key: 'class',
       label: `Asset class: ${assetClassLabel(assetClass.value)}`,
       clear: () => (assetClass.value = ''),
+    })
+  }
+
+  // ★ ป้ายเขียน "รหัสนำหน้า" ให้ตรงกับหัวข้อในแผง - ห้ามย่อเหลือ "รหัส" เฉย ๆ
+  //   เพราะหน้านี้มี "รหัสบัญชี" (Asset class) อยู่ด้วย คนจะแยกสอง chip ไม่ออก
+  if (assetPrefix.value) {
+    chips.push({
+      key: 'prefix',
+      label: `รหัสนำหน้า: ${assetPrefix.value}`,
+      clear: () => (assetPrefix.value = ''),
+    })
+  }
+
+  // ป้ายตรงกับช่องในแผง - รหัสดิบจากเลขล้วน ๆ ไม่แปลงเป็นชื่อแผนก (ดู AssetNumberDeptOption)
+  if (assetNumberDept.value) {
+    chips.push({
+      key: 'numberDept',
+      label: `Dept ID: ${assetNumberDept.value}`,
+      clear: () => (assetNumberDept.value = ''),
+    })
+  }
+
+  if (assetNumberYear.value) {
+    chips.push({
+      key: 'numberYear',
+      label: `ปี: ${assetNumberYear.value}`,
+      clear: () => (assetNumberYear.value = ''),
     })
   }
 
@@ -605,19 +801,65 @@ const range = computed(() => {
           <div class="max-h-96 overflow-y-auto p-1.5">
             <div v-for="f in visibleFields" :key="f.key" class="rounded-btn">
               <!-- หัวข้อ: กดแล้วกาง/หุบ ตัวที่กรองอยู่มี badge กับปุ่ม × ให้ปลดได้จากตรงนี้
-                   ★ "แผนก" กดไม่ได้จนกว่าจะเลือกบริษัท - แผนกเป็นของบริษัท ไม่ใช่ของทั้งเครือ
-                     (ดู departmentLocked) กางออกมาก็ไม่มีอะไรให้เลือกอยู่ดี -->
+                   ★ "แผนก"/"ศูนย์ต้นทุน" กดไม่ได้จนกว่าจะเลือกบริษัท - ทั้งคู่เป็นของบริษัท
+                     ไม่ใช่ของทั้งเครือ (ดู fieldLocked) กางออกมาก็ไม่มีอะไรให้เลือกอยู่ดี -->
+              <!-- สามท่อนแรกของเลขสินทรัพย์ในแถวเดียว: COM-775-26-001 → รหัสนำหน้า | Dept ID | ปี
+                   ★ ไม่กาง/หุบเหมือนแถวอื่น เลือกได้ตรงนี้เลย - ตัวเลือกแรกของแต่ละช่องคือ
+                     "ไม่กรอง" จึงไม่ต้องมีปุ่ม × แยก (chip ข้างล่างกดปลดได้เหมือนเดิม)
+                   ★ โชว์จำนวนชิ้นคู่ค่าเสมอ ค่าล้วน ๆ บอกไม่ได้ว่าอันไหนเป็นตัวหลัก
+                   ★ Dept ID/ปี = ค่าที่ฝังในเลขตอนออกเลข ไม่ใช่แผนกปัจจุบัน/ปีบัญชี -->
+              <div v-if="f.key === 'assetNumber'" class="flex w-full items-center gap-2 px-2 py-2">
+                <Icon :icon="f.icon" class="size-4 shrink-0 opacity-60" />
+                <div class="grid flex-1 grid-cols-3 gap-1.5">
+                  <select
+                    v-model="assetPrefix"
+                    class="select select-xs w-full"
+                    :class="{ 'select-primary': assetPrefix }"
+                    aria-label="Code"
+                    title="Code"
+                  >
+                    <option value="">Code</option>
+                    <option v-for="o in assetPrefixes" :key="o.code" :value="o.code">
+                      {{ o.code }} ({{ o.assets }})
+                    </option>
+                  </select>
+                  <select
+                    v-model="assetNumberDept"
+                    class="select select-xs w-full"
+                    :class="{ 'select-primary': assetNumberDept }"
+                    aria-label="Dept ID"
+                    title="Dept ID"
+                  >
+                    <option value="">Dept ID</option>
+                    <option v-for="o in assetNumberDepts" :key="o.dept" :value="o.dept">
+                      {{ o.dept }} ({{ o.assets }})
+                    </option>
+                  </select>
+                  <select
+                    v-model="assetNumberYear"
+                    class="select select-xs w-full"
+                    :class="{ 'select-primary': assetNumberYear }"
+                    aria-label="ปี"
+                    title="ปี"
+                  >
+                    <option value="">ปี</option>
+                    <option v-for="o in assetNumberYears" :key="o.year" :value="o.year">
+                      {{ o.year }} ({{ o.assets }})
+                    </option>
+                  </select>
+                </div>
+              </div>
+
               <div
+                v-else
                 class="flex w-full items-center gap-2 rounded-btn px-2 py-2"
                 :class="
-                  f.key === 'department' && departmentLocked
+                  fieldLocked(f.key)
                     ? 'cursor-not-allowed opacity-50'
                     : 'cursor-pointer hover:bg-base-200'
                 "
                 @click="
-                  f.key === 'department' && departmentLocked
-                    ? null
-                    : (expandedField = expandedField === f.key ? '' : f.key)
+                  fieldLocked(f.key) ? null : (expandedField = expandedField === f.key ? '' : f.key)
                 "
               >
                 <Icon :icon="f.icon" class="size-4 shrink-0 opacity-60" />
@@ -633,7 +875,7 @@ const range = computed(() => {
                 </span>
 
                 <Icon
-                  v-if="f.key === 'department' && departmentLocked"
+                  v-if="fieldLocked(f.key)"
                   icon="lucide:lock"
                   class="size-3.5 shrink-0 opacity-60"
                 />
@@ -648,7 +890,7 @@ const range = computed(() => {
               <!-- บอกเงื่อนไขตรงที่ผู้ใช้กำลังกด ไม่ใช่ปล่อยให้เจอแถวจาง ๆ ที่กดไม่ติด
                    แล้วเดาเองว่าระบบเสียหรือสิทธิ์ไม่ถึง -->
               <p
-                v-if="f.key === 'department' && departmentLocked"
+                v-if="fieldLocked(f.key)"
                 class="px-2 pb-2 pl-8 text-left text-xs text-base-content/50"
               >
                 กรุณาเลือกบริษัทก่อน
@@ -710,6 +952,40 @@ const range = computed(() => {
                   </ul>
                 </template>
 
+                <template v-else-if="f.key === 'costCenter'">
+                  <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
+                    <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
+                    <input
+                      v-model="costCenterSearch"
+                      type="search"
+                      class="grow"
+                      placeholder="ค้นศูนย์ต้นทุน"
+                    />
+                  </label>
+                  <ul class="max-h-44 overflow-y-auto">
+                    <li v-for="d in filteredCostCenters" :key="d.id">
+                      <button
+                        class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
+                        :class="{ 'bg-primary/10 font-medium': costCenterId === String(d.id) }"
+                        @click="toggleValue('costCenter', String(d.id))"
+                      >
+                        <Icon
+                          :icon="costCenterId === String(d.id) ? 'lucide:check' : 'lucide:minus'"
+                          class="size-3.5 shrink-0"
+                          :class="costCenterId === String(d.id) ? 'text-primary' : 'opacity-0'"
+                        />
+                        <span class="truncate">{{ d.name }}</span>
+                      </button>
+                    </li>
+                    <li
+                      v-if="!filteredCostCenters.length"
+                      class="px-2 py-2 text-xs text-base-content/50"
+                    >
+                      ไม่พบศูนย์ต้นทุนที่ตรงกับคำค้น
+                    </li>
+                  </ul>
+                </template>
+
                 <template v-else-if="f.key === 'location'">
                   <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
                     <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
@@ -727,7 +1003,7 @@ const range = computed(() => {
                           class="size-3.5 shrink-0"
                           :class="locationId === String(l.id) ? 'text-primary' : 'opacity-0'"
                         />
-                        <span class="truncate">{{ l.name }}</span>
+                        <span class="truncate">{{ locationLabel(l, companyLocations) }}</span>
                       </button>
                     </li>
                     <li v-if="!filteredLocations.length" class="px-2 py-2 text-xs text-base-content/50">
@@ -851,6 +1127,7 @@ const range = computed(() => {
     editable-image
     editable-holder
     editable-warranty
+    editable-department
     @updated="load()"
   />
 </template>

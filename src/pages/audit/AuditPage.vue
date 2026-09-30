@@ -53,7 +53,7 @@ const loadError = ref('')
 const searchText = ref('')
 /** รหัสบริษัท เช่น 'UBA' - '' = ทุกบริษัท (ค่าคือ code ไม่ใช่ id ดู CompanyOption) */
 const companyCode = ref('')
-const departmentId = ref('')
+const costCenterId = ref('')
 const status = ref('')
 /** ค่าตั้งต้นเป็น true - ดูเหตุผลข้อ 1 ที่หัวไฟล์ */
 const locatedOnly = ref(true)
@@ -105,7 +105,7 @@ const SAMPLE_OPTIONS = [5, 10, 20, 50]
  * chip ของบริษัทจึงบอกอยู่แล้วว่าเป็นแผนกของใคร เขียนซ้ำมีแต่จะยาวเกินจำเป็น
  */
 function departmentLabel(): string {
-  return departments.value.find((d) => String(d.id) === departmentId.value)?.name ?? departmentId.value
+  return departments.value.find((d) => String(d.id) === costCenterId.value)?.name ?? costCenterId.value
 }
 
 /**
@@ -132,11 +132,11 @@ const activeFilterChips = computed(() => {
     })
   }
 
-  if (departmentId.value) {
+  if (costCenterId.value) {
     chips.push({
       key: 'dep',
-      label: `แผนก: ${departmentLabel()}`,
-      clear: () => (departmentId.value = ''),
+      label: `ศูนย์ต้นทุน: ${departmentLabel()}`,
+      clear: () => (costCenterId.value = ''),
     })
   }
 
@@ -182,7 +182,7 @@ async function load() {
       limit: randomMode.value ? sampleSize.value : limit,
       search: searchText.value,
       companyCode: companyCode.value || undefined,
-      departmentId: num(departmentId.value),
+      costCenterId: num(costCenterId.value),
       status: status.value || undefined,
       located: locatedOnly.value,
       random: randomMode.value || undefined,
@@ -224,9 +224,9 @@ watch(searchText, () => {
 //
 //    รวมเป็นตัวเดียวแล้ว "ล้างแล้วไม่โหลด" - การเซ็ตค่าจะกระตุ้น watch ตัวนี้ซ้ำเอง
 //    รอบถัดไปจึงโหลดด้วยคู่ที่ถูกต้องครั้งเดียว
-watch([companyCode, departmentId, status, locatedOnly], ([company], [prevCompany]) => {
-  if (company !== prevCompany && departmentId.value) {
-    departmentId.value = ''
+watch([companyCode, costCenterId, status, locatedOnly], ([company], [prevCompany]) => {
+  if (company !== prevCompany && costCenterId.value) {
+    costCenterId.value = ''
     return
   }
   page.value = 1
@@ -283,7 +283,7 @@ function onPinSelect(id: number) {
 function clearFilters() {
   searchText.value = ''
   companyCode.value = ''
-  departmentId.value = ''
+  costCenterId.value = ''
   status.value = ''
   locatedOnly.value = true
   // ไม่เรียก load() เอง - watch สองชุดข้างบนจับครบทุกช่องแล้ว เรียกซ้ำจะยิงซ้อน
@@ -308,30 +308,30 @@ const expandedField = ref('')
 /**
  * ปลดบริษัททิ้งตอนลิสต์แผนกกางอยู่ = ต้องหุบมันด้วย
  *
- * ไม่หุบแล้วผู้ใช้จะเห็นลิสต์เปล่าพร้อมข้อความ "ไม่พบแผนกที่ตรงกับคำค้น" ซึ่งโกหก -
+ * ไม่หุบแล้วผู้ใช้จะเห็นลิสต์เปล่าพร้อมข้อความ "ไม่พบศูนย์ต้นทุนที่ตรงกับคำค้น" ซึ่งโกหก -
  * สาเหตุจริงคือยังไม่ได้เลือกบริษัท ไม่ใช่คำค้นไม่ตรง
  */
 watch(departmentLocked, (locked) => {
-  if (locked && expandedField.value === 'department') expandedField.value = ''
+  if (locked && expandedField.value === 'costCenter') expandedField.value = ''
 })
 
 const FILTER_FIELDS = [
   { key: 'company', label: 'บริษัท', icon: 'lucide:building-2' },
-  { key: 'department', label: 'แผนก', icon: 'lucide:users' },
+  { key: 'costCenter', label: 'ศูนย์ต้นทุน (บัญชี)', icon: 'lucide:receipt' },
   { key: 'status', label: 'สถานะ', icon: 'lucide:activity' },
 ]
 
 /** แกนไหนมีค่าอยู่แล้ว - เอาไปขึ้น badge บนหัวข้อในแผง */
 function filterHasValue(key: string): boolean {
   if (key === 'company') return !!companyCode.value
-  if (key === 'department') return !!departmentId.value
+  if (key === 'costCenter') return !!costCenterId.value
   if (key === 'status') return !!status.value
   return false
 }
 
 function clearField(key: string) {
   if (key === 'company') companyCode.value = ''
-  else if (key === 'department') departmentId.value = ''
+  else if (key === 'costCenter') costCenterId.value = ''
   else if (key === 'status') status.value = ''
 }
 
@@ -346,7 +346,7 @@ function clearField(key: string) {
  */
 function toggleValue(key: string, value: string) {
   const target =
-    key === 'company' ? companyCode : key === 'department' ? departmentId : key === 'status' ? status : null
+    key === 'company' ? companyCode : key === 'costCenter' ? costCenterId : key === 'status' ? status : null
   if (!target) return
   target.value = target.value === value ? '' : value
 }
@@ -356,7 +356,7 @@ function fieldValueLabel(key: string): string {
   if (key === 'company') {
     return companies.value.find((c) => c.code === companyCode.value)?.name ?? companyCode.value
   }
-  if (key === 'department') return departmentLabel()
+  if (key === 'costCenter') return departmentLabel()
   if (key === 'status') return STATUS_OPTIONS.find((s) => s.value === status.value)?.label ?? status.value
   return ''
 }
@@ -676,12 +676,12 @@ onMounted(async () => {
                   <div
                     class="flex w-full items-center gap-2 rounded-btn px-2 py-2"
                     :class="
-                      f.key === 'department' && departmentLocked
+                      f.key === 'costCenter' && departmentLocked
                         ? 'cursor-not-allowed opacity-50'
                         : 'cursor-pointer hover:bg-base-200'
                     "
                     @click="
-                      f.key === 'department' && departmentLocked
+                      f.key === 'costCenter' && departmentLocked
                         ? null
                         : (expandedField = expandedField === f.key ? '' : f.key)
                     "
@@ -699,7 +699,7 @@ onMounted(async () => {
                     </span>
 
                     <Icon
-                      v-if="f.key === 'department' && departmentLocked"
+                      v-if="f.key === 'costCenter' && departmentLocked"
                       icon="lucide:lock"
                       class="size-3.5 shrink-0 opacity-60"
                     />
@@ -714,7 +714,7 @@ onMounted(async () => {
                   <!-- บอกเงื่อนไขตรง ๆ ตรงที่ผู้ใช้กำลังกด ไม่ใช่ปล่อยให้เจอแถวจาง ๆ ที่กดไม่ติด
                        แล้วเดาเองว่าระบบเสียหรือสิทธิ์ไม่ถึง -->
                   <p
-                    v-if="f.key === 'department' && departmentLocked"
+                    v-if="f.key === 'costCenter' && departmentLocked"
                     class="px-2 pb-2 pl-8 text-left text-xs text-base-content/50"
                   >
                     เลือกบริษัทก่อนจึงจะเลือกแผนกได้
@@ -749,22 +749,22 @@ onMounted(async () => {
                       </li>
                     </ul>
 
-                    <template v-else-if="f.key === 'department'">
+                    <template v-else-if="f.key === 'costCenter'">
                       <label class="input input-xs mb-1.5 flex w-full items-center gap-1.5">
                         <Icon icon="lucide:search" class="size-3 shrink-0 opacity-50" />
-                        <input v-model="departmentSearch" type="search" class="grow" placeholder="ค้นแผนก" />
+                        <input v-model="departmentSearch" type="search" class="grow" placeholder="ค้นศูนย์ต้นทุน" />
                       </label>
                       <ul class="max-h-44 overflow-y-auto">
                         <li v-for="d in filteredDepartments" :key="d.id">
                           <button
                             class="flex w-full items-center gap-2 rounded-btn px-2 py-1.5 text-left text-sm hover:bg-base-200"
-                            :class="{ 'bg-primary/10 font-medium': departmentId === String(d.id) }"
-                            @click="toggleValue('department', String(d.id))"
+                            :class="{ 'bg-primary/10 font-medium': costCenterId === String(d.id) }"
+                            @click="toggleValue('costCenter', String(d.id))"
                           >
                             <Icon
-                              :icon="departmentId === String(d.id) ? 'lucide:check' : 'lucide:minus'"
+                              :icon="costCenterId === String(d.id) ? 'lucide:check' : 'lucide:minus'"
                               class="size-3.5 shrink-0"
-                              :class="departmentId === String(d.id) ? 'text-primary' : 'opacity-0'"
+                              :class="costCenterId === String(d.id) ? 'text-primary' : 'opacity-0'"
                             />
                             <!-- ไม่ต้องมี badge รหัสบริษัทท้ายชื่อแล้ว - ลิสต์นี้เปิดได้ก็ต่อเมื่อ
                                  เลือกบริษัทไว้แล้ว ทุกแถวจึงเป็นของบริษัทเดียวกันทั้งหมด -->
@@ -772,7 +772,7 @@ onMounted(async () => {
                           </button>
                         </li>
                         <li v-if="!filteredDepartments.length" class="px-2 py-2 text-xs text-base-content/50">
-                          ไม่พบแผนกที่ตรงกับคำค้น
+                          ไม่พบศูนย์ต้นทุนที่ตรงกับคำค้น
                         </li>
                       </ul>
                     </template>
@@ -915,6 +915,7 @@ onMounted(async () => {
       :editable-image="canEditRegistry"
       :editable-holder="canEditRegistry"
       :editable-warranty="canEditRegistry"
+      :editable-department="canEditRegistry"
     />
   </div>
 </template>

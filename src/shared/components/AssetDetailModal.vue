@@ -46,6 +46,19 @@ const props = defineProps<{
    *   อยู่แล้วฝั่ง backend หน้า Audit จึงส่งค่าตาม role ไม่ใช่ค่าคงที่
    */
   editableHolder?: boolean
+  /**
+   * เปิดปุ่มแก้ "แผนกที่ดูแล" ในกล่องนี้ - ส่งผ่านตรง ๆ ไป AppAssetDetail (0027)
+   *
+   * ★ เหตุผลเดียวกับ editableWarranty/editableHolder: role AUDIT ยิง
+   *   PATCH /assets/:id/department ไม่ได้อยู่แล้วฝั่ง backend (auditScopeGuard allowlist
+   *   มีแค่ /location) หน้า Audit จึงส่งค่าตาม role ไม่ใช่ค่าคงที่
+   *
+   * ⚠️ **ทุก prop ที่เพิ่มใน AppAssetDetail ต้องมาประกาศที่นี่ด้วย** - หน้าต่าง ๆ เรียก
+   *   คอมโพเนนต์นี้ ไม่ได้เรียก AppAssetDetail ตรง ๆ prop ที่ไม่ได้ประกาศจะกลายเป็น
+   *   fallthrough attribute ไปเกาะ element ราก **โดยไม่มี error และไม่มีอะไรฟ้อง**
+   *   ปลายทางจึงไม่เคยได้รับค่า (พลาดมาแล้วตอนเพิ่ม editableDepartment รอบแรก)
+   */
+  editableDepartment?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -125,6 +138,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             :editable-holder="editableHolder"
             :editable-image="editableImage"
             :editable-warranty="editableWarranty"
+            :editable-department="editableDepartment"
             @updated="emit('updated')"
           />
         </div>

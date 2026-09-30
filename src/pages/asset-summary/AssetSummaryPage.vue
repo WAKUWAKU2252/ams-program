@@ -989,8 +989,8 @@ const oddJournalRows = computed(
            และตอนนี้อยู่หน้าไหน -->
     <div role="tablist" class="tabs tabs-lift mt-5">
       <button v-for="tab in [
-        { key: 'asset', label: 'Asset-สรุป', count: assetRows.length },
-        { key: 'dep', label: 'DEP-สรุป', count: depFilteredRows.length },
+        { key: 'asset', label: 'Asset', count: assetRows.length },
+        { key: 'dep', label: 'Depreciation', count: depFilteredRows.length },
       ]" :key="tab.key" role="tab" class="tab gap-2" :class="sheet === tab.key ? 'tab-active font-medium' : ''"
         :aria-selected="sheet === tab.key" @click="sheet = tab.key as Sheet">
         {{ tab.label }}
@@ -1002,7 +1002,7 @@ const oddJournalRows = computed(
       <div class="card-body gap-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 id="ams-report-title" class="sr-only">
-            {{ sheet === 'asset' ? 'Asset-สรุป' : 'DEP-สรุป' }}
+            {{ sheet === 'asset' ? 'Asset' : 'Depreciation' }}
           </h2>
           <!-- DEP-สรุป เป็นภาพของงวดเดียว ต่างจาก Asset-สรุป ที่เป็นช่วง — ต้องบอกให้ชัด
                ไม่งั้นคนจะอ่านยอดนี้เป็นยอดรวมของทั้งช่วงงวดที่เลือกไว้ -->
@@ -1016,13 +1016,6 @@ const oddJournalRows = computed(
         <p v-if="assetTotals.assetsWithoutValue > 0" class="text-xs text-warning">
           มี {{ assetTotals.assetsWithoutValue }} ชิ้นที่ SAP ยังไม่ส่งตัวเลขบัญชีมา -
           ยอดเงินในตารางไม่ได้รวมชิ้นเหล่านี้
-        </p>
-        <!-- ★ คนละสาเหตุกับป้ายข้างบน ต้องแยกบรรทัด - อันบนคือ "ข้อมูลยังไม่มา" ส่วนอันนี้คือ
-             "ของยังไม่ได้ซื้อ ณ งวดที่เลือก" ซึ่งไม่ใช่ปัญหาของข้อมูล เป็นเรื่องของจุดตัดเวลา
-             และแก้ได้ด้วยการเลื่อนงวดไปข้างหน้า ไม่ใช่รอ sync -->
-        <p v-if="assetTotals.assetsNotYetAcquired > 0" class="text-xs text-warning">
-          มี {{ assetTotals.assetsNotYetAcquired }} ชิ้นที่ยังไม่ได้ซื้อ ณ สิ้นงวด
-          {{ data?.toPeriod }} - นับอยู่ในคอลัมน์ "ชิ้น" แต่ยอดเงินยังเป็น 0
         </p>
         <!-- ★ ข้อความต้องแยกสองสาเหตุ - เดิมเขียนเดาไว้ว่า "ใบกลับรายการ" ทั้งที่สาเหตุจริง
              ที่เจอคือกำลังดูทุกบริษัทอยู่ แล้วรหัสบัญชีที่ UBA กับ UBP ใช้ร่วมกันถูกยุบ

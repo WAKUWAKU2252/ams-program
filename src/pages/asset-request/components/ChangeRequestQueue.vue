@@ -30,6 +30,8 @@ import {
 } from '@/shared/services/assetChangeRequest.service'
 
 const props = defineProps<{ kind: ChangeKind }>()
+/** โหลดเสร็จทุกรอบ - หน้าแม่เอา total ไปขึ้นเลขบนแท็บ (คิวนี้ไม่มีตัวกรอง total = ทั้งคิว) */
+const emit = defineEmits<{ loaded: [kind: ChangeKind, total: number] }>()
 
 const rows = ref<ChangeRequestRow[]>([])
 const total = ref(0)
@@ -65,11 +67,14 @@ function targetValueOf(row: ChangeRequestRow | null): string {
 async function load() {
   loading.value = true
   loadError.value = ''
+  // จำ kind ของรอบนี้ไว้ก่อน await - สลับแท็บระหว่างรอ props.kind จะเป็นของแท็บใหม่แล้ว
+  const kind = props.kind
   try {
-    const res = await listChangeRequestQueue({ kind: props.kind, page: page.value, limit })
+    const res = await listChangeRequestQueue({ kind, page: page.value, limit })
     rows.value = res.data
     total.value = res.total
     loadedOnce.value = true
+    emit('loaded', kind, res.total)
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : 'โหลดคิวไม่สำเร็จ'
   } finally {

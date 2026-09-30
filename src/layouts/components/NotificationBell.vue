@@ -140,9 +140,6 @@ function go(item: NotificationItem) {
 </script>
 
 <template>
-  <!-- ★ ไม่มีกระดิ่งเลยสำหรับ AUDIT ไม่ใช่กระดิ่งที่กดแล้วขึ้น error - ดู store.enabled
-       (ปุ่มที่ยังอยู่แต่ใช้ไม่ได้แย่กว่าปุ่มที่ไม่มี: คนกดแล้วคิดว่าระบบพัง ไม่ใช่คิดว่า
-        ตัวเองไม่มีสิทธิ์) -->
   <div v-if="store.enabled" ref="rootRef" class="relative">
     <button type="button" class="btn btn-ghost btn-square rounded-[4px] relative" :aria-expanded="open" aria-haspopup="true"
       :aria-label="store.unread > 0 ? `การแจ้งเตือน ${store.unread} รายการที่ยังไม่อ่าน` : 'การแจ้งเตือน'"
@@ -152,9 +149,6 @@ function go(item: NotificationItem) {
         {{ badge }}
       </span>
     </button>
-
-    <!-- ชุดคลาสเดียวกับกล่องโปรไฟล์ใน Sidebar.vue เป๊ะ ๆ - สองกล่องนี้เป็นเมนูที่ห้อยจาก
-         ปุ่มเหมือนกัน ถ้าจังหวะต่างกันจะรู้สึกได้ทันทีว่าเป็นคนละแอป -->
     <Transition enter-active-class="transition-all 
     duration-200 ease-out" enter-from-class="opacity-0 -translate-y-8" enter-to-class="opacity-100 translate-y-0"
       leave-active-class="transition-all duration-150 ease-in" leave-from-class="opacity-100 translate-y-0"
@@ -199,7 +193,6 @@ function go(item: NotificationItem) {
                   {{ formatDateTime(item.createdAt) }}
                 </span>
               </span>
-              <!-- จุดของ "ยังไม่อ่าน" - อยู่ขวาสุดเพื่อให้สแกนคอลัมน์เดียวได้ว่าเหลืออะไรบ้าง -->
               <span v-if="item.readAt === null" class="mt-2 size-2 shrink-0 rounded-full bg-primary"></span>
             </button>
           </li>

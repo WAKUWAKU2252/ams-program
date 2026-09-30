@@ -182,6 +182,8 @@ const saving = ref(false)
 const error = ref('')
 
 const locations = ref<LocationOption[]>([])
+/** บริษัทของลิสต์ที่โหลดไว้ - เปลี่ยนชิ้นไปบริษัทอื่นแล้วต้องโหลดใหม่ ไม่ใช่ใช้ของเก่า */
+const locationsCompany = ref<string | null>(null)
 const loadingLocations = ref(false)
 
 const isMove = computed(() => kind.value === 'LOCATION')
@@ -203,12 +205,23 @@ function resetForm() {
   error.value = ''
 }
 
-/** โหลดรายการสถานที่ครั้งเดียวตอนสลับมาแท็บย้าย - ไม่ต้องโหลดถ้าไม่มีใครใช้ */
-watch([kind, () => props.open], async ([k, isOpen]) => {
-  if (!isOpen || k !== 'LOCATION' || locations.value.length) return
+/**
+ * โหลดรายการสถานที่ตอนสลับมาแท็บย้าย - ไม่ต้องโหลดถ้าไม่มีใครใช้
+ *
+ * ★ ขอด้วยบริษัทของชิ้นที่เลือก (0037) - ที่ตั้งเป็นของบริษัท ชื่อซ้ำกันระหว่าง UBA/UBP
+ *   14 ชื่อ เดิมโหลดทั้งเครือครั้งเดียวแล้วเก็บไว้ ย้ายของ UBP ไปเลือก 'QA' ของ UBA ได้
+ *   (backend ปฏิเสธแล้ว แต่ต้องไม่ให้เห็นตั้งแต่ต้น) และเปลี่ยนไปชิ้นของบริษัทอื่นก็ยังได้ลิสต์เดิม
+ */
+watch([kind, () => props.open, () => picked.value?.companyCode], async ([k, isOpen, company]) => {
+  if (!isOpen || k !== 'LOCATION' || !company) return
+  if (locationsCompany.value === company && locations.value.length) return
   loadingLocations.value = true
   try {
-    locations.value = await listLocations()
+    const rows = await listLocations({ companyCode: company })
+    // ผลของชิ้นก่อนหน้าที่มาช้าต้องไม่ทับลิสต์ของชิ้นที่เลือกอยู่ตอนนี้
+    if (picked.value?.companyCode !== company) return
+    locations.value = rows
+    locationsCompany.value = company
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : 'โหลดรายการสถานที่ไม่สำเร็จ'
   } finally {
@@ -410,7 +423,7 @@ async function save() {
           <template v-else>
             <label class="form-control">
               <span class="label-text mb-1 block text-sm">
-                {{ isMove ? 'สถานที่ปลายทาง' : 'ผู้ครอบครองคนใหม่' }}
+                {{ isMove ? 'สถานที่ใหม่' : 'ผู้ครอบครองคนใหม่' }}
               </span>
 
               <select v-if="isMove" v-model.number="pickedLocation"

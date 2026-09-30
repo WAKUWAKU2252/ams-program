@@ -8,7 +8,7 @@
 //
 // lock เป็นของ "ใบ" ไม่ใช่ของ "ชิ้น" - บัญชีคนที่สองที่เข้ามาจะเห็นทุกอย่างแต่กดอะไรไม่ได้
 // จนกว่าคนแรกจะออก (backend บังคับซ้ำอีกชั้นที่ assertRegistrationHolder ไม่ใช่แค่ซ่อนปุ่ม)
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import QRCode from 'qrcode'
 import AssetNumberInput from '@/pages/asset-request/components/AssetNumberInput.vue'
@@ -23,11 +23,12 @@ import {
   cancelAsset,
   uncancelAsset,
   declareLine,
+  getSapMatch,
 } from '@/shared/services/assetRequest.service'
-import type { PendingRegistrationRow } from '@/shared/services/assetRequest.service'
+import type { PendingRegistrationRow, SapMatch } from '@/shared/services/assetRequest.service'
 import { getAssetSlots } from '@/shared/services/asset.service'
 import type { AssetSlotsResponse, InvoiceFile, SlotDisplayStatus } from '@/shared/services/asset.service'
-import { openPresence } from '@/shared/services/presence.service'
+import { openPresence, sendPresenceHeartbeat } from '@/shared/services/presence.service'
 import type { PresenceState, PresenceConnection } from '@/shared/services/presence.service'
 import { fileBlobUrl } from '@/shared/services/attachment.service'
 import { invoiceBlobUrl } from '@/shared/services/invoice.service'
@@ -119,10 +120,15 @@ function closePresence() {
  *
  * ★ backend มี TTL 15 นาทีเป็นตาข่ายอีกชั้นเผื่อแท็บถูกฆ่าทิ้งโดยไม่ได้ปิดสาย
  */
-useIdleKick(editable, () => {
-  closePresence()
-  router.replace({ name: 'MainAssetRequest' })
-})
+useIdleKick(
+  editable,
+  () => {
+    closePresence()
+    router.replace({ name: 'MainAssetRequest' })
+  },
+  // บัญชีมักนั่งไล่ตรวจรูป/S/N ทั้งใบก่อนเริ่มออกเลข - ช่วงนั้นไม่มีปุ่มไหนต่ออายุ lock ให้
+  () => sendPresenceHeartbeat(id.value, 'registration'),
+)
 
 /**
  * จัดรายชิ้นใหม่เป็น "รอบรับของ → ชิ้น"
@@ -368,6 +374,37 @@ const reason = ref('')
 const saving = ref(false)
 const saveError = ref('')
 
+/**
+ * เลขที่กรอกชนกับแถวที่ sync ดึงมาจาก SAP ไปก่อน - โผล่แทน error สีแดงเดิม ให้บัญชีดู
+ * รายละเอียดของแถวนั้นแล้วตัดสินว่าจะผูกเข้ากับชิ้นนี้ไหม (ดู sap-legacy-adopt.ts ฝั่ง backend)
+ *
+ * ★ ต้องล้างทุกครั้งที่บริบทเปลี่ยน (แก้เลข / สลับแท็บ / เปิดชิ้นอื่น) - ถ้าค้างไว้ ปุ่ม
+ *   "ผูกกับรายการนี้" จะส่ง id ของแถวที่ผูกกับ "เลขเก่า" ไปกับเลขใหม่ (backend ปฏิเสธให้
+ *   อยู่แล้ว แต่ผู้ใช้จะเห็นข้อความที่ไม่เข้าใจว่ามาจากไหน)
+ */
+const sapMatch = ref<SapMatch | null>(null)
+watch(assetNumber, () => {
+  sapMatch.value = null
+})
+
+/**
+ * กล่องนี้อยู่ล่างสุดของส่วนที่เลื่อนได้ (ใต้ผังและรายละเอียด) - ตอนโผล่ขึ้นมามักอยู่นอกจอ
+ * ต้องเลื่อนให้เห็นเอง ไม่งั้นกดปุ่มแล้วจะดูเหมือนไม่มีอะไรเกิดขึ้น ทั้งที่ปุ่มเปลี่ยนเป็น
+ * "ผูกกับรายการนี้" ไปแล้ว
+ * ?. ที่ scrollIntoView - jsdom ในเทสต์ไม่มีเมธอดนี้
+ */
+const sapMatchEl = ref<HTMLElement | null>(null)
+watch(sapMatch, async (match) => {
+  if (!match) return
+  await nextTick()
+  sapMatchEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+})
+
+/** ปุ่มยืนยันกำลังจะ "ผูกกับแถวจาก SAP" ไม่ใช่ออกเลขธรรมดา - เปลี่ยนข้อความ/สีของปุ่มตาม */
+const adopting = computed(
+  () => action.value === 'register' && sapMatch.value !== null && sapMatch.value.adoptable,
+)
+
 const ACTION_META: Record<
   SlotAction,
   { tab: string; icon: string; hint: string; hintIcon: string; confirm: string; btn: string }
@@ -558,7 +595,10 @@ const canSave = computed(() => {
   if (!editable.value) return false
   // ไม่ตรวจรูปแบบแล้ว - แค่ "ต้องไม่ว่าง" (เหตุผลเต็มอยู่ที่ AssetNumberInput.vue
   // และ assignNumberBody ฝั่ง backend: regex เดิมกันเลขที่ SAP ออกให้จริงบางส่วนออกไปด้วย)
-  if (action.value === 'register') return assetNumber.value.trim().length > 0
+  // ชนกับแถวจาก SAP ที่ผูกไม่ได้ = กดซ้ำก็ได้ผลเดิม ต้องแก้เลขก่อน (แก้เลขแล้ว sapMatch ถูกล้างเอง)
+  if (action.value === 'register') {
+    return assetNumber.value.trim().length > 0 && (sapMatch.value === null || sapMatch.value.adoptable)
+  }
   if (action.value === 'uncancel') return true
   return reason.value.trim().length > 0
 })
@@ -624,6 +664,7 @@ function openSlotAction(round: RoundGroup, slot: FlatSlot) {
   assetNumber.value = slot.assetNumber ?? ''
   reason.value = ''
   saveError.value = ''
+  sapMatch.value = null
 }
 
 /**
@@ -721,6 +762,21 @@ function switchAction(next: SlotAction) {
   action.value = next
   // ล้าง error ของแท็บก่อนหน้า ไม่งั้นข้อความ "เลขซ้ำ" จะค้างอยู่บนหน้าจอตอนกดตีกลับ
   saveError.value = ''
+  sapMatch.value = null
+}
+
+/**
+ * เลขที่พิมพ์อยู่ชนกับแถวจาก SAP ไหม - ถามไม่ได้ (เน็ตสะดุด ฯลฯ) = null แล้วขึ้น error เดิม
+ * ไม่ทำให้กล่องพังเพิ่ม เพราะข้อความจาก backend ของรอบออกเลขยังอธิบายได้ว่าเกิดอะไรขึ้น
+ */
+async function findSapMatch(): Promise<SapMatch | null> {
+  const t = target.value
+  if (!t) return null
+  try {
+    return (await getSapMatch(id.value, t.slot.assetId, assetNumber.value)).match
+  } catch {
+    return null
+  }
 }
 
 async function onSave() {
@@ -734,7 +790,13 @@ async function onSave() {
     // ออกเลขสำเร็จไม่ขึ้นข้อความอะไรบนหัวหน้าจอ - ผลของมันเห็นได้จากตัวเลข "x/y" กับป้าย
     // สถานะในตารางที่รีเฟรชท้ายฟังก์ชันนี้อยู่แล้ว
     if (action.value === 'register') {
-      await assignAssetNumber(id.value, slot.assetId, assetNumber.value)
+      // ส่ง id ของแถวจาก SAP ไปด้วยเฉพาะตอนที่บัญชีเห็นรายละเอียดแล้วกด "ผูกกับรายการนี้"
+      await assignAssetNumber(
+        id.value,
+        slot.assetId,
+        assetNumber.value,
+        adopting.value ? sapMatch.value!.assetId : undefined,
+      )
     } else if (action.value === 'reject') {
       await rejectAsset(id.value, slot.assetId, text)
     } else if (action.value === 'cancel') {
@@ -746,9 +808,22 @@ async function onSave() {
     target.value = null
     await Promise.all([loadSlots(), loadHeader()])
   } catch (e) {
+    // 409 ตอนออกเลข อาจเป็น "เลขนี้ sync ดึงมาจาก SAP ไปก่อนแล้ว" ซึ่งมีทางไปต่อ (ผูก)
+    // ถามดูก่อนว่าชนกับแถวจาก SAP ไหม - ถ้าใช่ โชว์รายละเอียดแทน error สีแดง
+    // ★ ไม่ถามซ้ำตอนกำลังผูกอยู่แล้ว - 409 รอบนั้นคือผูกไม่ผ่าน (ข้อมูลเปลี่ยนระหว่างทาง
+    //   หรือด่านบล็อก) ให้ขึ้นข้อความของ backend ตรง ๆ
+    if (action.value === 'register' && !adopting.value && e instanceof ApiError && e.status === 409) {
+      const match = await findSapMatch()
+      if (match) {
+        sapMatch.value = match
+        return
+      }
+    }
     // 409 เลขซ้ำ / ตีกลับซ้ำ / ออกเลขทับชิ้นที่ถูกตีกลับ / ไม่ได้ถือ lock แล้ว
     // - ข้อความจาก backend บอกครบแล้ว
     saveError.value = e instanceof ApiError ? e.message : 'บันทึกไม่สำเร็จ'
+    // ผูกไม่ผ่าน = รายละเอียดที่โชว์อยู่อาจไม่ตรงความจริงแล้ว ต้องกดใหม่ให้ถามรอบใหม่
+    sapMatch.value = null
   } finally {
     saving.value = false
   }
@@ -1348,6 +1423,43 @@ onUnmounted(() => {
             </ul>
           </div>
 
+          <!-- เลขนี้ sync ดึงมาจาก SAP ไปก่อนแล้ว - วางล่างสุดใต้รายละเอียดของชิ้นนี้ (ข้อมูลฝั่ง AMS)
+               อ่านไล่ลงมาแล้วเทียบกับรายการจาก SAP ได้ทันที และอยู่ติดปุ่ม "ผูกกับรายการนี้" ข้างล่าง
+               โครงเดียวกับกล่อง blockedReason ข้างบน -->
+          <div v-if="sapMatch" ref="sapMatchEl" role="alert" class="alert alert-soft items-start"
+            :class="sapMatch.adoptable ? 'alert-warning' : 'alert-error'">
+            <Icon :icon="sapMatch.adoptable ? 'mdi:link-variant' : 'mdi:link-variant-off'" class="size-5 shrink-0" />
+            <div class="min-w-0 space-y-2">
+              <div class="text-sm font-medium">
+                เลข <span class="font-mono">{{ sapMatch.assetNumber }}</span> มีอยู่แล้วจากการ sync ของ SAP
+              </div>
+              <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-sm">
+                <span class="opacity-60">ชื่อใน SAP</span>
+                <span class="break-words">{{ sapMatch.description || '-' }}</span>
+                <span class="opacity-60">SAP สร้างเลขเมื่อ</span>
+                <span>{{ sapMatch.sapCreatedDate ? formatDate(sapMatch.sapCreatedDate) : '-' }}</span>
+                <span class="opacity-60">ราคาทุนใน SAP</span>
+                <span class="tabular-nums">
+                  {{ sapMatch.sapCost === null ? '-' : formatMoney(sapMatch.sapCost) }}
+                  <span class="opacity-60">· ชิ้นนี้ {{ formatMoney(target.slot.acquisitionCost) }}</span>
+                </span>
+                <span class="opacity-60">สถานะใน SAP</span>
+                <span>{{ sapMatch.status }}</span>
+              </div>
+              <p v-if="sapMatch.warning" class="flex items-start gap-1.5 text-sm font-medium">
+                <Icon icon="mdi:alert-outline" class="mt-0.5 size-4 shrink-0" />
+                <span>{{ sapMatch.warning }}</span>
+              </p>
+              <p class="text-sm break-words opacity-80">
+                <template v-if="sapMatch.adoptable">
+                  ถ้าเป็นชิ้นเดียวกัน กด "ผูกกับรายการนี้" ระบบจะรวมเป็นรายการเดียว - เลข ข้อมูลบัญชี
+                  และสถานะใช้ของ SAP ส่วนที่ตั้ง ผู้ถือครอง และรูปใช้ของชิ้นนี้ ถ้าไม่ใช่ ให้แก้เลขแล้วกดใหม่
+                </template>
+                <template v-else>{{ sapMatch.blockedReason }}</template>
+              </p>
+            </div>
+          </div>
+
         </div>
 
         <!-- ── แถวปุ่ม (ตรึงล่าง) - เหลือแต่ปุ่มที่เปลี่ยนสถานะจริง
@@ -1357,10 +1469,13 @@ onUnmounted(() => {
             <button class="btn btn-ghost" :disabled="saving" @click="target = null">ยกเลิก</button>
             <!-- ปุ่มยืนยันปุ่มเดียว เปลี่ยนข้อความ/สีตาม action ที่เลือก - สีแดงของ "ปิดถาวร"
                  เป็นสัญญาณสุดท้ายก่อนกดสิ่งที่ผู้ใช้ทั่วไปย้อนเองไม่ได้ -->
-            <button class="btn" :class="ACTION_META[action].btn" :disabled="!canSave || saving" @click="onSave">
+            <!-- ผูกกับแถวจาก SAP ใช้ปุ่มเดิมปุ่มเดียว แค่เปลี่ยนข้อความ/สีเป็นสีเตือน - ให้รู้ว่า
+                 กดแล้วไม่ใช่การออกเลขธรรมดา แต่คือการรวมสองรายการเข้าด้วยกัน -->
+            <button class="btn" :class="adopting ? 'btn-warning' : ACTION_META[action].btn"
+              :disabled="!canSave || saving" @click="onSave">
               <span v-if="saving" class="loading loading-spinner loading-xs" />
-              <Icon v-else :icon="ACTION_META[action].icon" class="size-4" />
-              {{ ACTION_META[action].confirm }}
+              <Icon v-else :icon="adopting ? 'mdi:link-variant' : ACTION_META[action].icon" class="size-4" />
+              {{ adopting ? 'ผูกกับรายการนี้' : ACTION_META[action].confirm }}
             </button>
           </div>
         </div>

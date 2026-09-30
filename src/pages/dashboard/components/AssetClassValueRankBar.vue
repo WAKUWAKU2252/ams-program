@@ -169,7 +169,7 @@ const chartOptions = computed(() => {
     <div class="card-body gap-3 text-left">
       <div class="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h2 class="card-title text-base">มูลค่าสินทรัพย์ราย Asset class</h2>
+          <h2 class="card-title text-base">มูลค่าสินทรัพย์ตามหมวดหมู่ทางบัญชี</h2>
           <p class="text-xs text-base-content/60">
             มูลค่าคงเหลือรวม (บาท) เรียงจากมากไปน้อย
           </p>
