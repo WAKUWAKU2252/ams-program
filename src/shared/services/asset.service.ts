@@ -377,7 +377,8 @@ export interface RoomAssetsResponse {
  * GET /assets/by-room/:subLocationId - ของที่ตั้งอยู่ในห้องนั้น (ไม่รวมชิ้นที่ปิดถาวรแล้ว)
  *
  * แบ่งหน้าทีละ 50 - ขนาดหน้าเป็นของ backend ส่งมาให้ใน pageSize ไม่ใช่ค่าที่หน้าจอตั้งเอง
- * (ทุกชิ้นที่ได้มาจะถูกวาดเป็นหมุดบนผังด้วย หน้าที่ใหญ่กว่านี้ = ดงหมุดทับกัน)
+ * (การ์ดแต่ละใบโหลดรูปของตัวเอง หน้าใหญ่กว่านี้ = ยิงรูปรัวทีเดียวหลายสิบใบต่อการคลิกห้อง)
+ * หมุดบนผังไม่ได้มาจากเส้นนี้แล้ว - ดู listFloorPins
  */
 export function listAssetsInRoom(subLocationId: number, page = 1): Promise<RoomAssetsResponse> {
   return request<RoomAssetsResponse>(`/assets/by-room/${subLocationId}?page=${page}`, {

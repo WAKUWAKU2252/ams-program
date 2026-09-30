@@ -35,15 +35,19 @@ const loading = ref(true);
 const error = ref('');
 const activePlan = computed(() => plans.value.find((p) => p.planKey === activeKey.value) ?? null);
 
-// ── หมุดบนผังมาจากสองแหล่ง แล้วแต่โหมด
+// ── หมุดบนผังมาจากหมุดทั้งชั้นเสมอ (floorPins จาก GET /assets/pins) ทั้งสองโหมด
 //
-// เลือกห้อง  → ของในห้องที่ FloorPlanAssetList โหลดแล้วส่งขึ้นมา (roomAssets)
-// ทุกห้อง   → หมุดทั้งชั้นจาก GET /assets/pins (floorPins)
+// ทุกห้อง   → floorPins ทั้งชุด
+// เลือกห้อง  → floorPins กรองเหลือห้องนั้น
 //
-// ★ โหมดห้องเดียว ชุดนี้โตขึ้นทีละ 50 ตามที่ผู้ใช้เลื่อนลิสต์ลงไป ไม่ใช่ของทั้งห้องตั้งแต่แรก
-//   หมุดบนผังจึงเพิ่มตามลิสต์ - ห้องคลังที่มีของ 300 ชิ้นถ้าโปรยหมุดครบทีเดียวจะทับกันจน
-//   คลิกไม่ถูก ส่วนโหมดทุกห้องโปรยทั้งชั้นเพราะนั่นคือสิ่งที่ตัวเลือกนี้มีไว้ให้ดู
-//   (วัด 2026-09-30: ทั้งไซต์ปักหมุด 27 ชิ้น ชั้นที่เยอะสุด 17 ยังไม่มีเรื่องทับกัน)
+// ★ เดิมโหมดห้องเดียววาดหมุดจากลิสต์ (roomAssets) ซึ่งโตทีละ 50 ตามที่ผู้ใช้เลื่อน - พอมีโหมด
+//   ทุกห้องแล้วอาการจะแปลกทันที: ห้องที่มีหมุด 120 อัน ตอนดูทุกห้องเห็นครบ พอคลิกเข้าห้อง
+//   หมุดหายเหลือ 50 แล้วค่อย ๆ งอกตามการเลื่อน - เหตุผลเดิม ("โปรยครบทีเดียวจะทับกัน")
+//   ใช้ไม่ได้แล้วเพราะโหมดทุกห้องก็โปรยครบอยู่ดี
+//
+// roomAssets (ลิสต์ที่โหลดทีละ 50) เหลือหน้าที่สองอย่าง: บอกว่าชิ้นไหนมีการ์ดให้ไฮไลต์แล้ว
+// (ดู onSelectAsset/onRoomAssetsLoaded) และเป็นทางถอยตอนโหลดหมุดทั้งชั้นไม่ขึ้น (ดู pinSource)
+//   (วัด 2026-09-30: ทั้งไซต์ปักหมุด 27 ชิ้น ชั้นที่เยอะสุด 17 ห้องที่เยอะสุด 5)
 const roomAssets = ref<RoomAsset[]>([]);
 const floorPins = ref<FloorPin[]>([]);
 const pinsError = ref('');
@@ -104,15 +108,22 @@ let pendingPin: FloorPin | null = null;
 /**
  * คลิกหมุดบนผัง
  *
- * เลือกห้องอยู่  → หมุดมาจากลิสต์ของห้องนี้เอง ชิ้นนั้นอยู่ในลิสต์แน่นอน เลือกได้เลย
- * ทุกห้อง      → สลับไปห้องของหมุดนั้นก่อน แล้วรอหน้าแรกของลิสต์ (ดู onRoomAssetsLoaded)
+ * เลือกห้องอยู่ → ชิ้นนั้นมีการ์ดในลิสต์แล้ว = ไฮไลต์ / ลิสต์ยังโหลดไม่ถึง = เปิดกล่องรายละเอียด
+ * ทุกห้อง     → สลับไปห้องของหมุดนั้นก่อน แล้วรอหน้าแรกของลิสต์ (ดู onRoomAssetsLoaded)
  *
+ * ★ โหมดห้องเดียวต้องเช็คว่ามีการ์ดก่อน ไม่ใช่ตั้ง activeAssetId ทื่อ ๆ: หมุดวาดครบทั้งห้อง
+ *   แต่ลิสต์โหลดทีละ 50 - หมุดของชิ้นที่ 51 ขึ้นไปจะไม่มีการ์ดให้เลื่อนไปหา คลิกแล้วเงียบ
  * ★ ตั้ง activeAssetId ทันทีในโหมดทุกห้องไม่ได้: watch(selectedId) ล้างมันทิ้งทุกครั้งที่
  *   เปลี่ยนห้อง และถึงรอดมาได้ ลิสต์ก็ยังไม่มีการ์ดให้เลื่อนไปหา
  */
 function onSelectAsset(id: number) {
   if (selectedId.value !== null) {
-    activeAssetId.value = id;
+    if (roomAssets.value.some((a) => a.id === id)) {
+      activeAssetId.value = id;
+      return;
+    }
+    const pin = floorPins.value.find((p) => p.id === id);
+    if (pin) openDetail(pin);
     return;
   }
   const pin = floorPins.value.find((p) => p.id === id);
@@ -122,7 +133,7 @@ function onSelectAsset(id: number) {
 }
 
 /**
- * ลิสต์ของในห้องโหลดเสร็จ - เก็บไว้วาดหมุด และปิดงานค้างจากการคลิกหมุดในโหมดทุกห้อง
+ * ลิสต์ของในห้องโหลดเสร็จ - เก็บไว้เช็คว่าชิ้นไหนมีการ์ดแล้ว และปิดงานค้างจากการคลิกหมุดในโหมดทุกห้อง
  *
  * ชิ้นที่คลิกอยู่ในหน้าแรก → ไฮไลต์การ์ดแล้วลิสต์เลื่อนไปหาเอง
  * ไม่อยู่ (ห้องที่มีหมุดเกิน 50 / เพิ่งมีคนย้ายชิ้นนั้นออก) → เปิดกล่องรายละเอียดแทน
@@ -140,10 +151,18 @@ function onRoomAssetsLoaded(assets: RoomAsset[], page: number) {
   else openDetail(pin);
 }
 
-/** หมุดที่วาดบนผัง - แหล่งตามโหมด (ดูหัวไฟล์ส่วน roomAssets/floorPins) */
-const pinSource = computed<RoomAsset[]>(() =>
-  selectedId.value === null ? floorPins.value : roomAssets.value,
-);
+/**
+ * หมุดที่วาดบนผัง - หมุดทั้งชั้นเสมอ เลือกห้องอยู่ก็กรองเหลือห้องนั้น (ดูหัวไฟล์ส่วน floorPins)
+ *
+ * ★ หมุดทั้งชั้นโหลดไม่ขึ้น (pinsError) ในโหมดห้องเดียว → ถอยไปวาดจากลิสต์ของห้องแทน
+ *   ได้ไม่ครบถ้าห้องมีเกิน 50 แต่ยังดีกว่าผังโล่งทั้งที่ลิสต์ข้าง ๆ มีของที่ปักหมุดไว้
+ */
+const pinSource = computed<RoomAsset[]>(() => {
+  const room = selectedId.value;
+  if (room === null) return floorPins.value;
+  if (pinsError.value) return roomAssets.value;
+  return floorPins.value.filter((p) => p.subLocationId === room);
+});
 
 /** เฉพาะชิ้นที่ปักหมุดไว้แล้ว - ชิ้นที่รู้แค่ว่าอยู่ห้องนี้ไม่มีพิกัดให้วาด */
 const assetPins = computed(() =>
@@ -260,8 +279,9 @@ onMounted(async () => {
             @select="selectedId = $event" @select-asset="onSelectAsset" />
         </div>
 
-        <!-- หมุดทั้งชั้นโหลดไม่ขึ้นต้องบอก ไม่งั้นผังโล่งในโหมดทุกห้องจะอ่านได้ว่า "ชั้นนี้ไม่มีใครปักหมุด" -->
-        <div v-if="pinsError && selectedId === null" role="alert" class="alert alert-error alert-soft py-2">
+        <!-- หมุดทั้งชั้นโหลดไม่ขึ้นต้องบอกทั้งสองโหมด - ทุกห้องผังจะโล่งจนอ่านได้ว่า "ไม่มีใครปักหมุด"
+             ส่วนห้องเดียวถอยไปวาดจากลิสต์ ซึ่งได้ไม่ครบถ้าห้องมีเกิน 50 (ดู pinSource) -->
+        <div v-if="pinsError" role="alert" class="alert alert-error alert-soft py-2">
           <span class="text-sm">{{ pinsError }}</span>
           <button type="button" class="btn btn-ghost btn-xs" @click="loadFloorPins">ลองใหม่</button>
         </div>
