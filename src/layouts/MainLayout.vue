@@ -4,7 +4,6 @@
 // หน้าเนื้อหาเป็น child route มาแสดงใน <router-view/> ข้างล่าง
 import Sidebar from '@/layouts/components/Sidebar.vue'
 import Topbar from '@/layouts/components/TopBar.vue'
-import N8nChat from '@/layouts/components/N8nChat.vue'
 import { useUiStore } from '@/shared/stores/ui'
 import { storeToRefs } from 'pinia'
 
@@ -32,7 +31,4 @@ const { isSidebarOpen, isSidebarCollapsed } = storeToRefs(uiStore)
       <Sidebar />
     </div>
   </div>
-
-  <!-- ★ อยู่นอก .drawer - drawer เป็น grid ใส่ไว้ข้างในจะกลายเป็นช่อง grid เพิ่มแล้วดัน layout -->
-  <N8nChat />
 </template>
